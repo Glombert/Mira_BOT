@@ -1,5 +1,38 @@
+# Секреты — никогда в git
 .env
-venv/
-__pycache__/
-*.log
+
+# История диалога (личные данные)
 chat_history.json
+
+# Рабочие файлы пользователей
+workspace/
+
+# Память агента (личные данные)
+memory/
+
+# Резервные копии кода
+versions/
+
+# Python мусор
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Виртуальное окружение
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Логи (опционально — можно убрать эту строку если хочешь хранить логи в git)
+*.log

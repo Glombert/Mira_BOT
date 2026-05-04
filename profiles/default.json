@@ -1,0 +1,9 @@
+{
+  "profile_name": "default",
+  "description": "Профиль по умолчанию — обычный пользователь",
+  "allowed_tools": ["read_file", "list_files", "web_search"],
+  "max_history": 40,
+  "language": "ru",
+  "confirm_before_overwrite": true,
+  "fast_routes": {}
+}

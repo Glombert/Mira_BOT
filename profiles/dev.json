@@ -1,0 +1,13 @@
+{
+  "profile_name": "dev",
+  "description": "Профиль разработчика — расширенные права",
+  "allowed_tools": ["read_file", "write_file", "list_files", "run_python", "git_commit", "spawn_agent"],
+  "max_history": 40,
+  "language": "ru",
+  "confirm_before_overwrite": true,
+  "fast_routes": {
+    "запуск": "shell",
+    "код": "coder",
+    "excel": "excel_specialist"
+  }
+}

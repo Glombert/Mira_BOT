@@ -1,0 +1,12 @@
+{
+  "name": "agent_name",
+  "role": "executor",
+  "model": "deepseek-v3-flash",
+  "system_prompt": "Ты специалист по...",
+  "allowed_tools": [],
+  "temperature": 0.3,
+  "max_tokens": 1000,
+  "created_by": "human",
+  "created_at": "2026-05-04",
+  "version": 1
+}
