@@ -1,0 +1,6 @@
+# tools/ — инструменты агента
+# Импортируем всё в одном месте, чтобы в agent.py писать просто:
+# from tools import list_files, read_file, write_file, run_python
+
+from tools.file_tools import list_files, read_file, write_file
+from tools.shell_tools import run_python

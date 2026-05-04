@@ -12,6 +12,7 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 from openai import OpenAI
+from tools import list_files, read_file, write_file, run_python
 
 # ---------------------------------------------------------------------------
 # Настройка логирования
@@ -380,6 +381,162 @@ def reload_persona(messages: list) -> None:
             break
     logger.info("Персона перезагружена из persona.json.")
     print("[*] Mira перечитала себя.")
+
+
+# ---------------------------------------------------------------------------
+# Описания инструментов для API (function calling)
+# ---------------------------------------------------------------------------
+TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": (
+                "Показывает список файлов и папок в рабочем пространстве пользователя. "
+                "Используй когда нужно узнать какие файлы есть у пользователя."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "subdir": {
+                        "type": "string",
+                        "description": (
+                            "Подпапка внутри workspace (например 'inbox' или 'output'). "
+                            "Если не указано — показывает корень workspace."
+                        )
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": (
+                "Читает содержимое текстового файла из workspace пользователя. "
+                "Работает только с текстовыми файлами (не Excel, не картинки). "
+                "Максимальный размер файла — 1 MB."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "relative_path": {
+                        "type": "string",
+                        "description": (
+                            "Путь к файлу относительно workspace пользователя. "
+                            "Например: 'inbox/notes.txt' или 'output/result.py'"
+                        )
+                    }
+                },
+                "required": ["relative_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": (
+                "Записывает текст в файл в workspace пользователя. "
+                "По умолчанию не перезаписывает существующие файлы — "
+                "нужно явно передать overwrite=true если файл уже есть."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "relative_path": {
+                        "type": "string",
+                        "description": (
+                            "Путь к файлу относительно workspace. "
+                            "Папки создаются автоматически. "
+                            "Пример: 'output/result.txt'"
+                        )
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Текст для записи в файл."
+                    },
+                    "overwrite": {
+                        "type": "boolean",
+                        "description": (
+                            "Разрешить перезапись если файл уже существует. "
+                            "По умолчанию false."
+                        )
+                    }
+                },
+                "required": ["relative_path", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_python",
+            "description": (
+                "Выполняет Python-код в отдельном процессе и возвращает вывод. "
+                "Используй для вычислений, обработки данных, проверки логики. "
+                "Таймаут: 30 секунд. Рабочая директория: workspace пользователя."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Python-код для выполнения."
+                    }
+                },
+                "required": ["code"]
+            }
+        }
+    }
+]
+ 
+ 
+def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
+    """
+    Диспетчер инструментов.
+ 
+    Получает от API:
+        tool_name — имя функции которую хочет вызвать модель
+        tool_args — аргументы в виде словаря
+ 
+    Возвращает строку — результат выполнения инструмента.
+    API требует строку, поэтому dict конвертируем через json.dumps().
+ 
+    user_id подставляем сами — модель его не знает и не передаёт.
+    """
+    logger.info(f"Tool call: {tool_name}({tool_args})")
+ 
+    try:
+        if tool_name == "list_files":
+            subdir = tool_args.get("subdir", "")
+            result = list_files(user_id, subdir)
+ 
+        elif tool_name == "read_file":
+            result = read_file(user_id, tool_args["relative_path"])
+ 
+        elif tool_name == "write_file":
+            result = write_file(
+                user_id,
+                tool_args["relative_path"],
+                tool_args["content"],
+                overwrite=tool_args.get("overwrite", False)
+            )
+ 
+        elif tool_name == "run_python":
+            result = run_python(tool_args["code"], user_id)
+ 
+        else:
+            result = {"ok": False, "error": f"Неизвестный инструмент: {tool_name}"}
+ 
+    except Exception as e:
+        result = {"ok": False, "error": f"Ошибка выполнения {tool_name}: {e}"}
+        logger.error(f"Tool error ({tool_name}): {e}", exc_info=True)
+ 
+    logger.info(f"Tool result ({tool_name}): ok={result.get('ok')}")
+    return json.dumps(result, ensure_ascii=False)
 
 
 SYSTEM_PROMPT = load_persona()
@@ -1035,29 +1192,71 @@ while True:
         list_backups()
         continue
 
-    # --- Обычный чат ---
+       # --- Обычный чат ---
     if not current_client:
         print("[-] Модель не настроена. Введи /switch для выбора.")
         continue
-
+ 
     messages.append({"role": "user", "content": user_input})
-    messages = trim_history(messages)  # сразу обрезаем в памяти, не только при сохранении
+    messages = trim_history(messages)
     logger.info(f"User: {user_input}")
-
+ 
+    MAX_TOOL_ROUNDS = 5  # сколько раз разрешаем вызывать инструменты подряд
+ 
     try:
-        response = current_client.chat.completions.create(
-            model=current_config["model"],
-            messages=messages,
-            temperature=0.7,
-        )
-        answer = response.choices[0].message.content
-        print(f"\nАгент [{current_config['label']}]: {answer}")
-
-        messages.append({"role": "assistant", "content": answer})
-        logger.info(f"Agent [{current_config['model']}]: {answer}")
-        save_history(messages)
-
+        answer = None
+ 
+        for round_num in range(MAX_TOOL_ROUNDS):
+            response = current_client.chat.completions.create(
+                model=current_config["model"],
+                messages=messages,
+                tools=TOOL_SCHEMAS,         # передаём список инструментов
+                tool_choice="auto",          # модель сама решает: инструмент или текст
+                temperature=0.7,
+            )
+ 
+            msg = response.choices[0].message
+ 
+            # Случай 1: модель вернула обычный текст — готово
+            if not msg.tool_calls:
+                answer = msg.content
+                messages.append({"role": "assistant", "content": answer})
+                break
+ 
+            # Случай 2: модель хочет вызвать один или несколько инструментов
+            # Добавляем сообщение ассистента с tool_calls в историю
+            messages.append(msg)
+ 
+            # Выполняем каждый запрошенный инструмент
+            for tool_call in msg.tool_calls:
+                tool_name = tool_call.function.name
+                tool_args = json.loads(tool_call.function.arguments)
+ 
+                print(f"\n[Инструмент] {tool_name}({tool_args})")
+                tool_result = execute_tool(tool_name, tool_args, current_user_id)
+ 
+                # Добавляем результат инструмента в историю
+                # API требует role="tool" и tool_call_id чтобы связать результат с вызовом
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": tool_result
+                })
+ 
+        else:
+            # Цикл дошёл до MAX_TOOL_ROUNDS без финального ответа
+            answer = "[Мира использовала слишком много инструментов подряд — что-то пошло не так.]"
+            logger.warning(f"Tool calling: превышен лимит {MAX_TOOL_ROUNDS} раундов.")
+ 
+        if answer:
+            print(f"\nМира: {answer}")
+            logger.info(f"Agent [{current_config['model']}]: {answer}")
+            save_history(messages)
+ 
     except Exception as e:
         print(f"\n[Ошибка API]: Подробности записаны в лог.")
         logger.error(f"API Error ({current_config['label']}): {e}", exc_info=True)
-        messages.pop()
+        # Убираем последнее сообщение пользователя если API упал
+        if messages and messages[-1]["role"] == "user":
+            messages.pop()
+
