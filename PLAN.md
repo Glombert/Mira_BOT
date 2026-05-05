@@ -474,18 +474,18 @@ mira_bot/
 [x] ЭТАП 0.3 — Профили
 [x] ЭТАП 0.4 — Конфигурация
 [x] ЭТАП 0.5 — Память + Онбординг
+[x] ЭТАП 0.6 — PRINCIPLES + ветка mira-dev + MAX_TOOL_ROUNDS
+[x] ЭТАП 0.7 — cloud_tools.py (/cloud sync, /cloud restore, авто-синхронизация)
+[x] ЭТАП 0.8 — Доступ: статусы, гостевой режим, /users, /approve, /reject, /block, /unblock
+[x] ЭТАП 1.1 — providers.py (model_chain + fallback), Agent рефакторинг
 [x] ЭТАП 1.2 — Function Calling
-[x] ЭТАП 1.3 — file_tools.py
+[x] ЭТАП 1.3 — file_tools.py (5 MB лимит, 100 MB workspace)
 [x] ЭТАП 1.4 — shell_tools.py
-[ ] ЭТАП 0.6 — PRINCIPLES + ветка mira-dev  ← СЛЕДУЮЩИЙ
-[ ] ЭТАП 0.7 — Резервирование (rclone crypt)
-[ ] ЭТАП 0.8 — Доступ и многопользовательность
-[ ] ЭТАП 1.1 — Класс Agent + providers.py с резервами
-[ ] ЭТАП 1.5 — /undo
-[ ] ЭТАП 1.6 — Лимиты файлов и истории
-[ ] ЭТАП 1.7 — Prompt caching
-[ ] ЭТАП 1.8 — Защита от промпт-инъекций
-[ ] ЭТАП 2   — Конклав (с защитами от циклов + Scout)
+[x] ЭТАП 1.5 — /undo (бэкап до overwrite, восстановление)
+[x] ЭТАП 1.6 — Лимиты: 5 MB файл, 100 MB workspace (history compression — Этап 5)
+[ ] ЭТАП 1.7 — Prompt caching (требует проверки поддержки провайдером)
+[x] ЭТАП 1.8 — Защита от промпт-инъекций (маркеры BEGIN/END USER FILE)
+[ ] ЭТАП 2   — Конклав (с защитами от циклов + Scout)  ← СЛЕДУЮЩИЙ
 [ ] ЭТАП 3   — Excel + сценарий мамы
 [ ] ЭТАП 4   — Telegram + Web UI
 [ ] ЭТАП 5   — Долгая память + ротация + шаблоны

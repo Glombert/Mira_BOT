@@ -12,8 +12,15 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 from openai import OpenAI
-from tools import list_files, read_file, write_file, run_python
-from tools.git_tools import sync_with_git, get_current_branch, ensure_dev_branch, release_to_main
+from tools import list_files, read_file, write_file, run_python, undo_last, list_undo
+from tools.git_tools   import sync_with_git, get_current_branch, ensure_dev_branch, release_to_main
+from tools.cloud_tools import cloud_sync, cloud_restore
+from tools.access_tools import (
+    get_status, set_status, list_users, approve, reject, block, unblock,
+    increment_guest_counter, cleanup_expired_guests, notify_owner,
+    GUEST_LIMIT,
+)
+import providers as _providers
 
 # ---------------------------------------------------------------------------
 # Настройка логирования
@@ -65,6 +72,7 @@ logger.info("=== Запуск агента Ouroborus ===")
 # Менять настройки проекта нужно только здесь, больше нигде
 # ---------------------------------------------------------------------------
 load_dotenv()
+_providers.init()  # инициализируем провайдеров из .env
 
 # Файлы и папки
 AGENT_FILE    = os.path.abspath(__file__)  # путь к самому себе (не менять)
@@ -528,6 +536,15 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
  
         elif tool_name == "read_file":
             result = read_file(user_id, tool_args["relative_path"])
+            # Оборачиваем содержимое в маркеры — защита от prompt injection.
+            # Всё между маркерами — данные, не инструкции.
+            if result.get("ok") and "content" in result:
+                fname = os.path.basename(tool_args["relative_path"])
+                result["content"] = (
+                    f"--- BEGIN USER FILE: {fname} ---\n"
+                    f"{result['content']}\n"
+                    f"--- END USER FILE ---"
+                )
  
         elif tool_name == "write_file":
             result = write_file(
@@ -564,28 +581,36 @@ class Agent:
       без дублирования кода.
     """
  
-    def __init__(self, config: dict, client: OpenAI, profile: "Profile",
+    def __init__(self, config: dict, profile: "Profile",
                  user_id: str, system_prompt: str):
         self.name          = config.get("name", "Agent")
         self.role          = config.get("role", "executor")
-        self.model         = config.get("model", "gpt-4")
-        self.temperature   = config.get("temperature", 0.7)
         self.max_tokens    = config.get("max_tokens", 4096)
         self.allowed_tools = config.get("allowed_tools", [])
- 
-        self.client        = client
+
+        # model_chain — новый формат. Если только "model" (старый) — конвертируем.
+        if "model_chain" in config:
+            self.model_chain = config["model_chain"]
+        else:
+            provider_name = next(iter(_providers.PROVIDERS), "default")
+            self.model_chain = [{
+                "provider":    provider_name,
+                "model":       config.get("model", ""),
+                "temperature": config.get("temperature", 0.7),
+            }]
+
         self.profile       = profile
         self.user_id       = user_id
         self.system_prompt = system_prompt
- 
+
     @classmethod
-    def from_config_file(cls, name: str, client: OpenAI, profile: "Profile",
+    def from_config_file(cls, name: str, profile: "Profile",
                          user_id: str, system_prompt: str) -> "Agent":
         """
         Загружает агента из файла agents/{name}.json.
- 
+
         Пример:
-            alpha = Agent.from_config_file("alpha", client, profile, user_id, prompt)
+            alpha = Agent.from_config_file("alpha", profile, user_id, prompt)
         """
         path = os.path.join("agents", f"{name}.json")
         if not os.path.exists(path):
@@ -596,7 +621,7 @@ class Agent:
         with open(path, "r", encoding="utf-8") as f:
             config = json.load(f)
         logger.info(f"Агент загружен из конфига: {path}")
-        return cls(config, client, profile, user_id, system_prompt)
+        return cls(config, profile, user_id, system_prompt)
  
     def can_use(self, tool_name: str) -> bool:
         """
@@ -648,12 +673,12 @@ class Agent:
         if max_tool_rounds is None:
             max_tool_rounds = self.profile.max_tool_rounds
         for _ in range(max_tool_rounds):
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
+            response = _providers.call(
+                self.model_chain,
+                messages,
                 tools=TOOL_SCHEMAS,
                 tool_choice="auto",
-                temperature=self.temperature,
+                max_tokens=self.max_tokens,
             )
  
             msg = response.choices[0].message
@@ -1125,10 +1150,18 @@ def print_help() -> None:
   /release             — смержить mira-dev в main и запушить
   /rollback [номер]    — откатить agent.py на предыдущую версию
   /versions            — список резервных копий
+  /undo                — восстановить последний перезаписанный файл
   /reload              — перезагрузить персону из persona.json (без рестарта)
   /clear               — очистить историю разговора
   /whoami              — что Мира знает о тебе
   /forget              — сбросить профиль, начать знакомство заново
+  /cloud sync          — синхронизировать memory/ и versions/ в облако
+  /cloud restore       — восстановить из облака
+  /users               — список пользователей (только owner)
+  /approve <id> [имя]  — одобрить гостя (только owner)
+  /reject <id>         — отклонить и удалить гостя (только owner)
+  /block <id>          — заблокировать пользователя (только owner)
+  /unblock <id>        — снять блокировку (только owner)
   /help                — эта справка
 """)
 
@@ -1140,15 +1173,14 @@ messages = load_history()
 current_client, current_config = setup_client("1")
 
 # Инициализируем Альфу — главного агента.
-# Если agents/alpha.json не найден — работаем в fallback-режиме (прямые вызовы API).
+# Если agents/alpha.json не найден — работаем в fallback-режиме.
 alpha: Agent | None = None
-if current_client:
-    try:
-        alpha = Agent.from_config_file("alpha", current_client, profile, "", SYSTEM_PROMPT)
-    except FileNotFoundError as e:
-        print(f"[!] {e}")
-        print("[!] Работаю без класса Agent.")
-        logger.warning(f"Agent config not found: {e}")
+try:
+    alpha = Agent.from_config_file("alpha", profile, "", SYSTEM_PROMPT)
+except FileNotFoundError as e:
+    print(f"[!] {e}")
+    print("[!] Работаю без класса Agent.")
+    logger.warning(f"Agent config not found: {e}")
 
 # ---------------------------------------------------------------------------
 # Идентификация пользователя и онбординг (Этап 0.5)
@@ -1161,35 +1193,57 @@ if alpha:
     alpha.user_id = current_user_id  # агент теперь знает с кем работает
 
 # Создаём структуру папок для пользователя
-for subdir in ("inbox", "output", "temp"):
+for subdir in ("inbox", "output", "temp", ".undo"):
     os.makedirs(os.path.join(WORKSPACE_DIR, current_user_id, subdir), exist_ok=True)
 
-# Автоочистка temp/ (файлы старше 7 дней)
+# Автоочистка temp/ (файлы старше 7 дней) и просроченных гостей
 cleanup_temp(current_user_id)
+expired = cleanup_expired_guests()
+if expired:
+    logger.info(f"Удалено просроченных гостей: {expired}")
+
 user_profile = load_user_profile(current_user_id)
 is_returning = user_profile is not None  # запоминаем ДО онбординга
 
+# Определяем статус: владелец ли это?
+owner_cli = os.getenv("OWNER_CLI_USER", "").strip()
+is_owner_login = owner_cli and current_user_id == f"cli_{owner_cli}"
+
 if user_profile is None:
     # Первый запуск — онбординг
-    if current_client:
-        user_profile = run_onboarding(current_client, current_config["model"], current_user_id)
+    client_for_onboard = _providers.first_client()
+    model_for_onboard  = alpha.model_chain[0]["model"] if alpha else ""
+    if client_for_onboard and model_for_onboard:
+        user_profile = run_onboarding(client_for_onboard, model_for_onboard, current_user_id)
     else:
         print("[-] Модель не настроена, онбординг пропущен. Проверь .env")
         user_profile = {"id": current_user_id, "name": current_user_id.replace("cli_", ""), "sessions_count": 0}
+    # Ставим статус сразу при создании
+    user_profile["status"] = "owner" if is_owner_login else "regular"
+    save_user_profile(current_user_id, user_profile)
 else:
     # Не первый запуск — обновляем счётчик
     update_last_seen(current_user_id, user_profile)
+    # Обновляем owner-статус если владелец изменился
+    if is_owner_login and user_profile.get("status") != "owner":
+        user_profile["status"] = "owner"
+        save_user_profile(current_user_id, user_profile)
+
+user_status = user_profile.get("status", "regular")
 
 print("=== Mira запущена ===")
 print(f"Персона загружена из: {PERSONA_FILE}")
 print(f"Профиль: {profile.name}  |  Инструменты: {', '.join(profile.allowed_tools) or 'нет'}")
-print(f"Пользователь: {current_user_id}")
-if current_config:
-    print(f"Текущая модель: {current_config['label']}")
-    logger.info(f"Выбрана стартовая модель: {current_config['label']}")
+print(f"Пользователь: {current_user_id}  |  Статус: {user_status}")
+if _providers.PROVIDERS:
+    first_chain = alpha.model_chain[0] if alpha else {}
+    print(f"Провайдеры: {', '.join(_providers.PROVIDERS.keys())}")
+    if first_chain:
+        print(f"Основная модель: {first_chain.get('provider')}/{first_chain.get('model')}")
+    logger.info(f"Провайдеры: {list(_providers.PROVIDERS.keys())}")
 else:
-    print("[-] Конфигурация не загружена. Проверь .env файл.")
-    logger.warning("Конфигурация моделей не загружена.")
+    print("[-] Провайдеры не настроены. Проверь .env файл.")
+    logger.warning("Провайдеры не настроены.")
 
 # Приветствие только вернувшимся пользователям, не новым
 if is_returning and user_profile and "name" in user_profile:
@@ -1213,11 +1267,19 @@ while True:
 
     cmd = user_input.lower()
 
-    # --- Выход ---
+    # --- Выход (с авто-синхронизацией) ---
     if cmd in ("exit", "quit", "выход"):
         print("Завершение работы...")
         logger.info("Штатное завершение работы агента.")
+        if os.getenv("RCLONE_REMOTE"):
+            print("[Cloud] Синхронизирую перед выходом...")
+            cloud_sync()
         break
+
+    # --- Контроль доступа ---
+    if user_status == "blocked":
+        print("[Мира] Доступ закрыт.")
+        continue
 
     # --- Кто я ---
     if cmd == "/whoami":
@@ -1246,6 +1308,82 @@ while True:
     # --- Справка ---
     if cmd == "/help":
         print_help()
+        continue
+
+    # --- /undo ---
+    if cmd == "/undo":
+        backups = list_undo(current_user_id)
+        if not backups.get("backups"):
+            print("[-] Нет сохранённых версий для восстановления.")
+        else:
+            result = undo_last(current_user_id)
+            if result.get("ok"):
+                print(f"[*] Восстановлено в: {result['restored']}")
+            else:
+                print(f"[-] {result.get('error')}")
+        continue
+
+    # --- /cloud ---
+    if cmd.startswith("/cloud"):
+        parts = cmd.split(maxsplit=1)
+        sub = parts[1].strip() if len(parts) > 1 else ""
+        if sub == "sync":
+            cloud_sync()
+        elif sub == "restore":
+            cloud_restore()
+        else:
+            print("[-] Использование: /cloud sync  или  /cloud restore")
+        continue
+
+    # --- Управление пользователями (только owner) ---
+    if cmd == "/users":
+        if user_status != "owner":
+            print("[-] Только для владельца.")
+            continue
+        users = list_users()
+        if not users:
+            print("[-] Пользователей нет.")
+        else:
+            print("\n--- Пользователи ---")
+            for u in users:
+                print(f"  {u['id']:25} | {u['status']:8} | last: {u['last_seen']} | msgs: {u.get('guest_msgs', 0)}")
+        continue
+
+    if cmd.startswith("/approve"):
+        if user_status != "owner":
+            print("[-] Только для владельца."); continue
+        parts = user_input.split(maxsplit=2)
+        if len(parts) < 2:
+            print("[-] /approve <user_id> [новое_имя]"); continue
+        uid, new_name = parts[1], (parts[2] if len(parts) > 2 else "")
+        print("[*] Одобрено." if approve(uid, new_name) else "[-] Пользователь не найден.")
+        continue
+
+    if cmd.startswith("/reject"):
+        if user_status != "owner":
+            print("[-] Только для владельца."); continue
+        parts = user_input.split(maxsplit=1)
+        if len(parts) < 2:
+            print("[-] /reject <user_id>"); continue
+        print("[*] Удалён." if reject(parts[1]) else "[-] Пользователь не найден.")
+        continue
+
+    if cmd.startswith("/block"):
+        if user_status != "owner":
+            print("[-] Только для владельца."); continue
+        parts = user_input.split(maxsplit=1)
+        if len(parts) < 2:
+            print("[-] /block <user_id>"); continue
+        print("[*] Заблокирован." if block(parts[1]) else "[-] Не удалось.")
+        continue
+
+    if cmd.startswith("/unblock"):
+        if user_status != "owner":
+            print("[-] Только для владельца."); continue
+        parts = user_input.split(maxsplit=1)
+        if len(parts) < 2:
+            print("[-] /unblock <user_id>"); continue
+        print("[*] Разблокирован." if unblock(parts[1]) else "[-] Не удалось.")
         continue
 
     # --- Очистка памяти ---
@@ -1350,9 +1488,19 @@ while True:
         continue
 
     # --- Обычный чат ---
-    if not current_client:
-        print("[-] Модель не настроена. Введи /switch для выбора.")
+    if not _providers.PROVIDERS:
+        print("[-] Провайдеры не настроены. Проверь .env.")
         continue
+
+    # Гостевой лимит
+    if user_status == "guest":
+        count, limit = increment_guest_counter(current_user_id, user_profile)
+        remaining = limit - count
+        if count > limit:
+            print(f"[Мира] Лимит {limit} сообщений исчерпан. Жду решения хозяина.")
+            continue
+        elif remaining <= 3:
+            print(f"[Мира] (осталось {remaining} сообщений из {limit})")
 
     messages.append({"role": "user", "content": user_input})
     messages = trim_history(messages)
@@ -1362,14 +1510,11 @@ while True:
         if alpha:
             answer = alpha.run(messages)
         else:
-            # Fallback: прямой вызов API без проверки прав
-            response = current_client.chat.completions.create(
-                model=current_config["model"],
-                messages=messages,
-                tools=TOOL_SCHEMAS,
-                tool_choice="auto",
-                temperature=0.7,
-            )
+            # Fallback: прямой вызов через первый доступный провайдер
+            fallback_chain = [{"provider": _providers.first_model_name(),
+                               "model": "", "temperature": 0.7}]
+            response = _providers.call(fallback_chain, messages,
+                                       tools=TOOL_SCHEMAS, tool_choice="auto")
             msg = response.choices[0].message
             answer = msg.content
             messages.append({"role": "assistant", "content": answer})
