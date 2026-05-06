@@ -1,12 +1,16 @@
 {
-  "name": "agent_name",
+  "_comment": "Базовый шаблон. Скопируй, переименуй под нового агента.",
+  "name": "AgentName",
   "role": "executor",
-  "model": "deepseek-v3-flash",
   "system_prompt": "Ты специалист по...",
+  "model_chain": [
+    { "provider": "openrouter", "model": "anthropic/claude-sonnet-4-6", "temperature": 0.3 },
+    { "provider": "openrouter", "model": "deepseek/deepseek-v4-flash",  "temperature": 0.3 },
+    { "provider": "deepseek",   "model": "deepseek-chat",               "temperature": 0.3 }
+  ],
+  "max_tokens": 2048,
   "allowed_tools": [],
-  "temperature": 0.3,
-  "max_tokens": 1000,
   "created_by": "human",
-  "created_at": "2026-05-04",
-  "version": 1
+  "created_at": "2026-05-07",
+  "version": 2
 }

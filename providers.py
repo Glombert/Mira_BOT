@@ -74,6 +74,38 @@ def _log_switch(from_entry: dict, to_entry: dict, reason: str) -> None:
         logger.warning(f"providers: не удалось записать в decisions.log: {e}")
 
 
+def _apply_prompt_caching(messages: list, provider: str, model: str) -> list:
+    """
+    Добавляет cache_control к системному сообщению для Anthropic-моделей
+    через OpenRouter (согласно docs.openrouter.ai/docs/prompt-caching).
+
+    Работает только для: provider=="openrouter" И model начинается с "anthropic/".
+    Для остальных провайдеров возвращает оригинальный список без изменений.
+
+    OpenRouter пробрасывает cache_control напрямую в Anthropic API.
+    Минимальный размер кешируемого блока — 1024 токена (Claude 3.5+).
+    Системный промпт с персоной и принципами обычно превышает этот порог.
+    """
+    if not (provider == "openrouter" and model.startswith("anthropic/")):
+        return messages
+
+    result = []
+    for msg in messages:
+        if msg.get("role") == "system" and isinstance(msg.get("content"), str):
+            # Конвертируем строку в блочный формат с cache_control
+            result.append({
+                "role": "system",
+                "content": [{
+                    "type": "text",
+                    "text": msg["content"],
+                    "cache_control": {"type": "ephemeral"},
+                }],
+            })
+        else:
+            result.append(msg)
+    return result
+
+
 def call(model_chain: list[dict], messages: list, **kwargs) -> object:
     """
     Вызывает API, идя по цепочке при сбоях провайдера.
@@ -102,9 +134,10 @@ def call(model_chain: list[dict], messages: list, **kwargs) -> object:
             continue
 
         try:
+            cached_messages = _apply_prompt_caching(messages, provider_name, model)
             return client.chat.completions.create(
                 model=model,
-                messages=messages,
+                messages=cached_messages,
                 temperature=temperature,
                 **kwargs,
             )

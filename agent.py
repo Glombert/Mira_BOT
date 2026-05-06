@@ -922,20 +922,28 @@ def reflect(client: OpenAI, model: str, messages: list) -> None:
         logger.error(f"Reflect Error: {e}", exc_info=True)
 
 
-def evolve(client: OpenAI, model: str, task: str) -> None:
+def evolve(task: str) -> None:
     """
     Агент предлагает конкретный патч к своему коду под задачу.
+
+    Использует alpha.model_chain через providers.call() — резервирование работает
+    точно так же, как в обычном чате. При сбое первого провайдера — следующий.
 
     Порядок действий (защищённый):
     0. Переключение на ветку mira-dev
     1. Чтение принципов (PRINCIPLES.md)
-    2. Генерация нового кода через API
+    2. Генерация нового кода через providers.call(alpha.model_chain)
     3. Показ diff пользователю
-    4. Проверка diff на соответствие принципам
+    4. Проверка diff на соответствие принципам (отдельный вызов)
     5. Подтверждение пользователем
     6. Бэкап + валидация синтаксиса + smoke-test
     7. Запись — только если всё прошло
     """
+    model_chain = alpha.model_chain if alpha else []
+    if not model_chain:
+        print("[-] Нет настроенных провайдеров для /evolve.")
+        return
+
     print(f"\n[Ouroborus] Генерирую патч для задачи: '{task}'...")
     logger.info(f"Команда /evolve: задача — {task}")
 
@@ -965,14 +973,14 @@ def evolve(client: OpenAI, model: str, task: str) -> None:
     )
 
     try:
-        response = client.chat.completions.create(
-            model=model,
+        response = _providers.call(
+            model_chain,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": prompt}
+                {"role": "user",   "content": prompt},
             ],
             temperature=0.3,
-            max_tokens=4096
+            max_tokens=4096,
         )
         new_code = response.choices[0].message.content.strip()
 
@@ -1012,7 +1020,7 @@ def evolve(client: OpenAI, model: str, task: str) -> None:
             print("".join(diff_lines))
         print("------------------------------")
 
-        # --- Проверка принципов ---
+        # --- Проверка принципов через providers.call() ---
         if principles:
             print("\n[Evolve] Проверяю соответствие принципам...")
             check_prompt = (
@@ -1022,8 +1030,8 @@ def evolve(client: OpenAI, model: str, task: str) -> None:
                 "Отвечай ТОЛЬКО: 'OK' если нарушений нет, или кратко опиши нарушения."
             )
             try:
-                check_resp = client.chat.completions.create(
-                    model=model,
+                check_resp = _providers.call(
+                    model_chain,
                     messages=[{"role": "user", "content": check_prompt}],
                     temperature=0.1,
                 )
@@ -1396,6 +1404,9 @@ while True:
 
     # --- Git ---
     if cmd.startswith("/git"):
+        if user_status != "owner":
+            print("[-] /git доступен только владельцу.")
+            continue
         parts = user_input.split(maxsplit=1)
         commit_msg = parts[1] if len(parts) > 1 else "Auto-commit: update agent.py"
         sync_with_git(commit_msg)
@@ -1436,8 +1447,8 @@ while True:
 
     # --- Релиз (mira-dev → main) ---
     if cmd == "/release":
-        if not profile.can_use("evolve"):
-            print("[-] /release доступен только в профиле dev.")
+        if user_status != "owner" or not profile.can_use("evolve"):
+            print("[-] /release доступен только владельцу с профилем dev.")
             continue
         confirm = input("[!] Смержить mira-dev в main и запушить? [y/N]: ").strip().lower()
         if confirm == "y":
@@ -1448,17 +1459,17 @@ while True:
 
     # --- Эволюция ---
     if cmd.startswith("/evolve"):
-        if not profile.can_use("evolve"):
-            print("[-] /evolve доступен только в профиле dev.")
+        if user_status != "owner" or not profile.can_use("evolve"):
+            print("[-] /evolve доступен только владельцу с профилем dev.")
             print("    Запусти агента с: python agent.py --profile dev")
             continue
         parts = user_input.split(maxsplit=1)
         if len(parts) < 2 or not parts[1].strip():
             print("[-] Укажи задачу: /evolve <описание что изменить>")
-        elif current_client:
-            evolve(current_client, current_config["model"], parts[1].strip())
+        elif _providers.PROVIDERS:
+            evolve(parts[1].strip())
         else:
-            print("[-] Модель не настроена. Введи /switch.")
+            print("[-] Провайдеры не настроены. Проверь .env.")
         continue
 
     # --- Откат ---
