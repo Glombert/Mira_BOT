@@ -684,8 +684,24 @@ class Agent:
                 messages.append({"role": "assistant", "content": msg.content})
                 return msg.content
  
-            # Модель хочет вызвать инструменты
-            messages.append(msg)  # добавляем сообщение с tool_calls в историю
+            # Модель хочет вызвать инструменты.
+            # Конвертируем в dict — ChatCompletionMessage не поддерживает m["role"],
+            # что ломает trim_history() и _apply_prompt_caching().
+            messages.append({
+                "role": "assistant",
+                "content": msg.content,  # None при tool_calls — это нормально
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in msg.tool_calls
+                ],
+            })
  
             for tool_call in msg.tool_calls:
                 tool_name = tool_call.function.name
