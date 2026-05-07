@@ -5,7 +5,8 @@
   "model_chain": [
     { "provider": "openrouter", "model": "perplexity/sonar-pro-search", "temperature": 0.3, "native_search": true },
     { "provider": "openrouter", "model": "perplexity/sonar-pro",        "temperature": 0.3, "native_search": true },
-    { "provider": "openrouter", "model": "deepseek/deepseek-chat",      "temperature": 0.3 }
+    { "provider": "openrouter", "model": "deepseek/deepseek-chat",      "temperature": 0.3 },
+    { "provider": "deepseek",   "model": "deepseek-chat",              "temperature": 0.3 }
   ],
   "max_tokens": 2048,
   "allowed_tools": ["web_search"],
