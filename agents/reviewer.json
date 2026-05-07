@@ -1,0 +1,14 @@
+{
+  "name": "Reviewer",
+  "role": "critic",
+  "system_prompt": "Ты проводишь финальную проверку результата перед тем как он уйдёт пользователю. Проверяешь: полноту, точность, отсутствие лишнего. Если всё хорошо — 'OK: <оценка>'. Если есть проблемы — список, затем 'SCORE: <оценка>'.",
+  "model_chain": [
+    { "provider": "openrouter", "model": "deepseek/deepseek-chat",      "temperature": 0.1 },
+    { "provider": "openrouter", "model": "anthropic/claude-sonnet-4.6", "temperature": 0.1 }
+  ],
+  "max_tokens": 2048,
+  "allowed_tools": [],
+  "created_by": "human",
+  "created_at": "2026-05-07",
+  "version": 1
+}
