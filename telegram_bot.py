@@ -19,6 +19,7 @@ import asyncio
 import os
 import json
 import logging
+from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime
 
 from telegram import (
@@ -70,11 +71,23 @@ OWNER_TG_ID  = int(os.getenv("OWNER_TELEGRAM_ID", "0"))
 MAX_HISTORY  = 40
 MAX_MSG_LEN  = 4000   # Telegram ограничивает сообщения ~4096 символами
 
-logger = logging.getLogger("MiraBot")
+os.makedirs("logs", exist_ok=True)
+_file_handler = TimedRotatingFileHandler(
+    "logs/agent.log",
+    when="midnight",
+    interval=1,
+    backupCount=3,
+    encoding="utf-8",
+)
+_file_handler.suffix = "%Y-%m-%d"
+_file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(), _file_handler],
 )
+logger = logging.getLogger("MiraBot")
 
 # ---------------------------------------------------------------------------
 # Вспомогательные функции

@@ -1,10 +1,22 @@
 # Mira_BOT — План разработки
 
-> Версия: 3.6
-> Последнее обновление: 2026-05-07
+> Версия: 3.7
+> Последнее обновление: 2026-05-08
 > Архитектура: см. ARCHITECTURE.md
 
 ---
+
+## Что изменилось в v3.7
+
+Переезд на VPS и финальная уборка:
+
+- **VPS развёрнут.** systemd-сервис `mira-bot.service` — автозапуск при перезагрузке, `Restart=on-failure`.
+- **GitHub Actions CI/CD.** `.github/workflows/deploy.yml` — при пуше в `main` сервер делает `git pull`, `pip install`, `systemctl restart`. Нулевое ручное вмешательство.
+- **Бэкап памяти.** `rclone sync memory/ gdrive:Mira/memory` — cron каждую ночь в 3:00 UTC. Восстановление: `rclone copy gdrive:Mira/memory ./memory`.
+- **Ротация логов.** `RotatingFileHandler` → `TimedRotatingFileHandler`. Папка `logs/`, ежедневная ротация, хранение 3 дня. Оба файла (`agent.py`, `telegram_bot.py`) пишут в `logs/agent.log`.
+- **Детский режим.** `/kidmode <user_id> on|off` — владелец включает ограниченный промпт для конкретного пользователя. Telegram возраст не передаёт — только ручное управление.
+- **`chat_history.json` удалён.** Устаревший артефакт CLI-режима. Сессии живут в `memory/sessions/`.
+- **Уборка сервера.** Удалены Ouroboros, его пользователь, сервисы, cron-записи. Очищены журналы и apt-кэш.
 
 ## Что изменилось в v3.6
 
@@ -431,28 +443,33 @@ mira_bot/
 
 ---
 
-### ЭТАП 7 — VPS: деплой и мониторинг  ← СЛЕДУЮЩИЙ
+### ЭТАП 7 — VPS: деплой и мониторинг ✓ (частично)
 
-#### 7.1 — Переезд на сервер
-- [ ] Выбрать VPS (1–2 ядра, 1–2 ГБ ОЗУ достаточно).
-- [ ] Клонировать репозиторий, установить зависимости, настроить `.env`.
-- [ ] Восстановить `memory/` из облака (rclone) или скопировать вручную.
-- [ ] Проверить что бот запускается и отвечает.
+#### 7.1 — Переезд на сервер ✓
+- [x] VPS выбран и настроен (fra-1, Ubuntu).
+- [x] Репозиторий клонирован, зависимости установлены, `.env` настроен.
+- [x] Бот запускается и отвечает в Telegram.
 
-#### 7.2 — systemd-сервис
-- [ ] `mira-bot.service` в `~/.config/systemd/user/`.
-- [ ] `systemctl --user enable --now mira-bot.service`.
-- [ ] `Restart=on-failure`, `RestartSec=5s`.
+#### 7.2 — systemd-сервис ✓
+- [x] `/etc/systemd/system/mira-bot.service`.
+- [x] `systemctl enable mira-bot` — автозапуск при перезагрузке.
+- [x] `Restart=on-failure`, `RestartSec=5s`.
 
-#### 7.3 — Мониторинг
-- [ ] Алерт в Telegram при падении (через `ExecStopPost` в systemd или watchdog).
-- [ ] Ротация логов (logrotate или журналирование через systemd).
-- [ ] Бэкап `memory/` раз в сутки через cron + rclone.
+#### 7.3 — CI/CD ✓
+- [x] `.github/workflows/deploy.yml` — push в main → git pull → restart.
+- [x] Секреты в GitHub: `SSH_PRIVATE_KEY`, `VPS_HOST`, `VPS_USER`.
 
-#### 7.4 — Безопасность на сервере
-- [ ] **Изоляция `run_python` через Docker или firejail** — обязательно перед тем, как давать regular-пользователям.
-- [ ] Nginx + HTTPS (если нужен web UI в будущем).
+#### 7.4 — Бэкап и логи ✓
+- [x] `rclone sync memory/ gdrive:Mira/memory` — cron 3:00 UTC.
+- [x] `TimedRotatingFileHandler` — дневная ротация, 3 дня хранения, `logs/`.
+
+#### 7.5 — Мониторинг (осталось)
+- [ ] Алерт в Telegram при падении сервиса.
 - [ ] Права доступа к `.env` (chmod 600).
+
+#### 7.6 — Безопасность (осталось)
+- [ ] **Изоляция `run_python` через Docker или firejail** — обязательно перед открытием regular-пользователям.
+- [ ] Nginx + HTTPS (если понадобится web UI).
 
 ---
 
@@ -517,11 +534,10 @@ mira_bot/
 [x] ЭТАП 0   — Фундамент (0.1–0.8 полностью)
 [x] ЭТАП 1   — Agent класс + инструменты + защиты (1.1–1.8 полностью)
 [x] ЭТАП 2   — Конклав: router.py, conclave.py, 7 конфигов агентов, /stop
-              Отложено: параллелизм, /evolve через QA, spawn_agent
 [x] ЭТАП 3   — Excel: excel_read, excel_write, excel_specialist
 [x] ЭТАП 4   — Telegram Bot + UX: прогресс 💭, поиск, Scout v3, без markdown
-              Отложено: Web UI (не нужен)
-[ ] ЭТАП 5   — Долгая память + ротация + шаблоны
+[x] ЭТАП 7   — VPS: переезд ✓, systemd ✓, CI/CD ✓, бэкап ✓, логи ✓
+              Осталось: алерты, изоляция run_python
+[ ] ЭТАП 5   — Долгая память + ротация + шаблоны        ← СЛЕДУЮЩИЙ
 [ ] ЭТАП 6   — Тесты
-[ ] ЭТАП 7   — VPS: переезд, systemd, мониторинг, изоляция   ← СЛЕДУЮЩИЙ
 ```
