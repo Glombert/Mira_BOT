@@ -1,3 +1,4 @@
+# Mira — Ouroboros agent
 import os
 import ast
 import sys
@@ -12,7 +13,15 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 from openai import OpenAI
-from tools import list_files, read_file, write_file, run_python
+from tools import list_files, read_file, write_file, run_python, undo_last, list_undo
+from tools.git_tools   import sync_with_git, get_current_branch, ensure_dev_branch, release_to_main
+from tools.cloud_tools import cloud_sync, cloud_restore
+from tools.access_tools import (
+    get_status, set_status, list_users, approve, reject, block, unblock,
+    increment_guest_counter, cleanup_expired_guests, notify_owner,
+    GUEST_LIMIT,
+)
+import providers as _providers
 
 # ---------------------------------------------------------------------------
 # Настройка логирования
@@ -64,6 +73,7 @@ logger.info("=== Запуск агента Ouroborus ===")
 # Менять настройки проекта нужно только здесь, больше нигде
 # ---------------------------------------------------------------------------
 load_dotenv()
+_providers.init()  # инициализируем провайдеров из .env
 
 # Файлы и папки
 AGENT_FILE    = os.path.abspath(__file__)  # путь к самому себе (не менять)
@@ -125,6 +135,7 @@ class Profile:
 
         self.allowed_tools: list        = data.get("allowed_tools", [])
         self.max_history:   int         = data.get("max_history", 40)
+        self.max_tool_rounds: int       = data.get("max_tool_rounds", 30)
         self.confirm_before_overwrite: bool = data.get("confirm_before_overwrite", True)
         self.fast_routes:   dict        = data.get("fast_routes", {})
         self.description:   str         = data.get("description", "")
@@ -194,13 +205,13 @@ def save_user_profile(user_id: str, data: dict) -> None:
         logger.error(f"Ошибка сохранения профиля {user_id}: {e}")
 
 
-def run_onboarding(client: OpenAI, model: str, user_id: str) -> dict:
+def run_onboarding(model_chain: list[dict], user_id: str) -> dict:
     """
     Онбординг — знакомство с новым пользователем через диалог.
 
-    Мира задаёт вопросы по одному, пользователь отвечает.
-    После 3-4 обменов — один API-вызов структурирует профиль в JSON.
-    Сохраняет и возвращает готовый профиль.
+    Использует providers.call(model_chain, ...) — то же резервирование,
+    что и в обычном чате. Провайдер и модель берутся из model_chain, а не
+    передаются отдельным client/model.
     """
     print("\n[Мира] Привет. Я Мира. Давай познакомимся — это займёт минуту.")
     print("[Мира] Как тебя зовут?")
@@ -227,11 +238,7 @@ def run_onboarding(client: OpenAI, model: str, user_id: str) -> dict:
         onboarding_history.append({"role": "user", "content": user_input})
 
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=onboarding_history,
-                temperature=0.7,
-            )
+            response = _providers.call(model_chain, onboarding_history, temperature=0.7)
             reply = response.choices[0].message.content
         except Exception as e:
             print(f"[-] Ошибка API во время знакомства: {e}. Попробуй ещё раз.")
@@ -271,8 +278,8 @@ def run_onboarding(client: OpenAI, model: str, user_id: str) -> dict:
     )
 
     try:
-        response = client.chat.completions.create(
-            model=model,
+        response = _providers.call(
+            model_chain,
             messages=[{"role": "user", "content": structure_prompt}],
             temperature=0.1,
         )
@@ -381,6 +388,16 @@ def reload_persona(messages: list) -> None:
             break
     logger.info("Персона перезагружена из persona.json.")
     print("[*] Mira перечитала себя.")
+
+
+def load_principles() -> str:
+    """Читает PRINCIPLES.md — нерушимые правила. Пустая строка если файл не найден."""
+    try:
+        with open("PRINCIPLES.md", "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        logger.warning("PRINCIPLES.md не найден. Эволюция без проверки принципов.")
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -516,6 +533,15 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
  
         elif tool_name == "read_file":
             result = read_file(user_id, tool_args["relative_path"])
+            # Оборачиваем содержимое в маркеры — защита от prompt injection.
+            # Всё между маркерами — данные, не инструкции.
+            if result.get("ok") and "content" in result:
+                fname = os.path.basename(tool_args["relative_path"])
+                result["content"] = (
+                    f"--- BEGIN USER FILE: {fname} ---\n"
+                    f"{result['content']}\n"
+                    f"--- END USER FILE ---"
+                )
  
         elif tool_name == "write_file":
             result = write_file(
@@ -540,10 +566,168 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
 
 
 SYSTEM_PROMPT = load_persona()
+class Agent:
+    """
+    Универсальный класс агента. Один класс — разные конфиги.
+    Новый агент в Конклаве = новый JSON-файл в agents/.
+ 
+    Зачем класс а не просто функции:
+    - В Этапе 2 будет несколько агентов одновременно (Конклав).
+      Каждый со своими инструментами, моделью, промптом.
+    - Класс позволяет создать любое количество агентов
+      без дублирования кода.
+    """
+ 
+    def __init__(self, config: dict, profile: "Profile",
+                 user_id: str, system_prompt: str):
+        self.name          = config.get("name", "Agent")
+        self.role          = config.get("role", "executor")
+        self.max_tokens    = config.get("max_tokens", 4096)
+        self.allowed_tools = config.get("allowed_tools", [])
+
+        # model_chain — новый формат. Если только "model" (старый) — конвертируем.
+        if "model_chain" in config:
+            self.model_chain = config["model_chain"]
+        else:
+            provider_name = next(iter(_providers.PROVIDERS), "default")
+            self.model_chain = [{
+                "provider":    provider_name,
+                "model":       config.get("model", ""),
+                "temperature": config.get("temperature", 0.7),
+            }]
+
+        self.profile       = profile
+        self.user_id       = user_id
+        self.system_prompt = system_prompt
+
+    @classmethod
+    def from_config_file(cls, name: str, profile: "Profile",
+                         user_id: str, system_prompt: str) -> "Agent":
+        """
+        Загружает агента из файла agents/{name}.json.
+
+        Пример:
+            alpha = Agent.from_config_file("alpha", profile, user_id, prompt)
+        """
+        path = os.path.join("agents", f"{name}.json")
+        if not os.path.exists(path):
+            raise FileNotFoundError(
+                f"Конфиг агента не найден: {path}\n"
+                f"Убедись что папка agents/ на месте."
+            )
+        with open(path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+        logger.info(f"Агент загружен из конфига: {path}")
+        return cls(config, profile, user_id, system_prompt)
+ 
+    def can_use(self, tool_name: str) -> bool:
+        """
+        Двойная проверка:
+        1. Инструмент разрешён этому агенту (в конфиге agents/alpha.json)
+        2. Инструмент разрешён текущему профилю пользователя (profiles/dev.json)
+ 
+        Оба условия должны быть True — иначе отказ.
+        """
+        return (
+            tool_name in self.allowed_tools and
+            self.profile.can_use(tool_name)
+        )
+ 
+    def use_tool(self, tool_name: str, tool_args: dict) -> str:
+        """
+        Выполняет инструмент с проверкой прав.
+ 
+        Если инструмент запрещён — возвращает JSON с ошибкой,
+        агент получает отказ и сообщает пользователю.
+        Никакого молчаливого выполнения запрещённых операций.
+        """
+        if not self.can_use(tool_name):
+            msg = (
+                f"Инструмент '{tool_name}' недоступен. "
+                f"Профиль: '{self.profile.name}'."
+            )
+            logger.warning(f"Blocked tool: {tool_name} (profile={self.profile.name})")
+            return json.dumps({"ok": False, "error": msg})
+ 
+        return execute_tool(tool_name, tool_args, self.user_id)
+ 
+    def run(self, messages: list, max_tool_rounds: int | None = None) -> str:
+        """
+        Основной метод: отправляет историю в API, обрабатывает tool calls,
+        возвращает финальный текстовый ответ.
+
+        Цикл работает так:
+        1. Вызываем API
+        2. Если модель вернула текст — возвращаем его, выходим
+        3. Если модель хочет вызвать инструменты — выполняем, добавляем
+           результаты в messages, идём на шаг 1
+        4. Если за max_tool_rounds раундов текст так и не получили — ошибка
+
+        Почему messages передаём снаружи а не держим внутри:
+        История нужна в нескольких местах (сохранение, /reflect, trim).
+        Проще передать ссылку, чем дублировать логику.
+        """
+        if max_tool_rounds is None:
+            max_tool_rounds = self.profile.max_tool_rounds
+        for _ in range(max_tool_rounds):
+            response = _providers.call(
+                self.model_chain,
+                messages,
+                tools=TOOL_SCHEMAS,
+                tool_choice="auto",
+                max_tokens=self.max_tokens,
+            )
+ 
+            msg = response.choices[0].message
+ 
+            # Модель вернула текст — готово
+            if not msg.tool_calls:
+                messages.append({"role": "assistant", "content": msg.content})
+                return msg.content
+ 
+            # Модель хочет вызвать инструменты.
+            # Конвертируем в dict — ChatCompletionMessage не поддерживает m["role"],
+            # что ломает trim_history() и _apply_prompt_caching().
+            messages.append({
+                "role": "assistant",
+                "content": msg.content,  # None при tool_calls — это нормально
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in msg.tool_calls
+                ],
+            })
+ 
+            for tool_call in msg.tool_calls:
+                tool_name = tool_call.function.name
+                tool_args = json.loads(tool_call.function.arguments)
+ 
+                print(f"\n[{self.name}] → {tool_name}({tool_args})")
+                result = self.use_tool(tool_name, tool_args)
+ 
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,  # API требует этот ID для связки
+                    "content": result
+                })
+ 
+        # Превышен лимит раундов — что-то пошло не так
+        fallback = f"[{self.name}: превышен лимит инструментов — что-то пошло не так.]"
+        logger.warning(f"Agent {self.name}: превышен лимит {max_tool_rounds} раундов.")
+        return fallback
+ 
+
 
 # Загружаем профиль из --profile аргумента (или default)
 profile = Profile(_args.profile)
 MAX_HISTORY = profile.max_history  # профиль может переопределить размер истории
+
 
 # ---------------------------------------------------------------------------
 # Работа с историей
@@ -582,62 +766,6 @@ def save_history(msgs: list) -> None:
     except Exception as e:
         logger.error(f"Ошибка сохранения истории: {e}")
         print(f"[-] Не удалось сохранить историю: {e}")
-
-
-# ---------------------------------------------------------------------------
-# Git
-# ---------------------------------------------------------------------------
-def get_current_branch() -> str:
-    result = subprocess.run(
-        ["git", "branch", "--show-current"],
-        capture_output=True, text=True
-    )
-    return result.stdout.strip() or "main"
-
-
-def sync_with_git(commit_message: str = "Auto-update from Ouroborus agent") -> None:
-    print("\n[Git] Запуск синхронизации...")
-    logger.info(f"Запуск синхронизации Git. Коммит: {commit_message}")
-    try:
-        # Добавляем только конкретные файлы, не всё подряд
-        # .env, memory/, workspace/ защищены .gitignore, но явный список надёжнее
-        safe_patterns = ["agent.py", "persona.json", "agents/", "profiles/",
-                         "tools/", "PLAN.md", "ARCHITECTURE.md", "README.md",
-                         "requirements.txt", ".gitignore"]
-        for pattern in safe_patterns:
-            subprocess.run(["git", "add", pattern],
-                           capture_output=True, text=True)  # не check=True — файла может не быть
-
-        status = subprocess.run(
-            ["git", "status", "--porcelain"], capture_output=True, text=True
-        )
-        if not status.stdout.strip():
-            print("[Git] Нет новых изменений для отправки.")
-            logger.info("Git: Нет изменений для коммита.")
-            return
-
-        subprocess.run(
-            ["git", "commit", "-m", commit_message],
-            check=True, capture_output=True, text=True
-        )
-
-        branch = get_current_branch()
-        print(f"[Git] Отправка ветки '{branch}' на удалённый сервер...")
-        subprocess.run(
-            ["git", "push", "--set-upstream", "origin", branch],
-            check=True, capture_output=True, text=True
-        )
-
-        print("[*] Успешно синхронизировано с репозиторием!")
-        logger.info("Git: Успешная синхронизация.")
-
-    except subprocess.CalledProcessError as e:
-        error_msg = e.stderr.strip() if e.stderr else str(e)
-        print(f"[-] Ошибка Git: {error_msg}")
-        logger.error(f"Git Error: {error_msg}")
-    except FileNotFoundError:
-        print("[-] Утилита git не найдена в системе.")
-        logger.error("Git Error: утилита git не найдена.")
 
 
 # ---------------------------------------------------------------------------
@@ -684,9 +812,17 @@ def smoke_test(code_path: str) -> tuple[bool, str]:
     Таймаут 10 секунд — зависший код не блокирует агента.
     """
     try:
+        project_dir = os.path.dirname(AGENT_FILE)
+        # cwd не добавляет в sys.path — Python кладёт туда директорию самого скрипта.
+        # PYTHONPATH гарантирует что tools/ найдётся независимо от того, где лежит скрипт.
+        env = os.environ.copy()
+        existing = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = project_dir + (os.pathsep + existing if existing else "")
         result = subprocess.run(
             [sys.executable, code_path, "--self-test"],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=10,
+            cwd=project_dir,
+            env=env,
         )
         if result.returncode == 0 and "OK" in result.stdout:
             return True, ""
@@ -765,10 +901,10 @@ def read_own_code() -> str:
         return ""
 
 
-def reflect(client: OpenAI, model: str, messages: list) -> None:
+def reflect(model_chain: list[dict], messages: list) -> None:
     """
-    Агент читает свой код и даёт аналитику:
-    что работает хорошо, что можно улучшить.
+    Агент читает свой код и даёт аналитику через providers.call(model_chain).
+    Резервирование работает так же, как в обычном чате.
     """
     print("\n[Ouroborus] Запуск рефлексии — читаю собственный код...")
     logger.info("Команда /reflect: запуск самоанализа.")
@@ -791,9 +927,7 @@ def reflect(client: OpenAI, model: str, messages: list) -> None:
     temp_messages = [{"role": "system", "content": SYSTEM_PROMPT},
                      {"role": "user",   "content": prompt}]
     try:
-        response = client.chat.completions.create(
-            model=model, messages=temp_messages, temperature=0.5
-        )
+        response = _providers.call(model_chain, temp_messages, temperature=0.5)
         analysis = response.choices[0].message.content
         print(f"\n[Рефлексия]:\n{analysis}")
         logger.info("Рефлексия завершена.")
@@ -807,83 +941,189 @@ def reflect(client: OpenAI, model: str, messages: list) -> None:
         logger.error(f"Reflect Error: {e}", exc_info=True)
 
 
-def evolve(client: OpenAI, model: str, task: str) -> None:
+def _apply_unified_diff(original: str, diff_text: str) -> tuple[bool, str]:
+    """
+    Применяет unified diff (формат diff -u) к тексту.
+    Возвращает (True, new_code) или (False, error_message).
+
+    Зачем своя реализация вместо patch: независимость от системных утилит,
+    работает на Windows и в средах без patch.
+    """
+    import re
+    orig_lines  = original.splitlines(keepends=True)
+    result      = list(orig_lines)
+    offset      = 0  # смещение индексов из-за уже применённых вставок/удалений
+
+    hunk_re = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", re.MULTILINE)
+    matches = list(hunk_re.finditer(diff_text))
+
+    if not matches:
+        return False, "Diff не содержит hunks (@@ ... @@). Проверь формат ответа модели."
+
+    for idx, m in enumerate(matches):
+        orig_start = int(m.group(1)) - 1  # 0-indexed
+
+        content_start = diff_text.index("\n", m.start()) + 1
+        content_end   = matches[idx + 1].start() if idx + 1 < len(matches) else len(diff_text)
+        hunk_lines    = diff_text[content_start:content_end].splitlines(keepends=True)
+
+        i = orig_start + offset
+        for line in hunk_lines:
+            if not line:
+                continue
+            ch = line[0]
+            body = line[1:]
+            if not body.endswith("\n"):
+                body += "\n"
+            if ch == "+":
+                result.insert(i, body)
+                i += 1
+                offset += 1
+            elif ch == "-":
+                if i < len(result):
+                    result.pop(i)
+                    offset -= 1
+            elif ch == " ":
+                i += 1
+            # \ No newline at end of file — игнорируем
+
+    return True, "".join(result)
+
+
+def evolve(task: str) -> None:
     """
     Агент предлагает конкретный патч к своему коду под задачу.
-    
+
+    Ключевое отличие от прежней версии: модель возвращает unified diff,
+    а не полный файл. Это решает проблему обрезания при max_tokens —
+    diff на одну строку занимает ~10 токенов вместо ~40 000.
+
     Порядок действий (защищённый):
-    1. Бэкап текущего кода в versions/
-    2. Генерация нового кода через API
+    0. Переключение на ветку mira-dev
+    1. Чтение принципов (PRINCIPLES.md)
+    2. Запрос unified diff через providers.call(alpha.model_chain)
     3. Показ diff пользователю
-    4. Подтверждение
-    5. Валидация синтаксиса (ast.parse)
-    6. Smoke-test в подпроцессе (--self-test)
-    7. Запись — только если всё прошло
-    Файл не перезаписывается если что-то упало на шагах 5–6.
+    4. Проверка diff на соответствие принципам
+    5. Подтверждение пользователем
+    6. Применение diff → new_code через _apply_unified_diff()
+    7. Бэкап + validate_code + smoke-test
+    8. Запись — только если всё прошло
     """
+    model_chain = alpha.model_chain if alpha else []
+    if not model_chain:
+        print("[-] Нет настроенных провайдеров для /evolve.")
+        return
+
     print(f"\n[Ouroborus] Генерирую патч для задачи: '{task}'...")
     logger.info(f"Команда /evolve: задача — {task}")
+
+    # --- Шаг 0: Переключаемся на mira-dev ---
+    if not ensure_dev_branch():
+        print("[!] Не удалось переключиться на mira-dev. Продолжаю на текущей ветке.")
+
+    # --- Шаг 1: Загружаем принципы ---
+    principles = load_principles()
 
     code = read_own_code()
     if not code:
         print("[-] Не удалось прочитать код для эволюции.")
         return
 
+    code_lines   = code.splitlines()
+    total_lines  = len(code_lines)
+    # Контекст: первые 80 строк (импорты, константы) + последние 20
+    preview_head = "\n".join(code_lines[:80])
+    preview_tail = "\n".join(code_lines[-20:]) if total_lines > 100 else ""
+
+    principles_block = (
+        f"\nНерушимые принципы (ОБЯЗАН соблюдать):\n{principles}\n"
+        if principles else ""
+    )
+
+    diff_example = (
+        "--- agent.py\n+++ agent.py\n"
+        "@@ -1,3 +1,4 @@\n"
+        "+# новая строка\n"
+        " import os\n"
+        " import ast\n"
+        " import sys\n"
+    )
+
     prompt = (
-        f"Ниже — твой текущий исходный код. Задача: {task}\n\n"
-        "Верни ТОЛЬКО полный обновлённый файл agent.py — никаких пояснений, "
-        "никаких markdown-блоков, только чистый Python-код. "
-        "Не меняй то, что не относится к задаче.\n\n"
-        f"{code}"
+        f"Файл agent.py содержит {total_lines} строк. Задача: {task}\n"
+        f"{principles_block}\n"
+        f"Первые 80 строк (для контекста нумерации):\n"
+        f"```python\n{preview_head}\n```\n"
+        + (f"\nПоследние 20 строк:\n```python\n{preview_tail}\n```\n" if preview_tail else "")
+        + "\nВерни ТОЛЬКО unified diff в формате `diff -u`. "
+        "НЕ возвращай полный файл — только diff. "
+        "Нумерация строк — как в исходном файле. "
+        f"Пример формата:\n{diff_example}"
     )
 
     try:
-        response = client.chat.completions.create(
-            model=model,
+        response = _providers.call(
+            model_chain,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": prompt}
+                {"role": "user",   "content": prompt},
             ],
-            temperature=0.3,
-            max_tokens=4096
+            temperature=0.2,
+            max_tokens=2048,
         )
-        new_code = response.choices[0].message.content.strip()
+        raw_diff = response.choices[0].message.content.strip()
 
-        # Убираем возможные ```python / ``` обёртки
-        if new_code.startswith("```"):
-            lines = new_code.splitlines()
-            new_code = "\n".join(
-                l for l in lines if not l.strip().startswith("```")
-            )
+        # Убираем возможные ```diff / ``` обёртки
+        if raw_diff.startswith("```"):
+            raw_diff = "\n".join(
+                l for l in raw_diff.splitlines() if not l.strip().startswith("```")
+            ).strip()
 
-        # Показываем diff
-        diff = list(difflib.unified_diff(
-            code.splitlines(keepends=True),
-            new_code.splitlines(keepends=True),
-            fromfile="agent.py (текущий)",
-            tofile="agent.py (предлагаемый)",
-            n=3
-        ))
-
-        if not diff:
-            print("[Evolve] Модель не нашла что менять — код уже соответствует задаче.")
+        if not raw_diff or "@@" not in raw_diff:
+            print("[-] Модель не вернула корректный diff. Попробуй переформулировать задачу.")
+            logger.warning(f"Evolve: модель вернула не-diff: {raw_diff[:200]}")
             return
 
+        # Показываем diff
+        diff_lines = raw_diff.splitlines(keepends=True)
         print("\n--- ПРЕДЛАГАЕМЫЕ ИЗМЕНЕНИЯ ---")
-        diff_lines = diff
         page_size = 60
         if len(diff_lines) > page_size:
             for i in range(0, len(diff_lines), page_size):
-                chunk = diff_lines[i:i + page_size]
-                print("".join(chunk))
+                print("".join(diff_lines[i:i + page_size]))
                 if i + page_size < len(diff_lines):
                     more = input(f"[{i + page_size}/{len(diff_lines)} строк] Показать ещё? [Enter/n]: ").strip().lower()
                     if more == "n":
                         print(f"... (пропущено {len(diff_lines) - i - page_size} строк)")
                         break
         else:
-            print("".join(diff_lines))
+            print(raw_diff)
         print("------------------------------")
+
+        # --- Проверка принципов ---
+        if principles:
+            print("\n[Evolve] Проверяю соответствие принципам...")
+            check_prompt = (
+                f"Принципы:\n{principles}\n\n"
+                f"Diff:\n{raw_diff}\n\n"
+                "Нарушает ли diff какой-либо принцип?\n"
+                "Отвечай ТОЛЬКО: 'OK' или кратко опиши нарушения."
+            )
+            try:
+                check_resp = _providers.call(
+                    model_chain,
+                    messages=[{"role": "user", "content": check_prompt}],
+                    temperature=0.1,
+                )
+                check_result = check_resp.choices[0].message.content.strip()
+                if check_result.upper() != "OK":
+                    print(f"\n[!] Патч нарушает принципы:\n{check_result}")
+                    print("[!] Для применения всё равно введи 'y'.")
+                else:
+                    print("[Evolve] Принципы не нарушены.")
+            except Exception as e:
+                logger.warning(f"Principles check failed: {e}")
+                print("[!] Не удалось проверить принципы. Продолжаю без проверки.")
 
         confirm = input("\nПрименить изменения? [y/N]: ").strip().lower()
         if confirm != "y":
@@ -891,47 +1131,54 @@ def evolve(client: OpenAI, model: str, task: str) -> None:
             logger.info("Evolve: изменения отклонены пользователем.")
             return
 
-        # --- Шаг 1: Бэкап ---
+        # --- Применяем diff ---
+        ok, result = _apply_unified_diff(code, raw_diff)
+        if not ok:
+            print(f"[-] Не удалось применить diff: {result}")
+            print("[-] Изменения не применены.")
+            logger.error(f"Evolve: ошибка применения diff — {result}")
+            return
+        new_code = result
+
+        # --- Бэкап ---
         print("[Evolve] Создаю резервную копию...")
         backup_path = backup_agent()
         print(f"[Evolve] Бэкап: {backup_path}")
 
-        # --- Шаг 2: Валидация синтаксиса ---
+        # --- Валидация синтаксиса ---
         print("[Evolve] Проверяю синтаксис...")
         valid, error = validate_code(new_code)
         if not valid:
             print(f"[-] Код не прошёл проверку синтаксиса: {error}")
-            print("[-] Изменения не применены. Бэкап сохранён на случай если нужен.")
+            print("[-] Изменения не применены.")
             logger.error(f"Evolve: синтаксическая ошибка — {error}")
             return
-
         print("[Evolve] Синтаксис OK.")
 
-        # --- Шаг 3: Записываем новый код во временный файл для smoke-test ---
+        # --- Smoke-test ---
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".py", delete=False, encoding="utf-8"
         ) as tmp:
             tmp.write(new_code)
             tmp_path = tmp.name
 
-        # --- Шаг 4: Smoke-test ---
         print("[Evolve] Запускаю smoke-test...")
         passed, error = smoke_test(tmp_path)
-        os.unlink(tmp_path)  # удаляем временный файл
+        os.unlink(tmp_path)
 
         if not passed:
             print(f"[-] Smoke-test провалился: {error}")
             print("[-] Изменения не применены. Агент в безопасности.")
             logger.error(f"Evolve: smoke-test провалился — {error}")
             return
-
         print("[Evolve] Smoke-test OK.")
 
-        # --- Шаг 5: Записываем финально ---
+        # --- Записываем финально ---
         with open(AGENT_FILE, "w", encoding="utf-8") as f:
             f.write(new_code)
 
-        print("[*] Код обновлён. Перезапусти агента для применения.")
+        print("[*] Код обновлён на ветке mira-dev. Перезапусти агента.")
+        print("[*] Когда готов к релизу — введи /release.")
         logger.info(f"Evolve: код успешно обновлён. Задача: {task}")
 
     except Exception as e:
@@ -994,13 +1241,22 @@ def print_help() -> None:
   /switch              — сменить модель
   /git [msg]           — закоммитить и запушить код
   /reflect             — агент читает свой код и анализирует себя
-  /evolve <задача>     — агент предлагает патч к своему коду
+  /evolve <задача>     — агент предлагает патч к своему коду (ветка mira-dev)
+  /release             — смержить mira-dev в main и запушить
   /rollback [номер]    — откатить agent.py на предыдущую версию
   /versions            — список резервных копий
+  /undo                — восстановить последний перезаписанный файл
   /reload              — перезагрузить персону из persona.json (без рестарта)
   /clear               — очистить историю разговора
   /whoami              — что Мира знает о тебе
   /forget              — сбросить профиль, начать знакомство заново
+  /cloud sync          — синхронизировать memory/ и versions/ в облако
+  /cloud restore       — восстановить из облака
+  /users               — список пользователей (только owner)
+  /approve <id> [имя]  — одобрить гостя (только owner)
+  /reject <id>         — отклонить и удалить гостя (только owner)
+  /block <id>          — заблокировать пользователя (только owner)
+  /unblock <id>        — снять блокировку (только owner)
   /help                — эта справка
 """)
 
@@ -1011,6 +1267,16 @@ def print_help() -> None:
 messages = load_history()
 current_client, current_config = setup_client("1")
 
+# Инициализируем Альфу — главного агента.
+# Если agents/alpha.json не найден — работаем в fallback-режиме.
+alpha: Agent | None = None
+try:
+    alpha = Agent.from_config_file("alpha", profile, "", SYSTEM_PROMPT)
+except FileNotFoundError as e:
+    print(f"[!] {e}")
+    print("[!] Работаю без класса Agent.")
+    logger.warning(f"Agent config not found: {e}")
+
 # ---------------------------------------------------------------------------
 # Идентификация пользователя и онбординг (Этап 0.5)
 # ---------------------------------------------------------------------------
@@ -1018,37 +1284,60 @@ os.makedirs(MEMORY_DIR, exist_ok=True)
 os.makedirs(MEMORY_SESSIONS_DIR, exist_ok=True)
 
 current_user_id = identify_user()
+if alpha:
+    alpha.user_id = current_user_id  # агент теперь знает с кем работает
 
 # Создаём структуру папок для пользователя
-for subdir in ("inbox", "output", "temp"):
+for subdir in ("inbox", "output", "temp", ".undo"):
     os.makedirs(os.path.join(WORKSPACE_DIR, current_user_id, subdir), exist_ok=True)
 
-# Автоочистка temp/ (файлы старше 7 дней)
+# Автоочистка temp/ (файлы старше 7 дней) и просроченных гостей
 cleanup_temp(current_user_id)
+expired = cleanup_expired_guests()
+if expired:
+    logger.info(f"Удалено просроченных гостей: {expired}")
+
 user_profile = load_user_profile(current_user_id)
 is_returning = user_profile is not None  # запоминаем ДО онбординга
 
+# Определяем статус: владелец ли это?
+owner_cli = os.getenv("OWNER_CLI_USER", "").strip()
+is_owner_login = owner_cli and current_user_id == f"cli_{owner_cli}"
+
 if user_profile is None:
     # Первый запуск — онбординг
-    if current_client:
-        user_profile = run_onboarding(current_client, current_config["model"], current_user_id)
+    onboard_chain = alpha.model_chain if alpha else []
+    if onboard_chain and _providers.PROVIDERS:
+        user_profile = run_onboarding(onboard_chain, current_user_id)
     else:
-        print("[-] Модель не настроена, онбординг пропущен. Проверь .env")
+        print("[-] Провайдеры не настроены, онбординг пропущен. Проверь .env")
         user_profile = {"id": current_user_id, "name": current_user_id.replace("cli_", ""), "sessions_count": 0}
+    # Ставим статус сразу при создании
+    user_profile["status"] = "owner" if is_owner_login else "regular"
+    save_user_profile(current_user_id, user_profile)
 else:
     # Не первый запуск — обновляем счётчик
     update_last_seen(current_user_id, user_profile)
+    # Обновляем owner-статус если владелец изменился
+    if is_owner_login and user_profile.get("status") != "owner":
+        user_profile["status"] = "owner"
+        save_user_profile(current_user_id, user_profile)
+
+user_status = user_profile.get("status", "regular")
 
 print("=== Mira запущена ===")
 print(f"Персона загружена из: {PERSONA_FILE}")
 print(f"Профиль: {profile.name}  |  Инструменты: {', '.join(profile.allowed_tools) or 'нет'}")
-print(f"Пользователь: {current_user_id}")
-if current_config:
-    print(f"Текущая модель: {current_config['label']}")
-    logger.info(f"Выбрана стартовая модель: {current_config['label']}")
+print(f"Пользователь: {current_user_id}  |  Статус: {user_status}")
+if _providers.PROVIDERS:
+    first_chain = alpha.model_chain[0] if alpha else {}
+    print(f"Провайдеры: {', '.join(_providers.PROVIDERS.keys())}")
+    if first_chain:
+        print(f"Основная модель: {first_chain.get('provider')}/{first_chain.get('model')}")
+    logger.info(f"Провайдеры: {list(_providers.PROVIDERS.keys())}")
 else:
-    print("[-] Конфигурация не загружена. Проверь .env файл.")
-    logger.warning("Конфигурация моделей не загружена.")
+    print("[-] Провайдеры не настроены. Проверь .env файл.")
+    logger.warning("Провайдеры не настроены.")
 
 # Приветствие только вернувшимся пользователям, не новым
 if is_returning and user_profile and "name" in user_profile:
@@ -1072,11 +1361,19 @@ while True:
 
     cmd = user_input.lower()
 
-    # --- Выход ---
+    # --- Выход (с авто-синхронизацией) ---
     if cmd in ("exit", "quit", "выход"):
         print("Завершение работы...")
         logger.info("Штатное завершение работы агента.")
+        if os.getenv("RCLONE_REMOTE"):
+            print("[Cloud] Синхронизирую перед выходом...")
+            cloud_sync()
         break
+
+    # --- Контроль доступа ---
+    if user_status == "blocked":
+        print("[Мира] Доступ закрыт.")
+        continue
 
     # --- Кто я ---
     if cmd == "/whoami":
@@ -1095,8 +1392,8 @@ while True:
             if os.path.exists(path):
                 os.remove(path)
             print("[*] Профиль удалён.")
-            if current_client:
-                user_profile = run_onboarding(current_client, current_config["model"], current_user_id)
+            if alpha and _providers.PROVIDERS:
+                user_profile = run_onboarding(alpha.model_chain, current_user_id)
             logger.info(f"Профиль сброшен: {current_user_id}")
         else:
             print("[*] Отмена.")
@@ -1105,6 +1402,82 @@ while True:
     # --- Справка ---
     if cmd == "/help":
         print_help()
+        continue
+
+    # --- /undo ---
+    if cmd == "/undo":
+        backups = list_undo(current_user_id)
+        if not backups.get("backups"):
+            print("[-] Нет сохранённых версий для восстановления.")
+        else:
+            result = undo_last(current_user_id)
+            if result.get("ok"):
+                print(f"[*] Восстановлено в: {result['restored']}")
+            else:
+                print(f"[-] {result.get('error')}")
+        continue
+
+    # --- /cloud ---
+    if cmd.startswith("/cloud"):
+        parts = cmd.split(maxsplit=1)
+        sub = parts[1].strip() if len(parts) > 1 else ""
+        if sub == "sync":
+            cloud_sync()
+        elif sub == "restore":
+            cloud_restore()
+        else:
+            print("[-] Использование: /cloud sync  или  /cloud restore")
+        continue
+
+    # --- Управление пользователями (только owner) ---
+    if cmd == "/users":
+        if user_status != "owner":
+            print("[-] Только для владельца.")
+            continue
+        users = list_users()
+        if not users:
+            print("[-] Пользователей нет.")
+        else:
+            print("\n--- Пользователи ---")
+            for u in users:
+                print(f"  {u['id']:25} | {u['status']:8} | last: {u['last_seen']} | msgs: {u.get('guest_msgs', 0)}")
+        continue
+
+    if cmd.startswith("/approve"):
+        if user_status != "owner":
+            print("[-] Только для владельца."); continue
+        parts = user_input.split(maxsplit=2)
+        if len(parts) < 2:
+            print("[-] /approve <user_id> [новое_имя]"); continue
+        uid, new_name = parts[1], (parts[2] if len(parts) > 2 else "")
+        print("[*] Одобрено." if approve(uid, new_name) else "[-] Пользователь не найден.")
+        continue
+
+    if cmd.startswith("/reject"):
+        if user_status != "owner":
+            print("[-] Только для владельца."); continue
+        parts = user_input.split(maxsplit=1)
+        if len(parts) < 2:
+            print("[-] /reject <user_id>"); continue
+        print("[*] Удалён." if reject(parts[1]) else "[-] Пользователь не найден.")
+        continue
+
+    if cmd.startswith("/block"):
+        if user_status != "owner":
+            print("[-] Только для владельца."); continue
+        parts = user_input.split(maxsplit=1)
+        if len(parts) < 2:
+            print("[-] /block <user_id>"); continue
+        print("[*] Заблокирован." if block(parts[1]) else "[-] Не удалось.")
+        continue
+
+    if cmd.startswith("/unblock"):
+        if user_status != "owner":
+            print("[-] Только для владельца."); continue
+        parts = user_input.split(maxsplit=1)
+        if len(parts) < 2:
+            print("[-] /unblock <user_id>"); continue
+        print("[*] Разблокирован." if unblock(parts[1]) else "[-] Не удалось.")
         continue
 
     # --- Очистка памяти ---
@@ -1117,6 +1490,9 @@ while True:
 
     # --- Git ---
     if cmd.startswith("/git"):
+        if user_status != "owner":
+            print("[-] /git доступен только владельцу.")
+            continue
         parts = user_input.split(maxsplit=1)
         commit_msg = parts[1] if len(parts) > 1 else "Auto-commit: update agent.py"
         sync_with_git(commit_msg)
@@ -1149,21 +1525,37 @@ while True:
 
     # --- Рефлексия ---
     if cmd == "/reflect":
-        if current_client:
-            reflect(current_client, current_config["model"], messages)
+        if alpha and _providers.PROVIDERS:
+            reflect(alpha.model_chain, messages)
         else:
-            print("[-] Модель не настроена. Введи /switch.")
+            print("[-] Провайдеры не настроены. Проверь .env.")
+        continue
+
+    # --- Релиз (mira-dev → main) ---
+    if cmd == "/release":
+        if user_status != "owner" or not profile.can_use("evolve"):
+            print("[-] /release доступен только владельцу с профилем dev.")
+            continue
+        confirm = input("[!] Смержить mira-dev в main и запушить? [y/N]: ").strip().lower()
+        if confirm == "y":
+            release_to_main()
+        else:
+            print("[*] Отмена.")
         continue
 
     # --- Эволюция ---
     if cmd.startswith("/evolve"):
+        if user_status != "owner" or not profile.can_use("evolve"):
+            print("[-] /evolve доступен только владельцу с профилем dev.")
+            print("    Запусти агента с: python agent.py --profile dev")
+            continue
         parts = user_input.split(maxsplit=1)
         if len(parts) < 2 or not parts[1].strip():
             print("[-] Укажи задачу: /evolve <описание что изменить>")
-        elif current_client:
-            evolve(current_client, current_config["model"], parts[1].strip())
+        elif _providers.PROVIDERS:
+            evolve(parts[1].strip())
         else:
-            print("[-] Модель не настроена. Введи /switch.")
+            print("[-] Провайдеры не настроены. Проверь .env.")
         continue
 
     # --- Откат ---
@@ -1192,71 +1584,46 @@ while True:
         list_backups()
         continue
 
-       # --- Обычный чат ---
-    if not current_client:
-        print("[-] Модель не настроена. Введи /switch для выбора.")
+    # --- Обычный чат ---
+    if not _providers.PROVIDERS:
+        print("[-] Провайдеры не настроены. Проверь .env.")
         continue
- 
+
+    # Гостевой лимит
+    if user_status == "guest":
+        count, limit = increment_guest_counter(current_user_id, user_profile)
+        remaining = limit - count
+        if count > limit:
+            print(f"[Мира] Лимит {limit} сообщений исчерпан. Жду решения хозяина.")
+            continue
+        elif remaining <= 3:
+            print(f"[Мира] (осталось {remaining} сообщений из {limit})")
+
     messages.append({"role": "user", "content": user_input})
     messages = trim_history(messages)
     logger.info(f"User: {user_input}")
- 
-    MAX_TOOL_ROUNDS = 5  # сколько раз разрешаем вызывать инструменты подряд
- 
+
     try:
-        answer = None
- 
-        for round_num in range(MAX_TOOL_ROUNDS):
-            response = current_client.chat.completions.create(
-                model=current_config["model"],
-                messages=messages,
-                tools=TOOL_SCHEMAS,         # передаём список инструментов
-                tool_choice="auto",          # модель сама решает: инструмент или текст
-                temperature=0.7,
-            )
- 
-            msg = response.choices[0].message
- 
-            # Случай 1: модель вернула обычный текст — готово
-            if not msg.tool_calls:
-                answer = msg.content
-                messages.append({"role": "assistant", "content": answer})
-                break
- 
-            # Случай 2: модель хочет вызвать один или несколько инструментов
-            # Добавляем сообщение ассистента с tool_calls в историю
-            messages.append(msg)
- 
-            # Выполняем каждый запрошенный инструмент
-            for tool_call in msg.tool_calls:
-                tool_name = tool_call.function.name
-                tool_args = json.loads(tool_call.function.arguments)
- 
-                print(f"\n[Инструмент] {tool_name}({tool_args})")
-                tool_result = execute_tool(tool_name, tool_args, current_user_id)
- 
-                # Добавляем результат инструмента в историю
-                # API требует role="tool" и tool_call_id чтобы связать результат с вызовом
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": tool_result
-                })
- 
+        if alpha:
+            answer = alpha.run(messages)
         else:
-            # Цикл дошёл до MAX_TOOL_ROUNDS без финального ответа
-            answer = "[Мира использовала слишком много инструментов подряд — что-то пошло не так.]"
-            logger.warning(f"Tool calling: превышен лимит {MAX_TOOL_ROUNDS} раундов.")
- 
+            # Fallback: прямой вызов через первый доступный провайдер
+            fallback_chain = [{"provider": _providers.first_model_name(),
+                               "model": "", "temperature": 0.7}]
+            response = _providers.call(fallback_chain, messages,
+                                       tools=TOOL_SCHEMAS, tool_choice="auto")
+            msg = response.choices[0].message
+            answer = msg.content
+            messages.append({"role": "assistant", "content": answer})
+
         if answer:
             print(f"\nМира: {answer}")
             logger.info(f"Agent [{current_config['model']}]: {answer}")
             save_history(messages)
- 
+
     except Exception as e:
         print(f"\n[Ошибка API]: Подробности записаны в лог.")
         logger.error(f"API Error ({current_config['label']}): {e}", exc_info=True)
-        # Убираем последнее сообщение пользователя если API упал
         if messages and messages[-1]["role"] == "user":
             messages.pop()
 
