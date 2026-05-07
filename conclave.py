@@ -175,9 +175,12 @@ class Conclave:
         """
         Вызов агента с поддержкой tool_calls.
 
+        Поддерживает два вида моделей в model_chain:
+          - native_search=true (Perplexity): встроенный поиск, tools не нужны.
+            Вызываются первыми, без схем инструментов.
+          - обычные (DeepSeek, Claude): вызываются с tool_calls если schemas непусты.
+
         Фильтрует TOOL_SCHEMAS по allowed_tools агента И правам профиля пользователя.
-        Обрабатывает цикл tool_calls → execute → следующий вызов.
-        Возвращает финальный текстовый ответ.
         """
         # Фильтруем инструменты: агент + профиль пользователя (PRINCIPLES §3)
         allowed_set = set(allowed_tools)
@@ -187,14 +190,38 @@ class Conclave:
             and (self.profile is None or self.profile.can_use(s["function"]["name"]))
         ]
 
-        if not schemas:
-            return _call(config, messages)
+        full_chain  = config.get("model_chain", [])
+        # Модели с встроенным поиском (Perplexity) — вызываем без tools
+        native_chain = [e for e in full_chain if e.get("native_search")]
+        # Обычные модели — вызываем с tools
+        tools_chain  = [e for e in full_chain if not e.get("native_search")]
+
+        # --- Сначала пробуем native-search модели ---
+        if native_chain:
+            try:
+                response = _providers.call(
+                    native_chain, messages,
+                    max_tokens=config.get("max_tokens", 2048),
+                )
+                content = response.choices[0].message.content or ""
+                if content:
+                    logger.info(f"Conclave: native search ответил ({len(content)} символов)")
+                    return content
+            except Exception as e:
+                logger.warning(f"Conclave: native search упал ({e}), переключаюсь на инструменты")
+
+        # --- Fallback: tools-capable модели ---
+        if not schemas or not tools_chain:
+            fallback_cfg = {**config, "model_chain": tools_chain or full_chain}
+            return _call(fallback_cfg, messages)
+
+        tool_cfg = {**config, "model_chain": tools_chain}
 
         for _ in range(15):  # лимит раундов инструментов
             response = _providers.call(
-                config["model_chain"],
+                tool_cfg["model_chain"],
                 messages,
-                max_tokens=config.get("max_tokens", 2048),
+                max_tokens=tool_cfg.get("max_tokens", 2048),
                 tools=schemas,
                 tool_choice="auto",
             )
