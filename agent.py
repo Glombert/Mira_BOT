@@ -1,3 +1,4 @@
+# Mira — Ouroboros agent
 import os
 import ast
 import sys
