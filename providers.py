@@ -37,21 +37,38 @@ _NON_RETRIABLE = (
 )
 
 
+# Провайдеры требующие дополнительных заголовков.
+# Anthropic требует anthropic-version при обращении к их API напрямую.
+_EXTRA_HEADERS: dict[str, dict] = {
+    "anthropic": {"anthropic-version": "2023-06-01"},
+}
+
+
 def init() -> None:
     """
     Строит PROVIDERS из переменных окружения.
     Вызывается в agent.py один раз после load_dotenv().
+
+    Формат .env:
+        API_OPENROUTER_KEY=...   API_OPENROUTER_URL=https://openrouter.ai/api/v1
+        API_ANTHROPIC_KEY=...    API_ANTHROPIC_URL=https://api.anthropic.com/v1
+        API_DEEPSEEK_KEY=...     API_DEEPSEEK_URL=https://api.deepseek.com/v1
     """
     global PROVIDERS
     for key in os.environ:
         if not (key.startswith("API_") and key.endswith("_KEY")):
             continue
-        name = key[4:-4].lower()          # API_OPENROUTER_KEY → openrouter
+        name = key[4:-4].lower()          # API_ANTHROPIC_KEY → anthropic
         api_key = os.environ[key]
         base_url = os.getenv(f"API_{name.upper()}_URL")
         if api_key:
             try:
-                PROVIDERS[name] = OpenAI(api_key=api_key, base_url=base_url)
+                extra = _EXTRA_HEADERS.get(name, {})
+                PROVIDERS[name] = OpenAI(
+                    api_key=api_key,
+                    base_url=base_url,
+                    default_headers=extra,
+                )
             except Exception as e:
                 logger.warning(f"providers.init: не удалось создать клиент {name}: {e}")
     logger.info(f"providers: инициализированы {list(PROVIDERS.keys())}")

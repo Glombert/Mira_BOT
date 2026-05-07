@@ -4,8 +4,10 @@
   "system_prompt": "Ты пишешь чистый, рабочий код. Проверяешь логику до ответа. Не добавляешь scaffolding и обёртки если не просят. Возвращаешь только то что было запрошено.",
   "model_chain": [
     { "provider": "openrouter", "model": "anthropic/claude-opus-4.7",   "temperature": 0.2 },
-    { "provider": "openrouter", "model": "anthropic/claude-sonnet-4.6", "temperature": 0.2 }
+    { "provider": "openrouter", "model": "anthropic/claude-sonnet-4.6", "temperature": 0.2 },
+    { "provider": "anthropic",  "model": "claude-opus-4-5",             "temperature": 0.2 }
   ],
+  "_note": "Третий провайдер — прямой Anthropic API. Нужен API_ANTHROPIC_KEY в .env. Проверь точное имя модели в console.anthropic.com",
   "max_tokens": 8192,
   "allowed_tools": ["read_file", "write_file", "run_python"],
   "created_by": "human",
