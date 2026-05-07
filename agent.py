@@ -811,10 +811,17 @@ def smoke_test(code_path: str) -> tuple[bool, str]:
     Таймаут 10 секунд — зависший код не блокирует агента.
     """
     try:
+        project_dir = os.path.dirname(AGENT_FILE)
+        # cwd не добавляет в sys.path — Python кладёт туда директорию самого скрипта.
+        # PYTHONPATH гарантирует что tools/ найдётся независимо от того, где лежит скрипт.
+        env = os.environ.copy()
+        existing = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = project_dir + (os.pathsep + existing if existing else "")
         result = subprocess.run(
             [sys.executable, code_path, "--self-test"],
             capture_output=True, text=True, timeout=10,
-            cwd=os.path.dirname(AGENT_FILE),  # нужен чтобы from tools import ... работал
+            cwd=project_dir,
+            env=env,
         )
         if result.returncode == 0 and "OK" in result.stdout:
             return True, ""
