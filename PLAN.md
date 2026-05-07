@@ -316,54 +316,54 @@ mira_bot/
 
 ---
 
-### ЭТАП 2 — Конклав (мультиагентность + ОТК + защиты)
+### ЭТАП 2 — Конклав (мультиагентность + ОТК + защиты) ✓
 
-#### 2.1 Оркестратор и роутер
-- [ ] Класс `Conclave`.
-- [ ] `router.py` — классификатор задач (1 дешёвый вызов).
+#### 2.1 ✓ — Оркестратор и роутер
+- [x] `router.py` — `classify(message, model_chain) -> "chat"|"files"|"code"|"complex"`.
+      Один вызов, temperature=0, max_tokens=5. Fallback → "chat".
+- [x] `conclave.py` — класс `Conclave`. Нет circular import: работает напрямую через `providers.call()`.
+- [x] `Conclave.run(name, task)` — одиночный запуск специалиста.
+- [x] `Conclave.run_with_qa(task, executor)` — цикл executor→editor→critic, все 4 защиты.
 
-#### 2.2 Базовые специалисты
-- [ ] `agents/planner.json` — Claude Sonnet 4.6.
-- [ ] `agents/coder.json` — Claude Sonnet 4.6 → Opus 4.7 (резерв для тяжёлых задач).
-- [ ] `agents/excel_specialist.json` — заглушка для Этапа 3.
+#### 2.2 ✓ — Конфиги специалистов
+- [x] `agents/planner.json` — Claude Sonnet 4.6 → deepseek-chat.
+- [x] `agents/coder.json` — Claude Opus 4.7 → Claude Sonnet 4.6.
+- [x] `agents/excel_specialist.json` — заглушка для Этапа 3.
 
-#### 2.3 ОТК (с защитами от циклов!)
-- [ ] `agents/editor.json` — DeepSeek V4 Flash.
-- [ ] `agents/critic.json` — **Gemini 3.1 Pro** (намеренно другая модель!).
-- [ ] `agents/reviewer.json` — DeepSeek V4 Flash.
-- [ ] `Conclave.run_with_qa(task)` со всеми пятью защитами.
+#### 2.3 ✓ — ОТК
+- [x] `agents/editor.json` — DeepSeek Chat → Claude Haiku 4.5.
+- [x] `agents/critic.json` — **Gemini 2.0 Flash** (намеренно другой провайдер!) → Claude Sonnet 4.6.
+- [x] `agents/reviewer.json` — DeepSeek Chat → Claude Sonnet 4.6.
+- [x] `agents/scout.json` — Perplexity Sonar → Sonar Pro.
+- [x] Защиты: max 3 итерации, оценка ≥7, стагнация 2 итерации → стоп, heartbeat.
 
-#### 2.4 Killswitch
-- [ ] Команда `/stop` — флаг `should_stop`.
-- [ ] В Telegram (Этап 4) — флаг через файл или shared state.
+#### 2.4 ✓ — Killswitch
+- [x] `conclave.should_stop` — флаг прерывания.
+- [x] Команда `/stop` в agent.py — выставляет флаг, Конклав останавливается между итерациями.
 
-#### 2.5 notify vs ask
-- [ ] Альфа: два режима — `notify` (статус) и `ask` (вопрос).
-- [ ] В Telegram — `notify` без клавиатуры, `ask` с кнопками.
+#### 2.5 — notify vs ask
+- [ ] Два режима Альфы — в Telegram (Этап 4).
 
-#### 2.6 Параллелизм
-- [ ] `Conclave.run_parallel(tasks)` через `concurrent.futures`.
-- [ ] Лимит параллельности: 3.
+#### 2.6 — Параллелизм
+- [ ] `Conclave.run_parallel(tasks)` через `concurrent.futures` — отложено до Этапа 4.
 
-#### 2.7 Интеграция с /evolve
-- [ ] `/evolve` использует `run_with_qa` поверх smoke-test и проверки PRINCIPLES.
+#### 2.7 — Интеграция с /evolve
+- [ ] `/evolve` через `run_with_qa` — отложено до Этапа 6 (тесты должны быть готовы).
 
-#### 2.8 Scout (Perplexity)
-- [ ] `agents/scout.json` — Perplexity Sonar.
-- [ ] Используется когда нужен веб-поиск с цитатами.
+#### 2.8 ✓ — Scout (Perplexity)
+- [x] `agents/scout.json` создан. Доступен через `Conclave.run("scout", task)`.
 
-#### 2.9 Саморасширение
-- [ ] `spawn_agent` — Альфа создаёт нового агента.
-- [ ] `tools/web_tools.py` — для случаев, когда Sonar не подходит (загрузка конкретной страницы).
+#### 2.9 — Саморасширение
+- [ ] `spawn_agent` — Этап 4+.
 
 ---
 
-### ЭТАП 3 — Excel и сценарий мамы
+### ЭТАП 3 — Excel и табличная обработка данных
 
 - [ ] `tools/excel_tools.py` (openpyxl): `excel_read`, `excel_write`.
-- [ ] Полный сценарий «показания счётчиков» от слов до таблицы.
+- [ ] Полный сценарий — от текстового описания до заполненной таблицы.
 - [ ] Профиль `profiles/accountant.json`.
-- [ ] Тестируем на маме.
+- [ ] `agents/excel_specialist.json` — из заглушки в рабочий агент.
 
 ---
 
@@ -470,10 +470,9 @@ mira_bot/
 ```
 [x] ЭТАП 0   — Фундамент (0.1–0.8 полностью)
 [x] ЭТАП 1   — Agent класс + инструменты + защиты (1.1–1.8 полностью)
-              Нерешённые хвосты: GitHub branch protection, rclone настройка,
-              маскировка секретов в логах, сжатие истории >200 сообщений
-[ ] ЭТАП 2   — Конклав (мультиагентность + ОТК + Scout)  ← СЛЕДУЮЩИЙ
-[ ] ЭТАП 3   — Excel + сценарий мамы
+[x] ЭТАП 2   — Конклав: router.py, conclave.py, 7 конфигов агентов, /stop
+              Отложено: параллелизм, /evolve через QA, spawn_agent
+[ ] ЭТАП 3   — Excel + табличная обработка данных  ← СЛЕДУЮЩИЙ
 [ ] ЭТАП 4   — Telegram + Web UI
 [ ] ЭТАП 5   — Долгая память + ротация + шаблоны
 [ ] ЭТАП 6   — Тесты

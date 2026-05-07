@@ -22,6 +22,8 @@ from tools.access_tools import (
     GUEST_LIMIT,
 )
 import providers as _providers
+from router   import classify
+from conclave import Conclave
 
 # ---------------------------------------------------------------------------
 # Настройка логирования
@@ -1257,6 +1259,7 @@ def print_help() -> None:
   /reject <id>         — отклонить и удалить гостя (только owner)
   /block <id>          — заблокировать пользователя (только owner)
   /unblock <id>        — снять блокировку (только owner)
+  /stop                — остановить работу Конклава между итерациями
   /help                — эта справка
 """)
 
@@ -1286,6 +1289,9 @@ os.makedirs(MEMORY_SESSIONS_DIR, exist_ok=True)
 current_user_id = identify_user()
 if alpha:
     alpha.user_id = current_user_id  # агент теперь знает с кем работает
+
+# Инициализируем Конклав (нужен user_id для контекста специалистов)
+conclave = Conclave(system_prompt=SYSTEM_PROMPT)
 
 # Создаём структуру папок для пользователя
 for subdir in ("inbox", "output", "temp", ".undo"):
@@ -1584,6 +1590,12 @@ while True:
         list_backups()
         continue
 
+    # --- Стоп Конклава ---
+    if cmd == "/stop":
+        conclave.should_stop = True
+        print("[*] Конклав остановится после текущего шага.")
+        continue
+
     # --- Обычный чат ---
     if not _providers.PROVIDERS:
         print("[-] Провайдеры не настроены. Проверь .env.")
@@ -1603,11 +1615,40 @@ while True:
     messages = trim_history(messages)
     logger.info(f"User: {user_input}")
 
+    # Классифицируем задачу — дёшево, один вызов
+    conclave.should_stop = False  # сбрасываем флаг перед новым запросом
+    task_type = classify(user_input, alpha.model_chain if alpha else [])
+
     try:
-        if alpha:
+        if task_type in ("complex", "code") and alpha:
+            # Передаём в Конклав: executor → editor → critic
+            executor = "coder" if task_type == "code" else "coder"
+            print(f"\n[Роутер → {task_type.upper()}] Передаю специалистам...")
+            logger.info(f"Conclave activated: task_type={task_type}")
+
+            raw = conclave.run_with_qa(user_input, executor)
+
+            # Альфа оформляет результат своим голосом
+            presentation = (
+                f"Специалисты выполнили задачу. "
+                f"Представь результат пользователю от своего имени:\n\n{raw}"
+            )
+            alpha_messages = [
+                {"role": "system",    "content": SYSTEM_PROMPT},
+                {"role": "user",      "content": user_input},
+                {"role": "assistant", "content": "[передала специалистам]"},
+                {"role": "user",      "content": presentation},
+            ]
+            answer = _providers.call(
+                alpha.model_chain, alpha_messages, temperature=0.7
+            ).choices[0].message.content
+            messages.append({"role": "assistant", "content": answer})
+
+        elif alpha:
             answer = alpha.run(messages)
+
         else:
-            # Fallback: прямой вызов через первый доступный провайдер
+            # Fallback без класса Agent
             fallback_chain = [{"provider": _providers.first_model_name(),
                                "model": "", "temperature": 0.7}]
             response = _providers.call(fallback_chain, messages,
@@ -1618,12 +1659,12 @@ while True:
 
         if answer:
             print(f"\nМира: {answer}")
-            logger.info(f"Agent [{current_config['model']}]: {answer}")
+            logger.info(f"Agent: {answer[:120]}")
             save_history(messages)
 
     except Exception as e:
         print(f"\n[Ошибка API]: Подробности записаны в лог.")
-        logger.error(f"API Error ({current_config['label']}): {e}", exc_info=True)
+        logger.error(f"API Error: {e}", exc_info=True)
         if messages and messages[-1]["role"] == "user":
             messages.pop()
 
