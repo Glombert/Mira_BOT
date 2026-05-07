@@ -1,10 +1,23 @@
 # Mira_BOT — План разработки
 
-> Версия: 3.4
+> Версия: 3.5
 > Последнее обновление: 2026-05-07
 > Архитектура: см. ARCHITECTURE.md
 
 ---
+
+## Что изменилось в v3.5
+
+Telegram Bot и инструменты для Excel — запущено и протестировано в боевом режиме:
+
+- **Telegram Bot (`telegram_bot.py`).** Полноценный бот: приём сообщений, классификация роутером, маршрутизация в Конклав или Альфу. Per-user сессии в `memory/sessions/tg_{id}.json`. Workspace изолирован на пользователя.
+- **Owner detection.** `OWNER_TELEGRAM_ID` в `.env` — для Telegram. `/evolve`, `/reflect`, `/git`, `/release`, `/users`, `/approve`, `/block` — только для owner.
+- **`/evolve` в Telegram — неинтерактивный.** Diff → inline-кнопки ✅/❌ вместо `input()`. Без блокировки event loop.
+- **Inline-кнопки.** `/help`, heartbeat Конклава, подтверждение `/evolve` и `/release` — всё через `InlineKeyboardMarkup`.
+- **Автоотправка файлов.** После каждого ответа Мира проверяет `output/` и отправляет новые файлы пользователю.
+- **Загрузка документов.** `handle_document()` — файл сохраняется в `inbox/` пользователя, Мира подтверждает.
+- **Excel-инструменты (`tools/excel_tools.py`).** `excel_read` (до 200 строк, поддержка sheet_name, заголовки авто), `excel_write` (overwrite с `.undo/` бэкапом). Агент `agents/excel_specialist.json` — рабочий.
+- **systemd-сервис — **не локально**, а на VPS.** Деплой запланирован на Этап 7. Пока бот запускается вручную: `python telegram_bot.py`.
 
 ## Что изменилось в v3.4
 
@@ -358,23 +371,25 @@ mira_bot/
 
 ---
 
-### ЭТАП 3 — Excel и табличная обработка данных
+### ЭТАП 3 — Excel и табличная обработка данных ✓
 
-- [ ] `tools/excel_tools.py` (openpyxl): `excel_read`, `excel_write`.
-- [ ] Полный сценарий — от текстового описания до заполненной таблицы.
-- [ ] Профиль `profiles/accountant.json`.
-- [ ] `agents/excel_specialist.json` — из заглушки в рабочий агент.
+- [x] `tools/excel_tools.py` (openpyxl): `excel_read`, `excel_write`.
+- [x] Полный сценарий — от текстового описания до заполненной таблицы.
+- [ ] Профиль `profiles/accountant.json` — отложено, нет готового сценария.
+- [x] `agents/excel_specialist.json` — рабочий агент.
 
 ---
 
-### ЭТАП 4 — Telegram Bot + Web UI
+### ЭТАП 4 — Telegram Bot ✓
 
-- [ ] Telegram Bot (`python-telegram-bot`).
-- [ ] `identify_user()` под `telegram user_id`.
-- [ ] **Активация трёхуровневой системы доступа** — все команды и уведомления из Этапа 0.8 начинают работать.
-- [ ] Web UI (FastAPI + один HTML с Telegram Login Widget).
-- [ ] Деплой: systemd + nginx. VPS пуллит только `main`.
-- [ ] `/stop` через inline-кнопку в каждом heartbeat-сообщении.
+- [x] Telegram Bot (`python-telegram-bot 22+`): сообщения, документы, кнопки.
+- [x] `_user_id(tg_id)` → `"tg_{tg_id}"` — per-user сессии и workspace.
+- [x] **Активация трёхуровневой системы доступа** — `OWNER_TELEGRAM_ID`, owner-команды, guest-лимиты.
+- [x] `/evolve` в Telegram — diff + inline-кнопки ✅/❌.
+- [x] `/stop` через inline-кнопку в heartbeat-сообщении.
+- [x] Автоотправка файлов из `output/` после каждого ответа.
+- [ ] Web UI (FastAPI) — не нужен, пока Telegram покрывает.
+- [ ] **Деплой (systemd + nginx)** — на VPS, Этап 7. Пока: `python telegram_bot.py` вручную.
 
 ---
 
@@ -472,9 +487,10 @@ mira_bot/
 [x] ЭТАП 1   — Agent класс + инструменты + защиты (1.1–1.8 полностью)
 [x] ЭТАП 2   — Конклав: router.py, conclave.py, 7 конфигов агентов, /stop
               Отложено: параллелизм, /evolve через QA, spawn_agent
-[ ] ЭТАП 3   — Excel + табличная обработка данных  ← СЛЕДУЮЩИЙ
-[ ] ЭТАП 4   — Telegram + Web UI
-[ ] ЭТАП 5   — Долгая память + ротация + шаблоны
+[x] ЭТАП 3   — Excel: excel_read, excel_write, excel_specialist
+[x] ЭТАП 4   — Telegram Bot: сессии, owner-команды, inline-кнопки, файлы
+              Отложено: Web UI (не нужен), деплой → VPS (Этап 7)
+[ ] ЭТАП 5   — Долгая память + ротация + шаблоны     ← СЛЕДУЮЩИЙ
 [ ] ЭТАП 6   — Тесты
-[ ] ЭТАП 7   — Деплой + изоляция run_python
+[ ] ЭТАП 7   — VPS: деплой, systemd, nginx, мониторинг, изоляция run_python
 ```

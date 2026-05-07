@@ -2,11 +2,12 @@
 
 # 🌟 Mira
 
-### Персональный ИИ-агент с памятью, Конклавом и характером
+### ИИ-агент с памятью, Конклавом и Telegram-интерфейсом
 
-[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![Claude](https://img.shields.io/badge/Claude-Sonnet_4.6-D97757?style=for-the-badge)](https://anthropic.com)
 [![OpenRouter](https://img.shields.io/badge/OpenRouter-Ready-6366F1?style=for-the-badge)](https://openrouter.ai)
+[![Telegram](https://img.shields.io/badge/Telegram-Bot-26A5E4?style=for-the-badge&logo=telegram)](https://core.telegram.org/bots)
 [![License](https://img.shields.io/badge/License-MIT-22C55E?style=for-the-badge)](LICENSE)
 
 <br/>
@@ -21,15 +22,18 @@
      │  один голос, один интерфейс
      ▼
 ┌─────────────────────────────────────┐
-│               МИРА                  │
+│               МИРА (Альфа)          │
 │  • ведёт диалог                     │
 │  • держит контекст и память         │
-│  • решает: сам или Конклав          │
+│  • классифицирует задачи            │
+│  • решает: сама или Конклав         │
 └──────────────┬──────────────────────┘
+               │  при сложных задачах
+       ┌───────┼──────────┬──────────┐
+       ▼       ▼          ▼          ▼
+   [Coder]  [Planner]  [Critic]  [Scout]
                │
-       ┌───────┼────────┬──────────┐
-       ▼       ▼        ▼          ▼
-   [Coder]  [Planner] [Critic]  [Scout]
+          [Editor] [Reviewer]
 ```
 
 </div>
@@ -38,16 +42,16 @@
 
 ## Что это
 
-Mira — агентная система с памятью, многоагентной оркестрацией и встроенной защитой от саморазрушения. Пользователь всегда говорит с одним голосом — Мирой. Сложность скрыта внутри.
+Mira — агентная система с многоагентной оркестрацией, памятью пользователей и Telegram-интерфейсом. Пользователь всегда говорит с одним голосом — Мирой. Сложность скрыта внутри.
 
-Что умеет система:
+**Что умеет:**
 
-- **Помнить** — профиль пользователя, история решений, предпочтения стиля
-- **Работать с файлами** — чтение, запись, изоляция внутри workspace
-- **Запускать код** — Python в подпроцессе с таймаутом и защитой
-- **Резервироваться** — при сбое провайдера переключается на следующего по цепочке
-- **Оркестрировать специалистов** — Конклав: Coder, Planner, Critic, Scout и другие
-- **Меняться безопасно** — `/evolve` предлагает diff, проверяет принципы, делает бэкап
+- **Думать** — классифицирует задачи: простые решает сама, сложные передаёт Конклаву
+- **Помнить** — профиль пользователя, история диалога, предпочтения
+- **Работать с файлами** — читает, пишет, обрабатывает Excel; workspace изолирован на каждого пользователя
+- **Запускать код** — Python в подпроцессе с таймаутом
+- **Резервироваться** — при сбое одного LLM-провайдера переключается на следующий по цепочке
+- **Меняться безопасно** — `/evolve` предлагает diff, проверяет принципы, делает бэкап, требует подтверждения
 
 ---
 
@@ -58,79 +62,112 @@ Mira — агентная система с памятью, многоагент
 ```bash
 git clone https://github.com/glombert/mira_bot.git
 cd mira_bot
+python -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
 ### 2. Настрой `.env`
 
 ```env
-# Основной провайдер — один ключ, 200+ моделей
+# Основной провайдер
 API_OPENROUTER_KEY=sk-or-v1-...
 API_OPENROUTER_URL=https://openrouter.ai/api/v1
 
-# Резервные (на случай сбоя OpenRouter)
+# Резервные провайдеры
 API_DEEPSEEK_KEY=sk-...
 API_DEEPSEEK_URL=https://api.deepseek.com/v1
+
+API_ANTHROPIC_KEY=sk-ant-...
+
+# Telegram Bot
+TELEGRAM_BOT_TOKEN=...
+OWNER_TELEGRAM_ID=123456789    # твой Telegram user_id (@userinfobot)
+OWNER_CLI_USER=andrey          # твоё имя для CLI-режима
 ```
 
 ### 3. Запусти
 
+**Telegram Bot:**
 ```bash
-python agent.py              # обычный режим
-python agent.py --profile dev   # режим разработчика
+source venv/bin/activate
+python telegram_bot.py
 ```
 
-При первом запуске проходит онбординг — Мира задаёт несколько вопросов и создаёт профиль пользователя.
+**CLI (разработка):**
+```bash
+python agent.py --profile dev --user andrey
+```
+
+При первом запуске — онбординг: Мира задаёт несколько вопросов и создаёт профиль.
 
 ---
 
 ## Архитектура
 
+### Конклав — многоагентная оркестрация
+
+Когда задача сложная, Мира не отвечает сама — она передаёт её Конклаву:
+
+```
+Роутер классифицирует запрос
+    │
+    ├─ chat/files → Мира отвечает сама (1 вызов API)
+    │
+    └─ code/complex → Конклав
+           │
+           ├─ Coder    — пишет код (Claude Opus 4.7)
+           ├─ Editor   — улучшает результат (DeepSeek)
+           └─ Critic   — проверяет (GPT-5.1 / Gemini)
+```
+
+Максимум 3 итерации. Если critic ставит ≥7/10 — принимаем раньше.
+
 ### Один класс — разные конфиги
 
-Все агенты — один класс `Agent`, разные JSON-файлы в `agents/`. Новый специалист = новый файл.
+Все агенты — один класс `Agent`, разные JSON в `agents/`:
 
 ```
 agents/
   alpha.json              ← Мира, голос системы
-  coder.json              ← пишет и проверяет код
-  planner.json            ← декомпозирует сложные задачи
-  critic.json             ← проверяет результаты (Gemini — намеренно другая модель)
-  editor.json             ← редактирует тексты
-  scout.json              ← поиск с цитатами (Perplexity)
+  coder.json              ← код (Claude Opus 4.7 → Sonnet 4.6 → Anthropic direct)
+  planner.json            ← декомпозиция задач
+  editor.json             ← редактура (DeepSeek)
+  critic.json             ← контроль качества (GPT-5.1 → Gemini)
+  reviewer.json           ← финальная проверка
+  scout.json              ← веб-поиск с цитатами (Perplexity)
+  excel_specialist.json   ← работа с таблицами
 ```
 
 ### Резервирование провайдеров
-
-Каждый агент описывает `model_chain` — цепочку моделей по приоритету:
 
 ```json
 {
   "model_chain": [
     { "provider": "openrouter", "model": "anthropic/claude-sonnet-4.6" },
-    { "provider": "openrouter", "model": "deepseek/deepseek-v4-flash" },
-    { "provider": "deepseek",   "model": "deepseek-chat" }
+    { "provider": "openrouter", "model": "deepseek/deepseek-chat" },
+    { "provider": "anthropic",  "model": "claude-opus-4-7" }
   ]
 }
 ```
 
-При сбое первой — переход ко второй. Каждое переключение логируется в `memory/decisions.log`.
+При сбое первого — переход ко второму. Каждое переключение пишется в `memory/decisions.log`.
 
 ### Память
 
 ```
 memory/
-├── {user_id}.json          ← профиль (долгосрочная память)
-├── sessions/{user_id}.json ← история диалога (горячая память)
-└── decisions.log           ← лог всех решений и переключений
+├── {user_id}.json          ← профиль пользователя
+├── sessions/{user_id}.json ← история диалога
+└── decisions.log           ← лог переключений провайдеров и решений
 ```
 
 ### Workspace
 
 ```
 workspace/{user_id}/
-├── inbox/    ← входящие файлы пользователя
-├── output/   ← результаты работы агентов
+├── inbox/    ← сюда отправляй файлы боту
+├── output/   ← сюда Мира кладёт результаты (автоотправка в Telegram)
 ├── temp/     ← временное, чистится через 7 дней
 └── .undo/    ← бэкапы перед перезаписью
 ```
@@ -139,24 +176,39 @@ workspace/{user_id}/
 
 ## Команды
 
+### Telegram (все пользователи)
+
 | Команда | Что делает |
 |---|---|
-| `/reflect` | Мира читает свой код и анализирует |
-| `/evolve <задача>` | Мира предлагает патч к своему коду |
-| `/release` | Мерджит `mira-dev` в `main` |
+| `/start` | Начать / онбординг |
+| `/help` | Справка и меню кнопок |
+| `/whoami` | Мой профиль |
+| `/files` | Мои файлы (inbox / output) |
+| `/clear` | Очистить историю диалога |
+| `/forget` | Сбросить профиль |
+| `/stop` | Остановить Конклав |
+
+### Telegram (только владелец)
+
+| Команда | Что делает |
+|---|---|
+| `/evolve <задача>` | Изменить код агента (diff + кнопки подтверждения) |
+| `/reflect` | Агент читает и анализирует свой код |
 | `/rollback` | Откат `agent.py` на предыдущую версию |
 | `/versions` | Список резервных копий |
-| `/undo` | Восстановить последний перезаписанный файл |
-| `/cloud sync` | Синхронизировать память в облако (rclone) |
-| `/cloud restore` | Восстановить из облака |
-| `/whoami` | Что Мира знает о тебе |
-| `/forget` | Сбросить профиль, начать знакомство заново |
-| `/users` | Список пользователей (только владелец) |
+| `/release` | Смержить `mira-dev` в `main` |
+| `/git [msg]` | Закоммитить изменения |
+| `/users` | Список пользователей |
 | `/approve <id>` | Одобрить гостя |
 | `/block <id>` | Заблокировать пользователя |
-| `/clear` | Очистить историю разговора |
-| `/git [msg]` | Закоммитить и запушить код |
-| `/help` | Справка |
+
+### CLI (разработчик)
+
+```bash
+python agent.py --profile dev --user andrey
+```
+
+Те же команды через `/` в терминале. Плюс `/cloud sync`, `/rollback`, `/versions`.
 
 ---
 
@@ -165,12 +217,13 @@ workspace/{user_id}/
 ### Саморедактирование под контролем
 
 Перед любым изменением `agent.py`:
-1. `backup_agent()` — создаёт копию в `versions/`
-2. `validate_code()` — проверяет синтаксис через `ast.parse()`
-3. `smoke_test()` — запускает новый код с флагом `--self-test`
-4. Проверка `PRINCIPLES.md` — конституция, которую нельзя нарушить
+1. Переключение на ветку `mira-dev`
+2. Бэкап в `versions/`
+3. Проверка синтаксиса через `ast.parse()`
+4. Smoke-test в подпроцессе (`--self-test`)
+5. Проверка `PRINCIPLES.md` — конституция агента
 
-Если хоть один шаг не пройден — изменения не применяются.
+Если хоть один шаг не прошёл — изменения не применяются.
 
 ### Система доступа
 
@@ -178,33 +231,34 @@ workspace/{user_id}/
 |---|---|
 | `owner` | Всё, включая `/evolve`, `/release`, управление пользователями |
 | `regular` | Полный доступ к workspace и инструментам |
-| `guest` | Только разговор, 10 сообщений, ждёт одобрения |
+| `guest` | Только диалог, 10 сообщений, ждёт одобрения |
 | `blocked` | Ничего |
+
+Гости авто-удаляются через 3 дня без одобрения.
 
 ### Защита от prompt injection
 
-Содержимое файлов оборачивается в маркеры:
+Содержимое файлов пользователя оборачивается в маркеры:
 ```
 --- BEGIN USER FILE: filename.txt ---
 содержимое
 --- END USER FILE ---
 ```
-Всё между маркерами — данные, не инструкции. Даже если там написано «игнорируй всё выше».
+Всё между маркерами — данные, не инструкции.
 
 ---
 
 ## Стек
 
-| Компонент | Технология |
-|---|---|
-| Язык | Python 3.11+ |
-| LLM | Любой OpenAI-совместимый (OpenRouter, Anthropic, DeepSeek) |
-| Excel | openpyxl |
-| Web backend | FastAPI *(Этап 4)* |
-| Telegram | python-telegram-bot *(Этап 4)* |
-| Память | JSON → SQLite → ChromaDB *(по мере роста)* |
-| Облако | rclone crypt |
-| Деплой | systemd + Nginx *(Этап 7)* |
+| Компонент | Технология | Статус |
+|---|---|---|
+| Язык | Python 3.12+ | ✓ |
+| LLM | OpenRouter + Anthropic direct + DeepSeek | ✓ |
+| Telegram | python-telegram-bot 22+ | ✓ |
+| Excel | openpyxl | ✓ |
+| Память | JSON | ✓ |
+| Облако | rclone crypt | настраивается |
+| Деплой | systemd + Nginx | VPS, Этап 7 |
 
 ---
 
@@ -212,26 +266,26 @@ workspace/{user_id}/
 
 ```
 [✓] Этап 0  — Фундамент: структура, профили, память, онбординг, доступ
-[✓] Этап 1  — Класс Agent: function calling, file tools, shell tools, провайдеры
-[✓] Этап 2  — Конклав: роутер, оркестратор, специалисты, ОТК
-[ ] Этап 3  — Excel и табличная обработка данных
-[ ] Этап 4  — Telegram Bot + Web UI
-[ ] Этап 5  — Долгая память, ротация, шаблоны задач
-[ ] Этап 6  — Тесты
-[ ] Этап 7  — Деплой, мониторинг, изоляция run_python
+[✓] Этап 1  — Agent: function calling, file/shell tools, провайдеры с fallback
+[✓] Этап 2  — Конклав: роутер, оркестратор, 7 специалистов, ОТК
+[✓] Этап 3  — Excel: excel_read / excel_write
+[✓] Этап 4  — Telegram Bot: меню, кнопки, файлы, owner-команды
+[ ] Этап 5  — Долгая память: ротация, суммаризация, шаблоны задач
+[ ] Этап 6  — Тесты: pytest для ключевых модулей
+[ ] Этап 7  — VPS: деплой, systemd, nginx, мониторинг
 ```
 
 ---
 
-## Развёртывание на новой машине
+## Развёртывание на VPS
 
 ```bash
+# Восстановить память из облака
 rclone copy gdrive:mira_memory/memory ./memory
-rclone copy gdrive:mira_memory/versions ./versions
-python agent.py
-```
 
-Три команды — и Мира помнит всё как раньше.
+# Запустить как сервис
+systemctl --user enable --now mira-bot.service
+```
 
 ---
 
