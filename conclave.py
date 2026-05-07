@@ -95,18 +95,25 @@ class Conclave:
     """
     Оркестратор Конклава.
 
-    Параметры при инициализации:
-        system_prompt — системный промпт Альфы (для контекста при финальном
-                        представлении результата; специалисты имеют свои промпты).
+    Параметры:
+        system_prompt    — промпт Альфы (для контекста при представлении результата)
+        user_id          — ID пользователя, нужен для execute_tool (workspace isolation)
+        profile          — профиль пользователя, нужен для проверки прав на инструменты
+        tool_schemas     — список JSON-схем инструментов (TOOL_SCHEMAS из agent.py)
+        execute_tool_fn  — функция вызова инструментов (execute_tool из agent.py)
 
-    Флаги:
-        should_stop — выставляется командой /stop, прерывает цикл run_with_qa
-                      между итерациями (не во время API-вызова).
+    Флаг should_stop прерывает run_with_qa между итерациями (не во время API-вызова).
     """
 
-    def __init__(self, system_prompt: str = ""):
-        self.system_prompt = system_prompt
-        self.should_stop   = False
+    def __init__(self, system_prompt: str = "", user_id: str = "",
+                 profile=None, tool_schemas: list | None = None,
+                 execute_tool_fn=None):
+        self.system_prompt   = system_prompt
+        self.user_id         = user_id
+        self.profile         = profile
+        self.tool_schemas    = tool_schemas or []
+        self.execute_tool_fn = execute_tool_fn
+        self.should_stop     = False
 
     # ------------------------------------------------------------------
     # Публичные методы
@@ -116,11 +123,8 @@ class Conclave:
         """
         Запускает одного специалиста с задачей.
 
-        agent_name — имя файла без .json в папке agents/
-        task       — что нужно сделать
-        context    — дополнительный контекст (предыдущая версия, обратная связь)
-
-        Возвращает текстовый ответ специалиста.
+        Если агент имеет allowed_tools и Conclave инициализирован с инструментами —
+        агент получает доступ к ним и может реально создавать файлы, запускать код.
         """
         config = _load_config(agent_name)
         system = config.get("system_prompt", "")
@@ -134,9 +138,85 @@ class Conclave:
             {"role": "user",   "content": content},
         ]
 
-        result = _call(config, messages)
+        allowed = config.get("allowed_tools", [])
+        if allowed and self.tool_schemas and self.execute_tool_fn:
+            result = self._call_agentic(config, messages, allowed)
+        else:
+            result = _call(config, messages)
+
         logger.info(f"Conclave.run: {agent_name} завершил ({len(result)} символов)")
         return result
+
+    # ------------------------------------------------------------------
+    # Внутренние методы
+    # ------------------------------------------------------------------
+
+    def _call_agentic(self, config: dict, messages: list, allowed_tools: list) -> str:
+        """
+        Вызов агента с поддержкой tool_calls.
+
+        Фильтрует TOOL_SCHEMAS по allowed_tools агента И правам профиля пользователя.
+        Обрабатывает цикл tool_calls → execute → следующий вызов.
+        Возвращает финальный текстовый ответ.
+        """
+        # Фильтруем инструменты: агент + профиль пользователя (PRINCIPLES §3)
+        allowed_set = set(allowed_tools)
+        schemas = [
+            s for s in self.tool_schemas
+            if s["function"]["name"] in allowed_set
+            and (self.profile is None or self.profile.can_use(s["function"]["name"]))
+        ]
+
+        if not schemas:
+            return _call(config, messages)
+
+        for _ in range(15):  # лимит раундов инструментов
+            response = _providers.call(
+                config["model_chain"],
+                messages,
+                max_tokens=config.get("max_tokens", 2048),
+                tools=schemas,
+                tool_choice="auto",
+            )
+            msg = response.choices[0].message
+
+            # Нет tool_calls — возвращаем текст
+            if not msg.tool_calls:
+                return msg.content or ""
+
+            # Конвертируем в dict (иначе trim_history сломается)
+            messages.append({
+                "role": "assistant",
+                "content": msg.content,
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.function.name,
+                            "arguments": tc.function.arguments,
+                        },
+                    }
+                    for tc in msg.tool_calls
+                ],
+            })
+
+            for tc in msg.tool_calls:
+                tool_name = tc.function.name
+                tool_args = json.loads(tc.function.arguments)
+
+                print(f"  [{config['name']}] → {tool_name}({tool_args})")
+                logger.info(f"Conclave tool: {tool_name}({tool_args})")
+
+                result = self.execute_tool_fn(tool_name, tool_args, self.user_id)
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": result,
+                })
+
+        return "[Превышен лимит вызовов инструментов]"
 
     def run_with_qa(self, task: str, executor_name: str = "coder") -> str:
         """

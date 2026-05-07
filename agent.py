@@ -1290,8 +1290,15 @@ current_user_id = identify_user()
 if alpha:
     alpha.user_id = current_user_id  # агент теперь знает с кем работает
 
-# Инициализируем Конклав (нужен user_id для контекста специалистов)
-conclave = Conclave(system_prompt=SYSTEM_PROMPT)
+# Инициализируем Конклав — передаём инструменты чтобы executor-агенты
+# могли реально писать файлы и запускать код, а не только описывать как это сделать.
+conclave = Conclave(
+    system_prompt=SYSTEM_PROMPT,
+    user_id=current_user_id,
+    profile=profile,
+    tool_schemas=TOOL_SCHEMAS,
+    execute_tool_fn=execute_tool,
+)
 
 # Создаём структуру папок для пользователя
 for subdir in ("inbox", "output", "temp", ".undo"):
