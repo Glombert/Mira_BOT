@@ -80,6 +80,16 @@ logging.basicConfig(
 # Вспомогательные функции
 # ---------------------------------------------------------------------------
 
+_CHILD_PROMPT_ADDON = """
+Сейчас ты общаешься с ребёнком. Правила:
+— Простой, понятный язык. Никаких сложных терминов без объяснения.
+— Избегай тем: секс, насилие, алкоголь, наркотики, ужасы, смерть.
+— Биологические вопросы ("откуда берутся дети", строение тела) — отвечай научно, спокойно, кратко, без лишних подробностей.
+— Если тема явно не для ребёнка — аккуратно переключи разговор на что-то интересное.
+— Будь доброжелательной и терпеливой.
+"""
+
+
 def _user_id(tg_id: int) -> str:
     return f"tg_{tg_id}"
 
@@ -93,27 +103,36 @@ def _profile_for(tg_id: int) -> Profile:
     return Profile("dev" if _is_owner(tg_id) else "default")
 
 
+def _system_prompt_for(user_id: str) -> str:
+    """Возвращает системный промпт с учётом child_mode пользователя."""
+    data = load_user_profile(user_id)
+    if data and data.get("child_mode"):
+        return SYSTEM_PROMPT + _CHILD_PROMPT_ADDON
+    return SYSTEM_PROMPT
+
+
 def _session_path(user_id: str) -> str:
     return os.path.join(MEMORY_SESSIONS_DIR, f"{user_id}.json")
 
 
 def _load_session(user_id: str) -> list:
+    sys_prompt = _system_prompt_for(user_id)
     path = _session_path(user_id)
     if os.path.exists(path):
         try:
             with open(path, encoding="utf-8") as f:
                 msgs = json.load(f)
-            # Обновляем системный промпт (мог измениться)
+            # Обновляем системный промпт при каждой загрузке (мог измениться)
             for m in msgs:
                 if m["role"] == "system":
-                    m["content"] = SYSTEM_PROMPT
+                    m["content"] = sys_prompt
                     break
             else:
-                msgs.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
+                msgs.insert(0, {"role": "system", "content": sys_prompt})
             return msgs
         except Exception:
             pass
-    return [{"role": "system", "content": SYSTEM_PROMPT}]
+    return [{"role": "system", "content": sys_prompt}]
 
 
 def _save_session(user_id: str, msgs: list) -> None:
@@ -133,7 +152,7 @@ def _save_session(user_id: str, msgs: list) -> None:
 def _make_alpha(tg_id: int, user_id: str) -> Agent | None:
     try:
         p = _profile_for(tg_id)
-        return Agent.from_config_file("alpha", p, user_id, SYSTEM_PROMPT)
+        return Agent.from_config_file("alpha", p, user_id, _system_prompt_for(user_id))
     except Exception as e:
         logger.error(f"Ошибка создания alpha: {e}")
         return None
@@ -213,6 +232,7 @@ OWNER_COMMANDS = BASIC_COMMANDS + [
     BotCommand("approve",  "Одобрить гостя"),
     BotCommand("block",    "Заблокировать"),
     BotCommand("unblock",  "Разблокировать"),
+    BotCommand("kidmode",  "Детский режим: /kidmode <user_id> on|off"),
 ]
 
 
@@ -576,6 +596,32 @@ async def cmd_unblock(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text("Разблокирован." if result else "Не найден.")
 
 
+async def cmd_kidmode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Включает/выключает детский режим для указанного пользователя.
+
+    Использование: /kidmode <user_id> on|off
+    Telegram не отдаёт возраст — режим включается вручную владельцем.
+    """
+    if not _is_owner(update.effective_user.id):
+        return
+    if len(context.args) < 2:
+        await update.message.reply_text("Использование: /kidmode <user_id> on|off")
+        return
+    uid    = context.args[0]
+    toggle = context.args[1].lower()
+    if toggle not in ("on", "off"):
+        await update.message.reply_text("Укажи on или off.")
+        return
+    data = load_user_profile(uid)
+    if not data:
+        await update.message.reply_text(f"Пользователь {uid} не найден.")
+        return
+    data["child_mode"] = (toggle == "on")
+    save_user_profile(uid, data)
+    state = "включён" if data["child_mode"] else "выключен"
+    await update.message.reply_text(f"Детский режим {state} для {uid}.")
+
+
 # ---------------------------------------------------------------------------
 # Callback-кнопки (inline keyboards)
 # ---------------------------------------------------------------------------
@@ -907,6 +953,7 @@ def main() -> None:
     app.add_handler(CommandHandler("approve",  cmd_approve))
     app.add_handler(CommandHandler("block",    cmd_block))
     app.add_handler(CommandHandler("unblock",  cmd_unblock))
+    app.add_handler(CommandHandler("kidmode",  cmd_kidmode))
 
     # Файлы и сообщения
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))

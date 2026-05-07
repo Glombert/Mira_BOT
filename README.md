@@ -138,7 +138,7 @@ agents/
   coder.json              ← код (Claude Opus 4.7 → Sonnet 4.6 → Anthropic direct)
   planner.json            ← декомпозиция задач
   editor.json             ← редактура (DeepSeek)
-  critic.json             ← контроль качества (Gemini → Claude)
+  critic.json             ← контроль качества (Gemini → GPT → Claude)
   reviewer.json           ← финальная проверка
   scout.json              ← веб-поиск (Perplexity sonar-pro → DuckDuckGo)
   excel_specialist.json   ← работа с таблицами
