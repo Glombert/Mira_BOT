@@ -19,17 +19,18 @@ import providers as _providers
 
 logger = logging.getLogger("Ouroborus")
 
-LABELS = {"chat", "files", "code", "complex"}
+LABELS = {"chat", "files", "code", "complex", "search"}
 
 _PROMPT = """\
 Classify the user message into exactly one category.
 Reply with ONE word only — the category label.
 
 Categories:
-- chat    : conversation, questions, explanations, opinions
+- chat    : conversation, questions, opinions, explanations that don't need live/current data
 - files   : reading, writing, listing files in the workspace
 - code    : writing, reviewing, fixing, explaining code
-- complex : multi-step task requiring planning or research
+- search  : needs current/live information — prices, news, reviews, comparisons of real products or services, recent events
+- complex : multi-step task requiring planning, analysis, or calculation (no need for live search)
 
 User message: {message}
 

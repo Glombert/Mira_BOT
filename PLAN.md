@@ -1,10 +1,22 @@
 # Mira_BOT — План разработки
 
-> Версия: 3.5
+> Версия: 3.6
 > Последнее обновление: 2026-05-07
 > Архитектура: см. ARCHITECTURE.md
 
 ---
+
+## Что изменилось в v3.6
+
+UX и веб-поиск — доведены до рабочего состояния:
+
+- **Прогресс-сообщения Конклава.** `Conclave.on_progress` callback + `💭`-сообщения на каждом шаге (Кодер работает / Редактор улучшает / Критик проверяет / оценка). `run_with_qa` запускается через `asyncio.to_thread` — event loop Telegram больше не блокируется.
+- **Без markdown в ответах.** Системный промпт Миры теперь включает явный запрет на `**`, `*`, `#`. Добавлено поле `formatting` в `persona.json`, включается через `load_persona()`.
+- **Мира знает своих специалистов.** Расширено поле `conclave` в `persona.json`: Кодер, Разведчик, Планировщик, Редактор, Критик, Ревьюер, Excel-специалист — по имени.
+- **Веб-поиск (`web_search`).** `tools/search_tools.py` через `ddgs` (без API-ключей). Добавлен в `TOOL_SCHEMAS` и `execute_tool`. Работает у Альфы напрямую и у Скаута через инструмент.
+- **Роутер: метка `search`.** Запросы на актуальные данные (цены, обзоры, новости) теперь отдельная категория → Scout.
+- **Scout v3: Perplexity → DuckDuckGo.** `native_search: true` — Perplexity вызывается без tools (встроенный поиск). При сбое — DeepSeek + `web_search` tool. `conclave._call_agentic` умеет различать эти режимы.
+- **`dev.json` исправлен.** Добавлены `web_search`, `excel_read`, `excel_write` — владелец получал `Blocked tool`.
 
 ## Что изменилось в v3.5
 
@@ -380,7 +392,7 @@ mira_bot/
 
 ---
 
-### ЭТАП 4 — Telegram Bot ✓
+### ЭТАП 4 — Telegram Bot + UX ✓
 
 - [x] Telegram Bot (`python-telegram-bot 22+`): сообщения, документы, кнопки.
 - [x] `_user_id(tg_id)` → `"tg_{tg_id}"` — per-user сессии и workspace.
@@ -388,6 +400,11 @@ mira_bot/
 - [x] `/evolve` в Telegram — diff + inline-кнопки ✅/❌.
 - [x] `/stop` через inline-кнопку в heartbeat-сообщении.
 - [x] Автоотправка файлов из `output/` после каждого ответа.
+- [x] **Прогресс-сообщения `💭`** — Conclave.on_progress + asyncio.to_thread. Видно кто работает.
+- [x] **Без markdown** — `formatting` в persona.json, явный запрет `**` и `#`.
+- [x] **Веб-поиск** — `web_search` инструмент (ddgs), метка `search` в роутере.
+- [x] **Scout v3** — Perplexity sonar-pro (`native_search`) → DeepSeek + DuckDuckGo.
+- [x] **`dev.json` исправлен** — добавлены `web_search`, `excel_read`, `excel_write`.
 - [ ] Web UI (FastAPI) — не нужен, пока Telegram покрывает.
 - [ ] **Деплой (systemd + nginx)** — на VPS, Этап 7. Пока: `python telegram_bot.py` вручную.
 
@@ -414,14 +431,28 @@ mira_bot/
 
 ---
 
-### ЭТАП 7 — Деплой и мониторинг
+### ЭТАП 7 — VPS: деплой и мониторинг  ← СЛЕДУЮЩИЙ
 
-- [ ] Алерт в Telegram при падении агента.
-- [ ] Бэкап `memory/` раз в сутки через rclone (cron).
-- [ ] Nginx + HTTPS.
-- [ ] Health-check эндпойнт.
-- [ ] Структурированное логирование (JSON-lines).
+#### 7.1 — Переезд на сервер
+- [ ] Выбрать VPS (1–2 ядра, 1–2 ГБ ОЗУ достаточно).
+- [ ] Клонировать репозиторий, установить зависимости, настроить `.env`.
+- [ ] Восстановить `memory/` из облака (rclone) или скопировать вручную.
+- [ ] Проверить что бот запускается и отвечает.
+
+#### 7.2 — systemd-сервис
+- [ ] `mira-bot.service` в `~/.config/systemd/user/`.
+- [ ] `systemctl --user enable --now mira-bot.service`.
+- [ ] `Restart=on-failure`, `RestartSec=5s`.
+
+#### 7.3 — Мониторинг
+- [ ] Алерт в Telegram при падении (через `ExecStopPost` в systemd или watchdog).
+- [ ] Ротация логов (logrotate или журналирование через systemd).
+- [ ] Бэкап `memory/` раз в сутки через cron + rclone.
+
+#### 7.4 — Безопасность на сервере
 - [ ] **Изоляция `run_python` через Docker или firejail** — обязательно перед тем, как давать regular-пользователям.
+- [ ] Nginx + HTTPS (если нужен web UI в будущем).
+- [ ] Права доступа к `.env` (chmod 600).
 
 ---
 
@@ -488,9 +519,9 @@ mira_bot/
 [x] ЭТАП 2   — Конклав: router.py, conclave.py, 7 конфигов агентов, /stop
               Отложено: параллелизм, /evolve через QA, spawn_agent
 [x] ЭТАП 3   — Excel: excel_read, excel_write, excel_specialist
-[x] ЭТАП 4   — Telegram Bot: сессии, owner-команды, inline-кнопки, файлы
-              Отложено: Web UI (не нужен), деплой → VPS (Этап 7)
-[ ] ЭТАП 5   — Долгая память + ротация + шаблоны     ← СЛЕДУЮЩИЙ
+[x] ЭТАП 4   — Telegram Bot + UX: прогресс 💭, поиск, Scout v3, без markdown
+              Отложено: Web UI (не нужен)
+[ ] ЭТАП 5   — Долгая память + ротация + шаблоны
 [ ] ЭТАП 6   — Тесты
-[ ] ЭТАП 7   — VPS: деплой, systemd, nginx, мониторинг, изоляция run_python
+[ ] ЭТАП 7   — VPS: переезд, systemd, мониторинг, изоляция   ← СЛЕДУЮЩИЙ
 ```
