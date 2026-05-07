@@ -241,6 +241,7 @@ OWNER_COMMANDS = BASIC_COMMANDS + [
     BotCommand("block",    "Заблокировать"),
     BotCommand("unblock",  "Разблокировать"),
     BotCommand("kidmode",  "Детский режим: /kidmode <user_id> on|off"),
+    BotCommand("restart",  "Перезапустить бота"),
 ]
 
 
@@ -522,6 +523,23 @@ async def cmd_rollback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     rollback()
     await update.message.reply_text("Откат выполнен. Перезапусти бота.")
+
+
+async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Перезапускает systemd-сервис mira-bot. Работает только на VPS."""
+    if not _is_owner(update.effective_user.id):
+        return
+    await update.message.reply_text("Перезапускаю...")
+    import subprocess
+    try:
+        # Запускаем в отдельном процессе — текущий успеет ответить до смерти
+        subprocess.Popen(
+            ["systemctl", "restart", "mira-bot"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка: {e}")
 
 
 async def cmd_versions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -955,6 +973,7 @@ def main() -> None:
     app.add_handler(CommandHandler("evolve",   cmd_evolve))
     app.add_handler(CommandHandler("rollback", cmd_rollback))
     app.add_handler(CommandHandler("versions", cmd_versions))
+    app.add_handler(CommandHandler("restart",  cmd_restart))
     app.add_handler(CommandHandler("release",  cmd_release))
     app.add_handler(CommandHandler("git",      cmd_git))
     app.add_handler(CommandHandler("users",    cmd_users))
