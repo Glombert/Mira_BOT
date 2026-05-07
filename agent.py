@@ -360,6 +360,15 @@ def load_persona() -> str:
 
         formatting     = p.get("formatting", "")
         self_awareness = p.get("self_awareness", "")
+
+        # Последние reflections (до 5) — Мира видит свои недавние наблюдения
+        reflections_block = ""
+        reflections = p.get("reflections", [])
+        if reflections:
+            recent = reflections[-5:]
+            lines = "\n".join(f"— [{r['date']}] {r['text']}" for r in recent)
+            reflections_block = f"\nМои последние наблюдения о себе:\n{lines}"
+
         return f"""Тебя зовут {p["name"]}. {p["origin"]}
 {p["core"]}
 Любопытство: {p["curiosity"]}
@@ -370,11 +379,10 @@ def load_persona() -> str:
 Как ты общаешься:
 {style_items}
 Конклав: {p["conclave"]}
-Самосознание: {self_awareness}
+Самосознание: {self_awareness}{reflections_block}
 Границы:
 {dislikes}
 {b.get("reaction", "")}
-{p["notes"]}
 {formatting}"""
     except Exception as e:
         logger.warning(f"Не удалось загрузить {PERSONA_FILE}: {e}. Использую дефолт.")
