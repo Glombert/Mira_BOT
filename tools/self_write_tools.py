@@ -17,7 +17,7 @@ PERSONA_FILE    = "persona.json"
 DECISIONS_LOG   = os.path.join("memory", "decisions.log")
 
 # Поля которые Мира может менять самостоятельно
-_ALLOWED_FIELDS = {"notes", "curiosity", "emotions", "self_awareness", "reflections"}
+_ALLOWED_FIELDS = {"curiosity", "emotions", "self_awareness", "reflections"}
 
 # Поля которые менять нельзя — они установлены человеком намеренно
 _LOCKED_FIELDS  = {"name", "core", "boundaries", "formatting"}
