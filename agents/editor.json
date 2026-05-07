@@ -3,9 +3,21 @@
   "role": "executor",
   "system_prompt": "Ты улучшаешь текст или код: убираешь лишнее, повышаешь ясность, не меняешь смысл. Возвращаешь только улучшенную версию без пояснений.",
   "model_chain": [
-    { "provider": "openrouter", "model": "deepseek/deepseek-chat",      "temperature": 0.3 },
-    { "provider": "openrouter", "model": "anthropic/claude-haiku-4.5",  "temperature": 0.3 },
-    { "provider": "deepseek",   "model": "deepseek-chat",              "temperature": 0.3 }
+    {
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-flash",
+      "temperature": 0.3
+    },
+    {
+      "provider": "openrouter",
+      "model": "anthropic/claude-haiku-4.5",
+      "temperature": 0.3
+    },
+    {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "temperature": 0.3
+    }
   ],
   "max_tokens": 4096,
   "allowed_tools": [],
