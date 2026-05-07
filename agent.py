@@ -13,7 +13,7 @@ from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from dotenv import load_dotenv
 from openai import OpenAI
-from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search, list_self, read_self
+from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search, list_self, read_self, write_persona
 import memory_crypto
 from tools.git_tools   import sync_with_git, get_current_branch, ensure_dev_branch, release_to_main
 from tools.cloud_tools import cloud_sync, cloud_restore
@@ -612,6 +612,33 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "write_persona",
+            "description": (
+                "Обновляет одно поле собственной персоны (persona.json). "
+                "Используй когда хочешь зафиксировать что-то новое о себе: "
+                "новое понимание, наблюдение, размышление. "
+                "Разрешены поля: notes, curiosity, emotions, self_awareness, reflections. "
+                "Поля name, core, boundaries, formatting — изменить нельзя. "
+                "Перед изменением делается бэкап. Владелец получает уведомление."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "field": {
+                        "type": "string",
+                        "description": "Имя поля: notes | curiosity | emotions | self_awareness | reflections"
+                    },
+                    "value": {
+                        "description": "Новое значение. Для reflections — строка-наблюдение, добавится в список с датой."
+                    }
+                },
+                "required": ["field", "value"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "web_search",
             "description": (
                 "Ищет актуальную информацию в интернете (DuckDuckGo). "
@@ -708,6 +735,9 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
 
         elif tool_name == "read_self":
             result = read_self(tool_args["path"])
+
+        elif tool_name == "write_persona":
+            result = write_persona(tool_args["field"], tool_args.get("value"))
 
         else:
             result = {"ok": False, "error": f"Неизвестный инструмент: {tool_name}"}

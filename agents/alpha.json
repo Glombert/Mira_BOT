@@ -18,7 +18,7 @@
   "allowed_tools": [
     "list_files", "read_file", "write_file", "run_python",
     "web_search", "excel_read", "excel_write",
-    "list_self", "read_self"
+    "list_self", "read_self", "write_persona"
   ],
   "created_by": "human",
   "created_at": "2026-05-04",
