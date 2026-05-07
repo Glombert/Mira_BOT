@@ -2,6 +2,9 @@
 openai>=1.0.0
 anthropic>=0.25.0
 
+# Веб-поиск (Scout)
+ddgs>=6.0.0
+
 # Переменные окружения
 python-dotenv>=1.0.0
 

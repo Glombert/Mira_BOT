@@ -737,9 +737,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
+    _EXECUTOR_FOR = {
+        "search":  "scout",
+        "code":    "coder",
+        "complex": "coder",
+    }
+
     try:
-        if task_type in ("complex", "code") and alpha:
-            await update.message.reply_text("💭 Задача сложная. Иду к специалистам...")
+        if task_type in _EXECUTOR_FOR and alpha:
+            executor = _EXECUTOR_FOR[task_type]
+            start_msg = {
+                "scout": "💭 Иду искать в интернете...",
+                "coder": "💭 Задача для специалистов. Подключаю Конклав...",
+            }.get(executor, "💭 Иду к специалистам...")
+            await update.message.reply_text(start_msg)
 
             loop    = asyncio.get_running_loop()
             chat_id = update.effective_chat.id
@@ -751,7 +762,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 )
 
             conc.on_progress = _progress
-            raw = await asyncio.to_thread(conc.run_with_qa, text, "coder")
+            raw = await asyncio.to_thread(conc.run_with_qa, text, executor)
 
             presentation = (
                 f"Специалисты выполнили задачу. Представь результат:\n\n{raw}"

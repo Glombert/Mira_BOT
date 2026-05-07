@@ -13,7 +13,7 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 from openai import OpenAI
-from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write
+from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search
 from tools.git_tools   import sync_with_git, get_current_branch, ensure_dev_branch, release_to_main
 from tools.cloud_tools import cloud_sync, cloud_restore
 from tools.access_tools import (
@@ -575,6 +575,31 @@ TOOL_SCHEMAS = [
                 "required": ["relative_path", "headers", "rows"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": (
+                "Ищет актуальную информацию в интернете (DuckDuckGo). "
+                "Используй для: текущих цен, новостей, обзоров товаров, сравнения продуктов, "
+                "актуальных фактов. Возвращает список результатов с заголовком, ссылкой и фрагментом."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Поисковый запрос. Пиши конкретно, как в поисковике."
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Количество результатов (1–10). По умолчанию 5."
+                    }
+                },
+                "required": ["query"]
+            }
+        }
     }
 ]
  
@@ -637,6 +662,12 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
                 tool_args["rows"],
                 sheet_name=tool_args.get("sheet_name", "Sheet1"),
                 overwrite=tool_args.get("overwrite", False),
+            )
+
+        elif tool_name == "web_search":
+            result = web_search(
+                tool_args["query"],
+                max_results=tool_args.get("max_results", 5),
             )
 
         else:
