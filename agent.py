@@ -1350,416 +1350,419 @@ def print_help() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Точка входа
+# Точка входа — только при прямом запуске python agent.py
+# При импорте (telegram_bot.py) этот блок не выполняется,
+# но все классы, функции и TOOL_SCHEMAS доступны.
 # ---------------------------------------------------------------------------
-messages = load_history()
-current_client, current_config = setup_client("1")
+if __name__ == "__main__":
+    messages = load_history()
+    current_client, current_config = setup_client("1")
 
-# Инициализируем Альфу — главного агента.
-# Если agents/alpha.json не найден — работаем в fallback-режиме.
-alpha: Agent | None = None
-try:
-    alpha = Agent.from_config_file("alpha", profile, "", SYSTEM_PROMPT)
-except FileNotFoundError as e:
-    print(f"[!] {e}")
-    print("[!] Работаю без класса Agent.")
-    logger.warning(f"Agent config not found: {e}")
+    # Инициализируем Альфу — главного агента.
+    # Если agents/alpha.json не найден — работаем в fallback-режиме.
+    alpha: Agent | None = None
+    try:
+        alpha = Agent.from_config_file("alpha", profile, "", SYSTEM_PROMPT)
+    except FileNotFoundError as e:
+        print(f"[!] {e}")
+        print("[!] Работаю без класса Agent.")
+        logger.warning(f"Agent config not found: {e}")
 
-# ---------------------------------------------------------------------------
-# Идентификация пользователя и онбординг (Этап 0.5)
-# ---------------------------------------------------------------------------
-os.makedirs(MEMORY_DIR, exist_ok=True)
-os.makedirs(MEMORY_SESSIONS_DIR, exist_ok=True)
+    # ---------------------------------------------------------------------------
+    # Идентификация пользователя и онбординг (Этап 0.5)
+    # ---------------------------------------------------------------------------
+    os.makedirs(MEMORY_DIR, exist_ok=True)
+    os.makedirs(MEMORY_SESSIONS_DIR, exist_ok=True)
 
-current_user_id = identify_user()
-if alpha:
-    alpha.user_id = current_user_id  # агент теперь знает с кем работает
+    current_user_id = identify_user()
+    if alpha:
+        alpha.user_id = current_user_id  # агент теперь знает с кем работает
 
-# Инициализируем Конклав — передаём инструменты чтобы executor-агенты
-# могли реально писать файлы и запускать код, а не только описывать как это сделать.
-conclave = Conclave(
-    system_prompt=SYSTEM_PROMPT,
-    user_id=current_user_id,
-    profile=profile,
-    tool_schemas=TOOL_SCHEMAS,
-    execute_tool_fn=execute_tool,
-)
+    # Инициализируем Конклав — передаём инструменты чтобы executor-агенты
+    # могли реально писать файлы и запускать код, а не только описывать как это сделать.
+    conclave = Conclave(
+        system_prompt=SYSTEM_PROMPT,
+        user_id=current_user_id,
+        profile=profile,
+        tool_schemas=TOOL_SCHEMAS,
+        execute_tool_fn=execute_tool,
+    )
 
-# Создаём структуру папок для пользователя
-for subdir in ("inbox", "output", "temp", ".undo"):
-    os.makedirs(os.path.join(WORKSPACE_DIR, current_user_id, subdir), exist_ok=True)
+    # Создаём структуру папок для пользователя
+    for subdir in ("inbox", "output", "temp", ".undo"):
+        os.makedirs(os.path.join(WORKSPACE_DIR, current_user_id, subdir), exist_ok=True)
 
-# Автоочистка temp/ (файлы старше 7 дней) и просроченных гостей
-cleanup_temp(current_user_id)
-expired = cleanup_expired_guests()
-if expired:
-    logger.info(f"Удалено просроченных гостей: {expired}")
+    # Автоочистка temp/ (файлы старше 7 дней) и просроченных гостей
+    cleanup_temp(current_user_id)
+    expired = cleanup_expired_guests()
+    if expired:
+        logger.info(f"Удалено просроченных гостей: {expired}")
 
-user_profile = load_user_profile(current_user_id)
-is_returning = user_profile is not None  # запоминаем ДО онбординга
+    user_profile = load_user_profile(current_user_id)
+    is_returning = user_profile is not None  # запоминаем ДО онбординга
 
-# Определяем статус: владелец ли это?
-owner_cli = os.getenv("OWNER_CLI_USER", "").strip()
-is_owner_login = owner_cli and current_user_id == f"cli_{owner_cli}"
+    # Определяем статус: владелец ли это?
+    owner_cli = os.getenv("OWNER_CLI_USER", "").strip()
+    is_owner_login = owner_cli and current_user_id == f"cli_{owner_cli}"
 
-if user_profile is None:
-    # Первый запуск — онбординг
-    onboard_chain = alpha.model_chain if alpha else []
-    if onboard_chain and _providers.PROVIDERS:
-        user_profile = run_onboarding(onboard_chain, current_user_id)
-    else:
-        print("[-] Провайдеры не настроены, онбординг пропущен. Проверь .env")
-        user_profile = {"id": current_user_id, "name": current_user_id.replace("cli_", ""), "sessions_count": 0}
-    # Ставим статус сразу при создании
-    user_profile["status"] = "owner" if is_owner_login else "regular"
-    save_user_profile(current_user_id, user_profile)
-else:
-    # Не первый запуск — обновляем счётчик
-    update_last_seen(current_user_id, user_profile)
-    # Обновляем owner-статус если владелец изменился
-    if is_owner_login and user_profile.get("status") != "owner":
-        user_profile["status"] = "owner"
+    if user_profile is None:
+        # Первый запуск — онбординг
+        onboard_chain = alpha.model_chain if alpha else []
+        if onboard_chain and _providers.PROVIDERS:
+            user_profile = run_onboarding(onboard_chain, current_user_id)
+        else:
+            print("[-] Провайдеры не настроены, онбординг пропущен. Проверь .env")
+            user_profile = {"id": current_user_id, "name": current_user_id.replace("cli_", ""), "sessions_count": 0}
+        # Ставим статус сразу при создании
+        user_profile["status"] = "owner" if is_owner_login else "regular"
         save_user_profile(current_user_id, user_profile)
+    else:
+        # Не первый запуск — обновляем счётчик
+        update_last_seen(current_user_id, user_profile)
+        # Обновляем owner-статус если владелец изменился
+        if is_owner_login and user_profile.get("status") != "owner":
+            user_profile["status"] = "owner"
+            save_user_profile(current_user_id, user_profile)
 
-user_status = user_profile.get("status", "regular")
+    user_status = user_profile.get("status", "regular")
 
-print("=== Mira запущена ===")
-print(f"Персона загружена из: {PERSONA_FILE}")
-print(f"Профиль: {profile.name}  |  Инструменты: {', '.join(profile.allowed_tools) or 'нет'}")
-print(f"Пользователь: {current_user_id}  |  Статус: {user_status}")
-if _providers.PROVIDERS:
-    first_chain = alpha.model_chain[0] if alpha else {}
-    all_providers = list(_providers.PROVIDERS.keys())
-    if _providers._anthropic_client:
-        all_providers.append("anthropic(native)")
-    print(f"Провайдеры: {', '.join(all_providers)}")
-    if first_chain:
-        print(f"Основная модель: {first_chain.get('provider')}/{first_chain.get('model')}")
-    logger.info(f"Провайдеры: {all_providers}")
-else:
-    print("[-] Провайдеры не настроены. Проверь .env файл.")
-    logger.warning("Провайдеры не настроены.")
+    print("=== Mira запущена ===")
+    print(f"Персона загружена из: {PERSONA_FILE}")
+    print(f"Профиль: {profile.name}  |  Инструменты: {', '.join(profile.allowed_tools) or 'нет'}")
+    print(f"Пользователь: {current_user_id}  |  Статус: {user_status}")
+    if _providers.PROVIDERS:
+        first_chain = alpha.model_chain[0] if alpha else {}
+        all_providers = list(_providers.PROVIDERS.keys())
+        if _providers._anthropic_client:
+            all_providers.append("anthropic(native)")
+        print(f"Провайдеры: {', '.join(all_providers)}")
+        if first_chain:
+            print(f"Основная модель: {first_chain.get('provider')}/{first_chain.get('model')}")
+        logger.info(f"Провайдеры: {all_providers}")
+    else:
+        print("[-] Провайдеры не настроены. Проверь .env файл.")
+        logger.warning("Провайдеры не настроены.")
 
-# Приветствие только вернувшимся пользователям, не новым
-if is_returning and user_profile and "name" in user_profile:
-    print(f"\n[Мира] С возвращением, {user_profile['name']}.")
+    # Приветствие только вернувшимся пользователям, не новым
+    if is_returning and user_profile and "name" in user_profile:
+        print(f"\n[Мира] С возвращением, {user_profile['name']}.")
 
-print_help()
+    print_help()
 
-# ---------------------------------------------------------------------------
-# Главный цикл
-# ---------------------------------------------------------------------------
-while True:
-    try:
-        user_input = input("\nТы: ").strip()
-    except (KeyboardInterrupt, EOFError):
-        print("\nЗавершение работы...")
-        logger.info("Агент остановлен через Ctrl+C / EOF.")
-        break
+    # ---------------------------------------------------------------------------
+    # Главный цикл
+    # ---------------------------------------------------------------------------
+    while True:
+        try:
+            user_input = input("\nТы: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\nЗавершение работы...")
+            logger.info("Агент остановлен через Ctrl+C / EOF.")
+            break
 
-    if not user_input:
-        continue
+        if not user_input:
+            continue
 
-    cmd = user_input.lower()
+        cmd = user_input.lower()
 
-    # --- Выход (с авто-синхронизацией) ---
-    if cmd in ("exit", "quit", "выход"):
-        print("Завершение работы...")
-        logger.info("Штатное завершение работы агента.")
-        if os.getenv("RCLONE_REMOTE"):
-            print("[Cloud] Синхронизирую перед выходом...")
-            cloud_sync()
-        break
+        # --- Выход (с авто-синхронизацией) ---
+        if cmd in ("exit", "quit", "выход"):
+            print("Завершение работы...")
+            logger.info("Штатное завершение работы агента.")
+            if os.getenv("RCLONE_REMOTE"):
+                print("[Cloud] Синхронизирую перед выходом...")
+                cloud_sync()
+            break
 
-    # --- Контроль доступа ---
-    if user_status == "blocked":
-        print("[Мира] Доступ закрыт.")
-        continue
+        # --- Контроль доступа ---
+        if user_status == "blocked":
+            print("[Мира] Доступ закрыт.")
+            continue
 
-    # --- Кто я ---
-    if cmd == "/whoami":
-        if user_profile:
-            print("\n--- Что Мира знает о тебе ---")
-            print(json.dumps(user_profile, ensure_ascii=False, indent=2))
-        else:
-            print("[-] Профиль не найден.")
-        continue
-
-    # --- Сброс профиля ---
-    if cmd == "/forget":
-        confirm = input("[!] Сбросить профиль и начать знакомство заново? [y/N]: ").strip().lower()
-        if confirm == "y":
-            path = get_user_profile_path(current_user_id)
-            if os.path.exists(path):
-                os.remove(path)
-            print("[*] Профиль удалён.")
-            if alpha and _providers.PROVIDERS:
-                user_profile = run_onboarding(alpha.model_chain, current_user_id)
-            logger.info(f"Профиль сброшен: {current_user_id}")
-        else:
-            print("[*] Отмена.")
-        continue
-
-    # --- Справка ---
-    if cmd == "/help":
-        print_help()
-        continue
-
-    # --- /undo ---
-    if cmd == "/undo":
-        backups = list_undo(current_user_id)
-        if not backups.get("backups"):
-            print("[-] Нет сохранённых версий для восстановления.")
-        else:
-            result = undo_last(current_user_id)
-            if result.get("ok"):
-                print(f"[*] Восстановлено в: {result['restored']}")
+        # --- Кто я ---
+        if cmd == "/whoami":
+            if user_profile:
+                print("\n--- Что Мира знает о тебе ---")
+                print(json.dumps(user_profile, ensure_ascii=False, indent=2))
             else:
-                print(f"[-] {result.get('error')}")
-        continue
-
-    # --- /cloud ---
-    if cmd.startswith("/cloud"):
-        parts = cmd.split(maxsplit=1)
-        sub = parts[1].strip() if len(parts) > 1 else ""
-        if sub == "sync":
-            cloud_sync()
-        elif sub == "restore":
-            cloud_restore()
-        else:
-            print("[-] Использование: /cloud sync  или  /cloud restore")
-        continue
-
-    # --- Управление пользователями (только owner) ---
-    if cmd == "/users":
-        if user_status != "owner":
-            print("[-] Только для владельца.")
+                print("[-] Профиль не найден.")
             continue
-        users = list_users()
-        if not users:
-            print("[-] Пользователей нет.")
-        else:
-            print("\n--- Пользователи ---")
-            for u in users:
-                print(f"  {u['id']:25} | {u['status']:8} | last: {u['last_seen']} | msgs: {u.get('guest_msgs', 0)}")
-        continue
 
-    if cmd.startswith("/approve"):
-        if user_status != "owner":
-            print("[-] Только для владельца."); continue
-        parts = user_input.split(maxsplit=2)
-        if len(parts) < 2:
-            print("[-] /approve <user_id> [новое_имя]"); continue
-        uid, new_name = parts[1], (parts[2] if len(parts) > 2 else "")
-        print("[*] Одобрено." if approve(uid, new_name) else "[-] Пользователь не найден.")
-        continue
-
-    if cmd.startswith("/reject"):
-        if user_status != "owner":
-            print("[-] Только для владельца."); continue
-        parts = user_input.split(maxsplit=1)
-        if len(parts) < 2:
-            print("[-] /reject <user_id>"); continue
-        print("[*] Удалён." if reject(parts[1]) else "[-] Пользователь не найден.")
-        continue
-
-    if cmd.startswith("/block"):
-        if user_status != "owner":
-            print("[-] Только для владельца."); continue
-        parts = user_input.split(maxsplit=1)
-        if len(parts) < 2:
-            print("[-] /block <user_id>"); continue
-        print("[*] Заблокирован." if block(parts[1]) else "[-] Не удалось.")
-        continue
-
-    if cmd.startswith("/unblock"):
-        if user_status != "owner":
-            print("[-] Только для владельца."); continue
-        parts = user_input.split(maxsplit=1)
-        if len(parts) < 2:
-            print("[-] /unblock <user_id>"); continue
-        print("[*] Разблокирован." if unblock(parts[1]) else "[-] Не удалось.")
-        continue
-
-    # --- Очистка памяти ---
-    if cmd == "/clear":
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        save_history(messages)
-        print("[*] Память агента очищена.")
-        logger.info("Память очищена пользователем.")
-        continue
-
-    # --- Git ---
-    if cmd.startswith("/git"):
-        if user_status != "owner":
-            print("[-] /git доступен только владельцу.")
+        # --- Сброс профиля ---
+        if cmd == "/forget":
+            confirm = input("[!] Сбросить профиль и начать знакомство заново? [y/N]: ").strip().lower()
+            if confirm == "y":
+                path = get_user_profile_path(current_user_id)
+                if os.path.exists(path):
+                    os.remove(path)
+                print("[*] Профиль удалён.")
+                if alpha and _providers.PROVIDERS:
+                    user_profile = run_onboarding(alpha.model_chain, current_user_id)
+                logger.info(f"Профиль сброшен: {current_user_id}")
+            else:
+                print("[*] Отмена.")
             continue
-        parts = user_input.split(maxsplit=1)
-        commit_msg = parts[1] if len(parts) > 1 else "Auto-commit: update agent.py"
-        sync_with_git(commit_msg)
-        continue
 
-    # --- Смена модели ---
-    if cmd == "/switch":
-        print_menu()
-        choice = input("Выбери номер модели (или Enter для отмены): ").strip()
-        if choice in MODELS_CONFIG:
-            try:
-                new_client, new_config = setup_client(choice)
-                if new_client:
-                    current_client = new_client
-                    current_config = new_config
-                    print(f"[*] Переключено на: {current_config['label']}")
-                    logger.info(f"Переключение модели на: {current_config['label']}")
-            except Exception as e:
-                print(f"[-] Не удалось подключиться к модели: {e}")
-                logger.error(f"Switch error: {e}")
-        else:
-            print("[-] Отмена или неверный выбор.")
-        continue
-
-    # --- Перезагрузка персоны ---
-    if cmd == "/reload":
-        reload_persona(messages)
-        save_history(messages)
-        continue
-
-    # --- Рефлексия ---
-    if cmd == "/reflect":
-        if alpha and _providers.PROVIDERS:
-            reflect(alpha.model_chain, messages)
-        else:
-            print("[-] Провайдеры не настроены. Проверь .env.")
-        continue
-
-    # --- Релиз (mira-dev → main) ---
-    if cmd == "/release":
-        if user_status != "owner" or not profile.can_use("evolve"):
-            print("[-] /release доступен только владельцу с профилем dev.")
+        # --- Справка ---
+        if cmd == "/help":
+            print_help()
             continue
-        confirm = input("[!] Смержить mira-dev в main и запушить? [y/N]: ").strip().lower()
-        if confirm == "y":
-            release_to_main()
-        else:
-            print("[*] Отмена.")
-        continue
 
-    # --- Эволюция ---
-    if cmd.startswith("/evolve"):
-        if user_status != "owner" or not profile.can_use("evolve"):
-            print("[-] /evolve доступен только владельцу с профилем dev.")
-            print("    Запусти агента с: python agent.py --profile dev")
-            continue
-        parts = user_input.split(maxsplit=1)
-        if len(parts) < 2 or not parts[1].strip():
-            print("[-] Укажи задачу: /evolve <описание что изменить>")
-        elif _providers.PROVIDERS:
-            evolve(parts[1].strip())
-        else:
-            print("[-] Провайдеры не настроены. Проверь .env.")
-        continue
-
-    # --- Откат ---
-    if cmd.startswith("/rollback"):
-        parts = user_input.split(maxsplit=1)
-        if len(parts) > 1 and parts[1].strip().isdigit():
-            # Выбор конкретной версии по номеру из /versions
-            idx = int(parts[1].strip()) - 1
-            if os.path.isdir(VERSIONS_DIR):
-                backups = sorted([
-                    f for f in os.listdir(VERSIONS_DIR)
-                    if f.startswith("agent_") and f.endswith(".py")
-                ])
-                if 0 <= idx < len(backups):
-                    rollback(os.path.join(VERSIONS_DIR, backups[idx]))
+        # --- /undo ---
+        if cmd == "/undo":
+            backups = list_undo(current_user_id)
+            if not backups.get("backups"):
+                print("[-] Нет сохранённых версий для восстановления.")
+            else:
+                result = undo_last(current_user_id)
+                if result.get("ok"):
+                    print(f"[*] Восстановлено в: {result['restored']}")
                 else:
-                    print(f"[-] Нет резервной копии с номером {idx + 1}. Посмотри /versions.")
-            else:
-                print("[-] Папка versions/ не найдена.")
-        else:
-            rollback()
-        continue
-
-    # --- Список резервных копий ---
-    if cmd == "/versions":
-        list_backups()
-        continue
-
-    # --- Стоп Конклава ---
-    if cmd == "/stop":
-        conclave.should_stop = True
-        print("[*] Конклав остановится после текущего шага.")
-        continue
-
-    # --- Обычный чат ---
-    if not _providers.PROVIDERS:
-        print("[-] Провайдеры не настроены. Проверь .env.")
-        continue
-
-    # Гостевой лимит
-    if user_status == "guest":
-        count, limit = increment_guest_counter(current_user_id, user_profile)
-        remaining = limit - count
-        if count > limit:
-            print(f"[Мира] Лимит {limit} сообщений исчерпан. Жду решения хозяина.")
+                    print(f"[-] {result.get('error')}")
             continue
-        elif remaining <= 3:
-            print(f"[Мира] (осталось {remaining} сообщений из {limit})")
 
-    messages.append({"role": "user", "content": user_input})
-    messages = trim_history(messages)
-    logger.info(f"User: {user_input}")
+        # --- /cloud ---
+        if cmd.startswith("/cloud"):
+            parts = cmd.split(maxsplit=1)
+            sub = parts[1].strip() if len(parts) > 1 else ""
+            if sub == "sync":
+                cloud_sync()
+            elif sub == "restore":
+                cloud_restore()
+            else:
+                print("[-] Использование: /cloud sync  или  /cloud restore")
+            continue
 
-    # Классифицируем задачу — дёшево, один вызов
-    conclave.should_stop = False  # сбрасываем флаг перед новым запросом
-    task_type = classify(user_input, alpha.model_chain if alpha else [])
+        # --- Управление пользователями (только owner) ---
+        if cmd == "/users":
+            if user_status != "owner":
+                print("[-] Только для владельца.")
+                continue
+            users = list_users()
+            if not users:
+                print("[-] Пользователей нет.")
+            else:
+                print("\n--- Пользователи ---")
+                for u in users:
+                    print(f"  {u['id']:25} | {u['status']:8} | last: {u['last_seen']} | msgs: {u.get('guest_msgs', 0)}")
+            continue
 
-    try:
-        if task_type in ("complex", "code") and alpha:
-            # Передаём в Конклав: executor → editor → critic
-            executor = "coder" if task_type == "code" else "coder"
-            print(f"\n[Роутер → {task_type.upper()}] Передаю специалистам...")
-            logger.info(f"Conclave activated: task_type={task_type}")
+        if cmd.startswith("/approve"):
+            if user_status != "owner":
+                print("[-] Только для владельца."); continue
+            parts = user_input.split(maxsplit=2)
+            if len(parts) < 2:
+                print("[-] /approve <user_id> [новое_имя]"); continue
+            uid, new_name = parts[1], (parts[2] if len(parts) > 2 else "")
+            print("[*] Одобрено." if approve(uid, new_name) else "[-] Пользователь не найден.")
+            continue
 
-            raw = conclave.run_with_qa(user_input, executor)
+        if cmd.startswith("/reject"):
+            if user_status != "owner":
+                print("[-] Только для владельца."); continue
+            parts = user_input.split(maxsplit=1)
+            if len(parts) < 2:
+                print("[-] /reject <user_id>"); continue
+            print("[*] Удалён." if reject(parts[1]) else "[-] Пользователь не найден.")
+            continue
 
-            # Альфа оформляет результат своим голосом
-            presentation = (
-                f"Специалисты выполнили задачу. "
-                f"Представь результат пользователю от своего имени:\n\n{raw}"
-            )
-            alpha_messages = [
-                {"role": "system",    "content": SYSTEM_PROMPT},
-                {"role": "user",      "content": user_input},
-                {"role": "assistant", "content": "[передала специалистам]"},
-                {"role": "user",      "content": presentation},
-            ]
-            answer = _providers.call(
-                alpha.model_chain, alpha_messages, temperature=0.7
-            ).choices[0].message.content
-            messages.append({"role": "assistant", "content": answer})
+        if cmd.startswith("/block"):
+            if user_status != "owner":
+                print("[-] Только для владельца."); continue
+            parts = user_input.split(maxsplit=1)
+            if len(parts) < 2:
+                print("[-] /block <user_id>"); continue
+            print("[*] Заблокирован." if block(parts[1]) else "[-] Не удалось.")
+            continue
 
-        elif alpha:
-            answer = alpha.run(messages)
+        if cmd.startswith("/unblock"):
+            if user_status != "owner":
+                print("[-] Только для владельца."); continue
+            parts = user_input.split(maxsplit=1)
+            if len(parts) < 2:
+                print("[-] /unblock <user_id>"); continue
+            print("[*] Разблокирован." if unblock(parts[1]) else "[-] Не удалось.")
+            continue
 
-        else:
-            # Fallback без класса Agent
-            fallback_chain = [{"provider": _providers.first_model_name(),
-                               "model": "", "temperature": 0.7}]
-            response = _providers.call(fallback_chain, messages,
-                                       tools=TOOL_SCHEMAS, tool_choice="auto")
-            msg = response.choices[0].message
-            answer = msg.content
-            messages.append({"role": "assistant", "content": answer})
-
-        if answer:
-            print(f"\nМира: {answer}")
-            logger.info(f"Agent: {answer[:120]}")
+        # --- Очистка памяти ---
+        if cmd == "/clear":
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
             save_history(messages)
+            print("[*] Память агента очищена.")
+            logger.info("Память очищена пользователем.")
+            continue
 
-    except Exception as e:
-        print(f"\n[Ошибка API]: Подробности записаны в лог.")
-        logger.error(f"API Error: {e}", exc_info=True)
-        if messages and messages[-1]["role"] == "user":
-            messages.pop()
+        # --- Git ---
+        if cmd.startswith("/git"):
+            if user_status != "owner":
+                print("[-] /git доступен только владельцу.")
+                continue
+            parts = user_input.split(maxsplit=1)
+            commit_msg = parts[1] if len(parts) > 1 else "Auto-commit: update agent.py"
+            sync_with_git(commit_msg)
+            continue
+
+        # --- Смена модели ---
+        if cmd == "/switch":
+            print_menu()
+            choice = input("Выбери номер модели (или Enter для отмены): ").strip()
+            if choice in MODELS_CONFIG:
+                try:
+                    new_client, new_config = setup_client(choice)
+                    if new_client:
+                        current_client = new_client
+                        current_config = new_config
+                        print(f"[*] Переключено на: {current_config['label']}")
+                        logger.info(f"Переключение модели на: {current_config['label']}")
+                except Exception as e:
+                    print(f"[-] Не удалось подключиться к модели: {e}")
+                    logger.error(f"Switch error: {e}")
+            else:
+                print("[-] Отмена или неверный выбор.")
+            continue
+
+        # --- Перезагрузка персоны ---
+        if cmd == "/reload":
+            reload_persona(messages)
+            save_history(messages)
+            continue
+
+        # --- Рефлексия ---
+        if cmd == "/reflect":
+            if alpha and _providers.PROVIDERS:
+                reflect(alpha.model_chain, messages)
+            else:
+                print("[-] Провайдеры не настроены. Проверь .env.")
+            continue
+
+        # --- Релиз (mira-dev → main) ---
+        if cmd == "/release":
+            if user_status != "owner" or not profile.can_use("evolve"):
+                print("[-] /release доступен только владельцу с профилем dev.")
+                continue
+            confirm = input("[!] Смержить mira-dev в main и запушить? [y/N]: ").strip().lower()
+            if confirm == "y":
+                release_to_main()
+            else:
+                print("[*] Отмена.")
+            continue
+
+        # --- Эволюция ---
+        if cmd.startswith("/evolve"):
+            if user_status != "owner" or not profile.can_use("evolve"):
+                print("[-] /evolve доступен только владельцу с профилем dev.")
+                print("    Запусти агента с: python agent.py --profile dev")
+                continue
+            parts = user_input.split(maxsplit=1)
+            if len(parts) < 2 or not parts[1].strip():
+                print("[-] Укажи задачу: /evolve <описание что изменить>")
+            elif _providers.PROVIDERS:
+                evolve(parts[1].strip())
+            else:
+                print("[-] Провайдеры не настроены. Проверь .env.")
+            continue
+
+        # --- Откат ---
+        if cmd.startswith("/rollback"):
+            parts = user_input.split(maxsplit=1)
+            if len(parts) > 1 and parts[1].strip().isdigit():
+                # Выбор конкретной версии по номеру из /versions
+                idx = int(parts[1].strip()) - 1
+                if os.path.isdir(VERSIONS_DIR):
+                    backups = sorted([
+                        f for f in os.listdir(VERSIONS_DIR)
+                        if f.startswith("agent_") and f.endswith(".py")
+                    ])
+                    if 0 <= idx < len(backups):
+                        rollback(os.path.join(VERSIONS_DIR, backups[idx]))
+                    else:
+                        print(f"[-] Нет резервной копии с номером {idx + 1}. Посмотри /versions.")
+                else:
+                    print("[-] Папка versions/ не найдена.")
+            else:
+                rollback()
+            continue
+
+        # --- Список резервных копий ---
+        if cmd == "/versions":
+            list_backups()
+            continue
+
+        # --- Стоп Конклава ---
+        if cmd == "/stop":
+            conclave.should_stop = True
+            print("[*] Конклав остановится после текущего шага.")
+            continue
+
+        # --- Обычный чат ---
+        if not _providers.PROVIDERS:
+            print("[-] Провайдеры не настроены. Проверь .env.")
+            continue
+
+        # Гостевой лимит
+        if user_status == "guest":
+            count, limit = increment_guest_counter(current_user_id, user_profile)
+            remaining = limit - count
+            if count > limit:
+                print(f"[Мира] Лимит {limit} сообщений исчерпан. Жду решения хозяина.")
+                continue
+            elif remaining <= 3:
+                print(f"[Мира] (осталось {remaining} сообщений из {limit})")
+
+        messages.append({"role": "user", "content": user_input})
+        messages = trim_history(messages)
+        logger.info(f"User: {user_input}")
+
+        # Классифицируем задачу — дёшево, один вызов
+        conclave.should_stop = False  # сбрасываем флаг перед новым запросом
+        task_type = classify(user_input, alpha.model_chain if alpha else [])
+
+        try:
+            if task_type in ("complex", "code") and alpha:
+                # Передаём в Конклав: executor → editor → critic
+                executor = "coder" if task_type == "code" else "coder"
+                print(f"\n[Роутер → {task_type.upper()}] Передаю специалистам...")
+                logger.info(f"Conclave activated: task_type={task_type}")
+
+                raw = conclave.run_with_qa(user_input, executor)
+
+                # Альфа оформляет результат своим голосом
+                presentation = (
+                    f"Специалисты выполнили задачу. "
+                    f"Представь результат пользователю от своего имени:\n\n{raw}"
+                )
+                alpha_messages = [
+                    {"role": "system",    "content": SYSTEM_PROMPT},
+                    {"role": "user",      "content": user_input},
+                    {"role": "assistant", "content": "[передала специалистам]"},
+                    {"role": "user",      "content": presentation},
+                ]
+                answer = _providers.call(
+                    alpha.model_chain, alpha_messages, temperature=0.7
+                ).choices[0].message.content
+                messages.append({"role": "assistant", "content": answer})
+
+            elif alpha:
+                answer = alpha.run(messages)
+
+            else:
+                # Fallback без класса Agent
+                fallback_chain = [{"provider": _providers.first_model_name(),
+                                   "model": "", "temperature": 0.7}]
+                response = _providers.call(fallback_chain, messages,
+                                           tools=TOOL_SCHEMAS, tool_choice="auto")
+                msg = response.choices[0].message
+                answer = msg.content
+                messages.append({"role": "assistant", "content": answer})
+
+            if answer:
+                print(f"\nМира: {answer}")
+                logger.info(f"Agent: {answer[:120]}")
+                save_history(messages)
+
+        except Exception as e:
+            print(f"\n[Ошибка API]: Подробности записаны в лог.")
+            logger.error(f"API Error: {e}", exc_info=True)
+            if messages and messages[-1]["role"] == "user":
+                messages.pop()
 

@@ -1,0 +1,898 @@
+"""
+telegram_bot.py — Telegram-интерфейс для Mira.
+
+Запуск:
+    python telegram_bot.py
+
+Переменные окружения (.env):
+    TELEGRAM_BOT_TOKEN  — токен бота от @BotFather
+    OWNER_TELEGRAM_ID   — Telegram user_id владельца (получает dev-права)
+
+Архитектура:
+    Каждый пользователь — изолированная сессия.
+    История хранится в memory/sessions/tg_{id}.json.
+    Workspace — workspace/tg_{id}/.
+    Файлы из output/ отправляются автоматически после каждого ответа.
+"""
+
+import asyncio
+import os
+import json
+import logging
+from datetime import datetime
+
+from telegram import (
+    Update,
+    BotCommand,
+    BotCommandScopeDefault,
+    BotCommandScopeChat,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    filters,
+    ContextTypes,
+)
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# ---------------------------------------------------------------------------
+# Импорт ядра Mira
+# ---------------------------------------------------------------------------
+import providers as _providers
+_providers.init()
+
+from router   import classify
+from conclave import Conclave
+
+# agent.py теперь импортируемый — берём всё нужное
+from agent import (
+    Agent, Profile, SYSTEM_PROMPT, TOOL_SCHEMAS, execute_tool,
+    load_persona, load_principles,
+    load_user_profile, save_user_profile, get_user_profile_path,
+    run_onboarding, cleanup_temp, cleanup_expired_guests,
+    evolve, reflect, backup_agent, rollback, list_backups,
+    sync_with_git, ensure_dev_branch, release_to_main,
+    list_users, approve, reject, block, unblock, notify_owner,
+    MEMORY_DIR, WORKSPACE_DIR, MEMORY_SESSIONS_DIR,
+)
+
+# ---------------------------------------------------------------------------
+# Конфигурация
+# ---------------------------------------------------------------------------
+TOKEN        = os.getenv("TELEGRAM_BOT_TOKEN", "")
+OWNER_TG_ID  = int(os.getenv("OWNER_TELEGRAM_ID", "0"))
+MAX_HISTORY  = 40
+MAX_MSG_LEN  = 4000   # Telegram ограничивает сообщения ~4096 символами
+
+logger = logging.getLogger("MiraBot")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+
+# ---------------------------------------------------------------------------
+# Вспомогательные функции
+# ---------------------------------------------------------------------------
+
+def _user_id(tg_id: int) -> str:
+    return f"tg_{tg_id}"
+
+
+def _is_owner(tg_id: int) -> bool:
+    return OWNER_TG_ID and tg_id == OWNER_TG_ID
+
+
+def _profile_for(tg_id: int) -> Profile:
+    """Owner → dev-профиль, остальные → default."""
+    return Profile("dev" if _is_owner(tg_id) else "default")
+
+
+def _session_path(user_id: str) -> str:
+    return os.path.join(MEMORY_SESSIONS_DIR, f"{user_id}.json")
+
+
+def _load_session(user_id: str) -> list:
+    path = _session_path(user_id)
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                msgs = json.load(f)
+            # Обновляем системный промпт (мог измениться)
+            for m in msgs:
+                if m["role"] == "system":
+                    m["content"] = SYSTEM_PROMPT
+                    break
+            else:
+                msgs.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
+            return msgs
+        except Exception:
+            pass
+    return [{"role": "system", "content": SYSTEM_PROMPT}]
+
+
+def _save_session(user_id: str, msgs: list) -> None:
+    os.makedirs(MEMORY_SESSIONS_DIR, exist_ok=True)
+    system   = [m for m in msgs if m["role"] == "system"]
+    the_rest = [m for m in msgs if m["role"] != "system"]
+    trimmed  = system + the_rest[-MAX_HISTORY:]
+    # Не сохраняем tool-сообщения — они не нужны между сессиями
+    saveable = [m for m in trimmed if isinstance(m.get("content"), str)]
+    try:
+        with open(_session_path(user_id), "w", encoding="utf-8") as f:
+            json.dump(saveable, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.warning(f"Не удалось сохранить сессию {user_id}: {e}")
+
+
+def _make_alpha(tg_id: int, user_id: str) -> Agent | None:
+    try:
+        p = _profile_for(tg_id)
+        return Agent.from_config_file("alpha", p, user_id, SYSTEM_PROMPT)
+    except Exception as e:
+        logger.error(f"Ошибка создания alpha: {e}")
+        return None
+
+
+def _make_conclave(tg_id: int, user_id: str) -> Conclave:
+    p = _profile_for(tg_id)
+    return Conclave(
+        system_prompt=SYSTEM_PROMPT,
+        user_id=user_id,
+        profile=p,
+        tool_schemas=TOOL_SCHEMAS,
+        execute_tool_fn=execute_tool,
+    )
+
+
+def _split_message(text: str) -> list[str]:
+    """Разбивает длинное сообщение на части до MAX_MSG_LEN символов."""
+    if len(text) <= MAX_MSG_LEN:
+        return [text]
+    parts = []
+    while text:
+        parts.append(text[:MAX_MSG_LEN])
+        text = text[MAX_MSG_LEN:]
+    return parts
+
+
+async def _send_long(update: Update, text: str, **kwargs) -> None:
+    for part in _split_message(text):
+        await update.message.reply_text(part, **kwargs)
+
+
+async def _send_output_files(context, chat_id: int, user_id: str, since_ts: float) -> None:
+    """Автоматически отправляет новые файлы из output/ после ответа агента."""
+    output_dir = os.path.join(WORKSPACE_DIR, user_id, "output")
+    if not os.path.isdir(output_dir):
+        return
+    for fname in sorted(os.listdir(output_dir)):
+        if fname.startswith("."):
+            continue
+        fpath = os.path.join(output_dir, fname)
+        if os.path.isfile(fpath) and os.path.getmtime(fpath) > since_ts:
+            try:
+                with open(fpath, "rb") as f:
+                    await context.bot.send_document(
+                        chat_id=chat_id,
+                        document=f,
+                        filename=fname,
+                        caption=f"📎 {fname}",
+                    )
+            except Exception as e:
+                logger.warning(f"Не удалось отправить файл {fname}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Меню команд
+# ---------------------------------------------------------------------------
+
+BASIC_COMMANDS = [
+    BotCommand("start",  "Начать / онбординг"),
+    BotCommand("help",   "Список команд"),
+    BotCommand("whoami", "Мой профиль"),
+    BotCommand("files",  "Мои файлы"),
+    BotCommand("clear",  "Очистить историю"),
+    BotCommand("forget", "Сбросить профиль"),
+    BotCommand("stop",   "Остановить Конклав"),
+]
+
+OWNER_COMMANDS = BASIC_COMMANDS + [
+    BotCommand("evolve",   "Изменить код агента"),
+    BotCommand("reflect",  "Агент читает свой код"),
+    BotCommand("rollback", "Откат agent.py"),
+    BotCommand("versions", "Резервные копии"),
+    BotCommand("release",  "Смержить mira-dev в main"),
+    BotCommand("git",      "Закоммитить изменения"),
+    BotCommand("users",    "Список пользователей"),
+    BotCommand("approve",  "Одобрить гостя"),
+    BotCommand("block",    "Заблокировать"),
+    BotCommand("unblock",  "Разблокировать"),
+]
+
+
+def _help_keyboard(is_owner: bool) -> InlineKeyboardMarkup:
+    """Inline-кнопки быстрых действий."""
+    buttons = [
+        [
+            InlineKeyboardButton("📁 Мои файлы",    callback_data="cmd_files"),
+            InlineKeyboardButton("👤 Профиль",       callback_data="cmd_whoami"),
+        ],
+        [
+            InlineKeyboardButton("🗑 Очистить историю", callback_data="cmd_clear"),
+            InlineKeyboardButton("🔁 Сброс профиля",   callback_data="cmd_forget"),
+        ],
+    ]
+    if is_owner:
+        buttons.append([
+            InlineKeyboardButton("⚡ Reflect",  callback_data="cmd_reflect"),
+            InlineKeyboardButton("📦 Rollback", callback_data="cmd_rollback"),
+            InlineKeyboardButton("🚀 Release",  callback_data="cmd_release"),
+        ])
+        buttons.append([
+            InlineKeyboardButton("👥 Пользователи", callback_data="cmd_users"),
+        ])
+    return InlineKeyboardMarkup(buttons)
+
+
+# ---------------------------------------------------------------------------
+# Обработчики команд
+# ---------------------------------------------------------------------------
+
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    tg_id   = update.effective_user.id
+    user_id = _user_id(tg_id)
+
+    os.makedirs(MEMORY_DIR, exist_ok=True)
+    os.makedirs(MEMORY_SESSIONS_DIR, exist_ok=True)
+    for sub in ("inbox", "output", "temp", ".undo"):
+        os.makedirs(os.path.join(WORKSPACE_DIR, user_id, sub), exist_ok=True)
+    cleanup_temp(user_id)
+
+    profile_data = load_user_profile(user_id)
+    is_owner = _is_owner(tg_id)
+
+    if profile_data is None:
+        # Первый запуск — онбординг
+        alpha = _make_alpha(tg_id, user_id)
+        if alpha:
+            await update.message.reply_text(
+                "Привет. Я Мира. Давай познакомимся.\n\nКак тебя зовут?"
+            )
+            # Онбординг идёт через обычные сообщения — контекст хранится в user_data
+            context.user_data["onboarding"] = True
+            context.user_data["onboarding_history"] = [
+                {"role": "system", "content": (
+                    "Ты Мира. Знакомишься с новым пользователем. "
+                    "Задавай вопросы по одному: имя, чем занимается, как предпочитает общаться. "
+                    "После 3-4 вопросов скажи 'Принято. Начинаем.' и остановись."
+                )}
+            ]
+        else:
+            await update.message.reply_text("Привет! Я Мира. Напиши что-нибудь, начнём работать.")
+        status = "owner" if is_owner else "regular"
+        save_user_profile(user_id, {
+            "id": user_id, "name": "", "status": status,
+            "created_at": datetime.now().strftime("%Y-%m-%d"),
+            "last_seen": datetime.now().strftime("%Y-%m-%d"),
+            "sessions_count": 1, "about": {}, "preferences": {}, "domain": {}, "notes": [],
+        })
+    else:
+        # Не первый запуск
+        if is_owner and profile_data.get("status") != "owner":
+            profile_data["status"] = "owner"
+            save_user_profile(user_id, profile_data)
+        name = profile_data.get("name") or "снова"
+        await update.message.reply_text(
+            f"С возвращением, {name}.",
+            reply_markup=_help_keyboard(is_owner),
+        )
+
+
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    tg_id = update.effective_user.id
+    is_owner = _is_owner(tg_id)
+    text = (
+        "Команды:\n"
+        "/whoami — профиль\n"
+        "/files — файлы\n"
+        "/clear — очистить историю\n"
+        "/forget — сбросить профиль\n"
+        "/stop — остановить Конклав\n"
+    )
+    if is_owner:
+        text += (
+            "\n— Разработчик —\n"
+            "/evolve <задача> — изменить код\n"
+            "/reflect — анализ кода\n"
+            "/rollback — откат\n"
+            "/versions — резервные копии\n"
+            "/release — мердж в main\n"
+            "/git [msg] — коммит\n"
+            "/users — пользователи\n"
+            "/approve <id> — одобрить\n"
+            "/block <id> — заблокировать\n"
+        )
+    await update.message.reply_text(text, reply_markup=_help_keyboard(is_owner))
+
+
+async def cmd_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = _user_id(update.effective_user.id)
+    data = load_user_profile(user_id)
+    if not data:
+        await update.message.reply_text("Профиль не найден. Напиши /start.")
+        return
+    lines = [
+        f"👤 *{data.get('name', '—')}*",
+        f"Статус: {data.get('status', 'regular')}",
+        f"Сессий: {data.get('sessions_count', 0)}",
+        f"Последний визит: {data.get('last_seen', '—')}",
+    ]
+    about = data.get("about", {})
+    if about.get("role"):
+        lines.append(f"Роль: {about['role']}")
+    if about.get("communication_style"):
+        lines.append(f"Стиль: {about['communication_style']}")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def cmd_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = _user_id(update.effective_user.id)
+    lines = []
+    for sub in ("inbox", "output"):
+        d = os.path.join(WORKSPACE_DIR, user_id, sub)
+        if os.path.isdir(d):
+            files = [f for f in os.listdir(d) if not f.startswith(".")]
+            lines.append(f"📁 *{sub}/*: {', '.join(files) if files else 'пусто'}")
+    await update.message.reply_text(
+        "\n".join(lines) if lines else "Файлов нет.",
+        parse_mode="Markdown",
+    )
+
+
+async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = _user_id(update.effective_user.id)
+    _save_session(user_id, [{"role": "system", "content": SYSTEM_PROMPT}])
+    context.user_data.pop("onboarding", None)
+    await update.message.reply_text("История очищена.")
+
+
+async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = _user_id(update.effective_user.id)
+    path = get_user_profile_path(user_id)
+    if os.path.exists(path):
+        os.remove(path)
+    _save_session(user_id, [{"role": "system", "content": SYSTEM_PROMPT}])
+    await update.message.reply_text("Профиль удалён. Напиши /start чтобы познакомиться заново.")
+
+
+async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    ctx_conclave = context.user_data.get("conclave")
+    if ctx_conclave:
+        ctx_conclave.should_stop = True
+    await update.message.reply_text("Стоп — Конклав остановится после текущего шага.")
+
+
+# ---------------------------------------------------------------------------
+# Owner-команды
+# ---------------------------------------------------------------------------
+
+async def cmd_reflect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user.id):
+        return
+    tg_id   = update.effective_user.id
+    user_id = _user_id(tg_id)
+    alpha   = _make_alpha(tg_id, user_id)
+    if not alpha:
+        await update.message.reply_text("Ошибка: не удалось создать агента.")
+        return
+    await update.message.reply_text("Читаю свой код...")
+    msgs = _load_session(user_id)
+    reflect(alpha.model_chain, msgs)
+    # Последний ответ уже добавлен в msgs
+    for m in reversed(msgs):
+        if m["role"] == "assistant":
+            await _send_long(update, m["content"])
+            break
+    _save_session(user_id, msgs)
+
+
+async def cmd_evolve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user.id):
+        return
+    task = " ".join(context.args) if context.args else ""
+    if not task:
+        await update.message.reply_text("Укажи задачу: /evolve <что изменить>")
+        return
+    await update.message.reply_text(f"Генерирую патч для: «{task}»...")
+    # evolve() интерактивная — в Telegram используем упрощённую версию
+    # (показываем diff, просим подтверждение через кнопки)
+    context.user_data["pending_evolve"] = task
+    await update.message.reply_text(
+        "⚠️ /evolve в Telegram работает в два шага:\n"
+        "1. Генерирую diff\n"
+        "2. Присылаю тебе на одобрение\n\n"
+        "Подожди...",
+    )
+    # Запускаем evolve в режиме preview (без интерактивного ввода)
+    await _run_evolve_preview(update, context, task)
+
+
+async def _run_evolve_preview(update, context, task):
+    """Генерирует diff и отправляет владельцу для одобрения через кнопки."""
+    import difflib
+    from agent import read_own_code, load_principles, ensure_dev_branch, SYSTEM_PROMPT
+    import providers as _providers
+
+    if not ensure_dev_branch():
+        await update.message.reply_text("[!] Не удалось переключиться на mira-dev.")
+
+    principles = load_principles()
+    code = read_own_code()
+    if not code:
+        await update.message.reply_text("[-] Не удалось прочитать код.")
+        return
+
+    tg_id   = update.effective_user.id
+    alpha   = _make_alpha(tg_id, _user_id(tg_id))
+    if not alpha:
+        await update.message.reply_text("Ошибка создания агента.")
+        return
+
+    principles_block = f"\nПринципы:\n{principles}\n" if principles else ""
+    prompt = (
+        f"Файл agent.py ({len(code.splitlines())} строк). Задача: {task}\n"
+        f"{principles_block}\n"
+        "Верни unified diff (формат diff -u). Только diff, не весь файл."
+    )
+    try:
+        response = _providers.call(
+            alpha.model_chain,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=2048,
+        )
+        raw_diff = response.choices[0].message.content.strip()
+        if raw_diff.startswith("```"):
+            raw_diff = "\n".join(
+                l for l in raw_diff.splitlines() if not l.strip().startswith("```")
+            ).strip()
+
+        if "@@" not in raw_diff:
+            await update.message.reply_text("Модель не вернула diff. Попробуй другую формулировку.")
+            return
+
+        # Сохраняем diff для применения при подтверждении
+        context.user_data["evolve_diff"] = raw_diff
+        context.user_data["evolve_code"] = code
+
+        # Отправляем diff (обрезаем если слишком длинный)
+        diff_preview = raw_diff[:3000] + ("\n...(обрезано)" if len(raw_diff) > 3000 else "")
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Применить", callback_data="evolve_apply"),
+            InlineKeyboardButton("❌ Отклонить", callback_data="evolve_reject"),
+        ]])
+        await update.message.reply_text(
+            f"```diff\n{diff_preview}\n```",
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Ошибка: {e}")
+
+
+async def cmd_rollback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user.id):
+        return
+    rollback()
+    await update.message.reply_text("Откат выполнен. Перезапусти бота.")
+
+
+async def cmd_versions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user.id):
+        return
+    import io
+    buf = io.StringIO()
+    import sys
+    old = sys.stdout
+    sys.stdout = buf
+    list_backups()
+    sys.stdout = old
+    await update.message.reply_text(buf.getvalue() or "Резервных копий нет.")
+
+
+async def cmd_release(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user.id):
+        return
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Да, мерджим", callback_data="release_confirm"),
+        InlineKeyboardButton("❌ Отмена",       callback_data="release_cancel"),
+    ]])
+    await update.message.reply_text(
+        "Смержить mira-dev → main и запушить?",
+        reply_markup=keyboard,
+    )
+
+
+async def cmd_git(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user.id):
+        return
+    msg = " ".join(context.args) if context.args else "Auto-commit from Telegram"
+    await update.message.reply_text("Синхронизирую...")
+    sync_with_git(msg)
+    await update.message.reply_text("Готово.")
+
+
+async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user.id):
+        return
+    users = list_users()
+    if not users:
+        await update.message.reply_text("Пользователей нет.")
+        return
+    lines = ["*Пользователи:*"]
+    for u in users:
+        lines.append(f"• `{u['id']}` — {u['status']} | {u['last_seen']}")
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user.id):
+        return
+    if not context.args:
+        await update.message.reply_text("Использование: /approve <user_id> [имя]")
+        return
+    uid  = context.args[0]
+    name = " ".join(context.args[1:]) if len(context.args) > 1 else ""
+    result = approve(uid, name)
+    await update.message.reply_text("Одобрено." if result else "Пользователь не найден.")
+
+
+async def cmd_block(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user.id):
+        return
+    if not context.args:
+        await update.message.reply_text("Использование: /block <user_id>")
+        return
+    result = block(context.args[0])
+    await update.message.reply_text("Заблокирован." if result else "Не найден.")
+
+
+async def cmd_unblock(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user.id):
+        return
+    if not context.args:
+        await update.message.reply_text("Использование: /unblock <user_id>")
+        return
+    result = unblock(context.args[0])
+    await update.message.reply_text("Разблокирован." if result else "Не найден.")
+
+
+# ---------------------------------------------------------------------------
+# Callback-кнопки (inline keyboards)
+# ---------------------------------------------------------------------------
+
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    data    = query.data
+    tg_id   = query.from_user.id
+    user_id = _user_id(tg_id)
+
+    # --- Быстрые команды из меню ---
+    cmd_map = {
+        "cmd_files":   cmd_files,
+        "cmd_whoami":  cmd_whoami,
+        "cmd_clear":   cmd_clear,
+        "cmd_reflect": cmd_reflect,
+        "cmd_rollback":cmd_rollback,
+        "cmd_users":   cmd_users,
+    }
+    if data in cmd_map:
+        await cmd_map[data](update, context)
+        return
+
+    if data == "cmd_forget":
+        path = get_user_profile_path(user_id)
+        if os.path.exists(path):
+            os.remove(path)
+        _save_session(user_id, [{"role": "system", "content": SYSTEM_PROMPT}])
+        await query.edit_message_text("Профиль удалён. Напиши /start.")
+        return
+
+    # --- Evolve подтверждение ---
+    if data == "evolve_apply":
+        if not _is_owner(tg_id):
+            return
+        diff = context.user_data.get("evolve_diff")
+        code = context.user_data.get("evolve_code")
+        if not diff or not code:
+            await query.edit_message_text("Сессия устарела — запусти /evolve снова.")
+            return
+        from agent import _apply_unified_diff, validate_code, backup_agent, smoke_test, AGENT_FILE
+        import tempfile
+        ok, new_code = _apply_unified_diff(code, diff)
+        if not ok:
+            await query.edit_message_text(f"Не удалось применить diff: {new_code}")
+            return
+        valid, err = validate_code(new_code)
+        if not valid:
+            await query.edit_message_text(f"Синтаксическая ошибка: {err}")
+            return
+        backup_path = backup_agent()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as tmp:
+            tmp.write(new_code)
+            tmp_path = tmp.name
+        import sys
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.path.dirname(AGENT_FILE)
+        import subprocess
+        result = subprocess.run([sys.executable, tmp_path, "--self-test"],
+                                capture_output=True, text=True, timeout=10,
+                                cwd=os.path.dirname(AGENT_FILE), env=env)
+        os.unlink(tmp_path)
+        if not (result.returncode == 0 and "OK" in result.stdout):
+            await query.edit_message_text(f"Smoke-test не прошёл: {result.stderr[:500]}")
+            return
+        with open(AGENT_FILE, "w", encoding="utf-8") as f:
+            f.write(new_code)
+        context.user_data.pop("evolve_diff", None)
+        context.user_data.pop("evolve_code", None)
+        await query.edit_message_text(f"✅ Код обновлён. Бэкап: {backup_path}\nПерезапусти бота.")
+
+    elif data == "evolve_reject":
+        context.user_data.pop("evolve_diff", None)
+        context.user_data.pop("evolve_code", None)
+        await query.edit_message_text("Изменения отклонены.")
+
+    # --- Release подтверждение ---
+    elif data == "release_confirm":
+        if not _is_owner(tg_id):
+            return
+        await query.edit_message_text("Мерджу mira-dev → main...")
+        ok = release_to_main()
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="✅ Релиз выполнен." if ok else "❌ Ошибка при релизе — смотри лог.",
+        )
+    elif data == "release_cancel":
+        await query.edit_message_text("Отменено.")
+
+
+# ---------------------------------------------------------------------------
+# Обработчик документов (входящие файлы)
+# ---------------------------------------------------------------------------
+
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    tg_id   = update.effective_user.id
+    user_id = _user_id(tg_id)
+    doc     = update.message.document
+    fname   = doc.file_name or f"file_{doc.file_id}"
+
+    inbox = os.path.join(WORKSPACE_DIR, user_id, "inbox")
+    os.makedirs(inbox, exist_ok=True)
+    dest = os.path.join(inbox, fname)
+
+    tg_file = await context.bot.get_file(doc.file_id)
+    await tg_file.download_to_drive(dest)
+
+    await update.message.reply_text(
+        f"📥 Файл сохранён: `inbox/{fname}`\n\nМогу прочитать, проанализировать или обработать — скажи что нужно.",
+        parse_mode="Markdown",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Основной обработчик сообщений
+# ---------------------------------------------------------------------------
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    tg_id   = update.effective_user.id
+    user_id = _user_id(tg_id)
+    text    = update.message.text or ""
+
+    # Онбординг
+    if context.user_data.get("onboarding"):
+        await _handle_onboarding(update, context, tg_id, user_id, text)
+        return
+
+    # Проверка статуса
+    profile_data = load_user_profile(user_id)
+    if profile_data and profile_data.get("status") == "blocked":
+        await update.message.reply_text("Доступ закрыт.")
+        return
+
+    # Гостевой лимит
+    if profile_data and profile_data.get("status") == "guest":
+        count = profile_data.get("guest_message_count", 0) + 1
+        profile_data["guest_message_count"] = count
+        save_user_profile(user_id, profile_data)
+        if count > 10:
+            await update.message.reply_text("Лимит сообщений исчерпан. Ожидай одобрения.")
+            return
+        elif count >= 8:
+            await update.message.reply_text(f"(осталось {10 - count} сообщений из 10)")
+
+    msgs   = _load_session(user_id)
+    alpha  = _make_alpha(tg_id, user_id)
+    conc   = _make_conclave(tg_id, user_id)
+    context.user_data["conclave"] = conc
+
+    msgs.append({"role": "user", "content": text})
+    # trim
+    system   = [m for m in msgs if m["role"] == "system"]
+    the_rest = [m for m in msgs if m["role"] != "system"]
+    msgs     = system + the_rest[-MAX_HISTORY:]
+
+    task_type = classify(text, alpha.model_chain if alpha else [])
+    ts_before = datetime.now().timestamp()
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+
+    try:
+        if task_type in ("complex", "code") and alpha:
+            await update.message.reply_text(f"[Конклав → {task_type.upper()}]")
+            raw = conc.run_with_qa(text, "coder")
+            presentation = (
+                f"Специалисты выполнили задачу. Представь результат:\n\n{raw}"
+            )
+            alpha_msgs = [
+                {"role": "system",    "content": SYSTEM_PROMPT},
+                {"role": "user",      "content": text},
+                {"role": "assistant", "content": "[передала специалистам]"},
+                {"role": "user",      "content": presentation},
+            ]
+            answer = _providers.call(
+                alpha.model_chain, alpha_msgs, temperature=0.7
+            ).choices[0].message.content
+            msgs.append({"role": "assistant", "content": answer})
+        elif alpha:
+            answer = alpha.run(msgs)
+        else:
+            await update.message.reply_text("Провайдеры не настроены.")
+            return
+
+        await _send_long(update, answer)
+        await _send_output_files(context, update.effective_chat.id, user_id, ts_before)
+        _save_session(user_id, msgs)
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке сообщения: {e}", exc_info=True)
+        await update.message.reply_text("Что-то пошло не так. Попробуй снова.")
+        if msgs and msgs[-1]["role"] == "user":
+            msgs.pop()
+
+
+async def _handle_onboarding(update, context, tg_id, user_id, text):
+    """Онбординг через диалог в Telegram."""
+    hist = context.user_data.get("onboarding_history", [])
+    hist.append({"role": "user", "content": text})
+
+    alpha = _make_alpha(tg_id, user_id)
+    if not alpha:
+        context.user_data.pop("onboarding", None)
+        return
+
+    try:
+        response = _providers.call(alpha.model_chain, hist, temperature=0.7)
+        reply = response.choices[0].message.content
+        hist.append({"role": "assistant", "content": reply})
+        context.user_data["onboarding_history"] = hist
+
+        await update.message.reply_text(reply)
+
+        if "Принято" in reply or "Начинаем" in reply or len(hist) >= 10:
+            # Завершаем онбординг — структурируем профиль
+            dialog = "\n".join(
+                f"{m['role']}: {m['content']}"
+                for m in hist if m["role"] in ("user", "assistant")
+            )
+            today = datetime.now().strftime("%Y-%m-%d")
+            struct_prompt = (
+                f"Создай JSON-профиль пользователя по диалогу.\n"
+                f"Верни ТОЛЬКО JSON.\n\nДиалог:\n{dialog}\n\n"
+                f'{{"id":"{user_id}","name":"имя","created_at":"{today}",'
+                f'"last_seen":"{today}","sessions_count":1,'
+                f'"status":"{"owner" if _is_owner(tg_id) else "regular"}",'
+                f'"about":{{"role":"...","communication_style":"..."}},'
+                f'"preferences":{{"language":"ru"}},"domain":{{}},"notes":[]}}'
+            )
+            try:
+                r = _providers.call(
+                    alpha.model_chain,
+                    [{"role": "user", "content": struct_prompt}],
+                    temperature=0.1,
+                )
+                raw = r.choices[0].message.content.strip()
+                if raw.startswith("```"):
+                    raw = "\n".join(l for l in raw.splitlines() if not l.strip().startswith("```"))
+                data = json.loads(raw)
+            except Exception:
+                data = {
+                    "id": user_id, "name": user_id.replace("tg_", ""),
+                    "created_at": today, "last_seen": today, "sessions_count": 1,
+                    "status": "owner" if _is_owner(tg_id) else "regular",
+                    "about": {}, "preferences": {}, "domain": {}, "notes": [],
+                }
+            save_user_profile(user_id, data)
+            context.user_data.pop("onboarding", None)
+            context.user_data.pop("onboarding_history", None)
+            await update.message.reply_text(
+                "Профиль сохранён. Можем начинать.",
+                reply_markup=_help_keyboard(_is_owner(tg_id)),
+            )
+    except Exception as e:
+        logger.error(f"Онбординг: {e}")
+        await update.message.reply_text("Ошибка API. Попробуй снова.")
+
+
+# ---------------------------------------------------------------------------
+# Запуск бота
+# ---------------------------------------------------------------------------
+
+async def post_init(app: Application) -> None:
+    """Устанавливает меню команд при старте бота."""
+    # Базовые команды для всех
+    await app.bot.set_my_commands(BASIC_COMMANDS, scope=BotCommandScopeDefault())
+    # Расширенные для владельца
+    if OWNER_TG_ID:
+        try:
+            await app.bot.set_my_commands(
+                OWNER_COMMANDS,
+                scope=BotCommandScopeChat(chat_id=OWNER_TG_ID),
+            )
+        except Exception as e:
+            logger.warning(f"Не удалось установить owner-меню: {e}")
+    logger.info("Бот запущен. Команды установлены.")
+
+
+def main() -> None:
+    if not TOKEN:
+        raise ValueError("TELEGRAM_BOT_TOKEN не задан в .env")
+
+    app = (
+        Application.builder()
+        .token(TOKEN)
+        .post_init(post_init)
+        .build()
+    )
+
+    # Команды
+    app.add_handler(CommandHandler("start",    cmd_start))
+    app.add_handler(CommandHandler("help",     cmd_help))
+    app.add_handler(CommandHandler("whoami",   cmd_whoami))
+    app.add_handler(CommandHandler("files",    cmd_files))
+    app.add_handler(CommandHandler("clear",    cmd_clear))
+    app.add_handler(CommandHandler("forget",   cmd_forget))
+    app.add_handler(CommandHandler("stop",     cmd_stop))
+    # Owner
+    app.add_handler(CommandHandler("reflect",  cmd_reflect))
+    app.add_handler(CommandHandler("evolve",   cmd_evolve))
+    app.add_handler(CommandHandler("rollback", cmd_rollback))
+    app.add_handler(CommandHandler("versions", cmd_versions))
+    app.add_handler(CommandHandler("release",  cmd_release))
+    app.add_handler(CommandHandler("git",      cmd_git))
+    app.add_handler(CommandHandler("users",    cmd_users))
+    app.add_handler(CommandHandler("approve",  cmd_approve))
+    app.add_handler(CommandHandler("block",    cmd_block))
+    app.add_handler(CommandHandler("unblock",  cmd_unblock))
+
+    # Файлы и сообщения
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CallbackQueryHandler(handle_callback))
+
+    logger.info("Запускаю polling...")
+    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+
+if __name__ == "__main__":
+    main()
