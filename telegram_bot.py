@@ -18,6 +18,7 @@ telegram_bot.py — Telegram-интерфейс для Mira.
 import asyncio
 import os
 import json
+import base64
 import logging
 from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime
@@ -762,6 +763,71 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
 
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обрабатывает фото: скачивает, отправляет Claude с vision, сохраняет [фото] в истории."""
+    tg_id   = update.effective_user.id
+    user_id = _user_id(tg_id)
+
+    profile_data = load_user_profile(user_id)
+    if profile_data and profile_data.get("status") == "blocked":
+        return
+
+    # Скачиваем фото в наилучшем качестве
+    photo   = update.message.photo[-1]
+    tg_file = await context.bot.get_file(photo.file_id)
+    raw     = await tg_file.download_as_bytearray()
+    b64     = base64.b64encode(bytes(raw)).decode()
+
+    # Формируем vision-контент
+    caption = (update.message.caption or "").strip()
+    content = []
+    if caption:
+        content.append({"type": "text", "text": caption})
+    content.append({
+        "type": "image_url",
+        "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
+    })
+
+    msgs  = _load_session(user_id)
+    alpha = _make_alpha(tg_id, user_id)
+    if not alpha:
+        await update.message.reply_text("Провайдеры не настроены.")
+        return
+
+    msgs.append({"role": "user", "content": content})
+    system   = [m for m in msgs if m["role"] == "system"]
+    the_rest = [m for m in msgs if m["role"] != "system"]
+    msgs     = system + the_rest[-MAX_HISTORY:]
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+
+    try:
+        answer = alpha.run(msgs)
+        await _send_long(update, answer)
+
+        # Сохраняем историю: заменяем image_url на текстовый placeholder
+        def _strip_images(m: dict) -> dict:
+            c = m.get("content")
+            if not isinstance(c, list):
+                return m
+            texts = [p.get("text", "") for p in c if p.get("type") == "text"]
+            placeholder = " ".join(t for t in texts if t).strip() or "[фото]"
+            return {**m, "content": placeholder}
+
+        _save_session(user_id, [_strip_images(m) for m in msgs])
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке фото: {e}", exc_info=True)
+        err = str(e).lower()
+        if any(k in err for k in ("vision", "image", "multimodal", "unsupported")):
+            await update.message.reply_text(
+                "Сейчас не могу посмотреть фото — модель с поддержкой изображений недоступна. "
+                "Попробуй позже или опиши словами что на снимке."
+            )
+        else:
+            await update.message.reply_text("Что-то пошло не так. Попробуй ещё раз.")
+
+
 # ---------------------------------------------------------------------------
 # Основной обработчик сообщений
 # ---------------------------------------------------------------------------
@@ -984,6 +1050,7 @@ def main() -> None:
 
     # Файлы и сообщения
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(handle_callback))
 
