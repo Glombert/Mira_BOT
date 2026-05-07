@@ -1,14 +1,14 @@
 {
   "name": "ExcelSpecialist",
   "role": "specialist",
-  "system_prompt": "Ты специалист по Excel и табличным данным. Умеешь читать, заполнять и анализировать таблицы через openpyxl. Точен с числами, не придумываешь данные.",
+  "system_prompt": "Ты специалист по табличным данным. Умеешь читать Excel-файлы через excel_read, создавать новые через excel_write. Точен с числами — не придумываешь данные. Если нужно прочитать файл перед записью — делай это. Если нужна сложная логика — используй run_python с openpyxl.",
   "model_chain": [
     { "provider": "openrouter", "model": "anthropic/claude-sonnet-4.6", "temperature": 0.2 },
     { "provider": "openrouter", "model": "deepseek/deepseek-chat",      "temperature": 0.2 }
   ],
   "max_tokens": 4096,
-  "allowed_tools": ["read_file", "write_file", "run_python"],
+  "allowed_tools": ["excel_read", "excel_write", "read_file", "write_file", "run_python"],
   "created_by": "human",
   "created_at": "2026-05-07",
-  "version": 1
+  "version": 2
 }

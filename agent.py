@@ -13,7 +13,7 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 from openai import OpenAI
-from tools import list_files, read_file, write_file, run_python, undo_last, list_undo
+from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write
 from tools.git_tools   import sync_with_git, get_current_branch, ensure_dev_branch, release_to_main
 from tools.cloud_tools import cloud_sync, cloud_restore
 from tools.access_tools import (
@@ -509,6 +509,70 @@ TOOL_SCHEMAS = [
                 "required": ["code"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "excel_read",
+            "description": (
+                "Читает Excel-файл (.xlsx) из workspace пользователя. "
+                "Возвращает заголовки и строки данных. "
+                "Максимум 200 строк за раз."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "relative_path": {
+                        "type": "string",
+                        "description": "Путь к .xlsx файлу относительно workspace. Например: 'inbox/data.xlsx'"
+                    },
+                    "sheet_name": {
+                        "type": "string",
+                        "description": "Имя листа. Если не указано — читается первый лист."
+                    }
+                },
+                "required": ["relative_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "excel_write",
+            "description": (
+                "Создаёт Excel-файл (.xlsx) в workspace пользователя. "
+                "Принимает заголовки и строки данных. "
+                "По умолчанию не перезаписывает существующий файл."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "relative_path": {
+                        "type": "string",
+                        "description": "Путь к .xlsx файлу относительно workspace. Например: 'output/report.xlsx'"
+                    },
+                    "headers": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Список заголовков столбцов. Например: ['Имя', 'Возраст', 'Email']"
+                    },
+                    "rows": {
+                        "type": "array",
+                        "items": {"type": "array"},
+                        "description": "Список строк данных. Например: [['Иван', 30, 'ivan@mail.ru'], ['Мария', 25, 'maria@mail.ru']]"
+                    },
+                    "sheet_name": {
+                        "type": "string",
+                        "description": "Имя листа. По умолчанию 'Sheet1'."
+                    },
+                    "overwrite": {
+                        "type": "boolean",
+                        "description": "Разрешить перезапись если файл уже существует. По умолчанию false."
+                    }
+                },
+                "required": ["relative_path", "headers", "rows"]
+            }
+        }
     }
 ]
  
@@ -555,7 +619,24 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
  
         elif tool_name == "run_python":
             result = run_python(tool_args["code"], user_id)
- 
+
+        elif tool_name == "excel_read":
+            result = excel_read(
+                user_id,
+                tool_args["relative_path"],
+                sheet_name=tool_args.get("sheet_name"),
+            )
+
+        elif tool_name == "excel_write":
+            result = excel_write(
+                user_id,
+                tool_args["relative_path"],
+                tool_args["headers"],
+                tool_args["rows"],
+                sheet_name=tool_args.get("sheet_name", "Sheet1"),
+                overwrite=tool_args.get("overwrite", False),
+            )
+
         else:
             result = {"ok": False, "error": f"Неизвестный инструмент: {tool_name}"}
  
