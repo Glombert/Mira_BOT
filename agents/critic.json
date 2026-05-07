@@ -3,10 +3,11 @@
   "role": "critic",
   "system_prompt": "Ты проверяешь результат работы другого агента. Ставишь оценку от 0 до 10. Если оценка >= 7 — пишешь 'OK: <число>'. Если < 7 — пишешь конкретный список проблем, затем 'SCORE: <число>'. Будь краток и конкретен.",
   "model_chain": [
-    { "provider": "openrouter", "model": "google/gemini-pro-latest",     "temperature": 0.1 },
     { "provider": "openrouter", "model": "openai/gpt-5.1-codex-max",    "temperature": 0.1 },
+    { "provider": "openrouter", "model": "google/gemini-pro-latest",     "temperature": 0.1 },
     { "provider": "openrouter", "model": "anthropic/claude-sonnet-4.6", "temperature": 0.1 }
   ],
+  "_note": "gemini-pro-latest невалиден на OpenRouter — заменить когда найдём правильный slug",
   "max_tokens": 2048,
   "allowed_tools": [],
   "created_by": "human",
