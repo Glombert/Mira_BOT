@@ -361,6 +361,7 @@ def load_persona() -> str:
         dislikes = "\n".join(f"— {d}" for d in b.get("dislikes", []))
         style_items = "\n".join(f"— {v}" for v in p.get("communication", {}).values())
 
+        formatting = p.get("formatting", "")
         return f"""Тебя зовут {p["name"]}. {p["origin"]}
 {p["core"]}
 Любопытство: {p["curiosity"]}
@@ -374,7 +375,8 @@ def load_persona() -> str:
 Границы:
 {dislikes}
 {b.get("reaction", "")}
-{p["notes"]}"""
+{p["notes"]}
+{formatting}"""
     except Exception as e:
         logger.warning(f"Не удалось загрузить {PERSONA_FILE}: {e}. Использую дефолт.")
         return _PERSONA_FALLBACK

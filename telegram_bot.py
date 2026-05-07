@@ -739,8 +739,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     try:
         if task_type in ("complex", "code") and alpha:
-            await update.message.reply_text(f"[Конклав → {task_type.upper()}]")
-            raw = conc.run_with_qa(text, "coder")
+            await update.message.reply_text("💭 Задача сложная. Иду к специалистам...")
+
+            loop    = asyncio.get_running_loop()
+            chat_id = update.effective_chat.id
+
+            def _progress(text: str) -> None:
+                asyncio.run_coroutine_threadsafe(
+                    context.bot.send_message(chat_id=chat_id, text=text),
+                    loop,
+                )
+
+            conc.on_progress = _progress
+            raw = await asyncio.to_thread(conc.run_with_qa, text, "coder")
+
             presentation = (
                 f"Специалисты выполнили задачу. Представь результат:\n\n{raw}"
             )

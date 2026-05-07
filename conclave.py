@@ -34,6 +34,16 @@ AGENTS_DIR   = "agents"
 MAX_ITER     = 3      # максимум итераций в run_with_qa
 PASS_SCORE   = 7      # оценка critic при которой принимаем результат
 
+_AGENT_NAMES = {
+    "coder":            "Кодер",
+    "editor":           "Редактор",
+    "critic":           "Критик",
+    "planner":          "Планировщик",
+    "scout":            "Разведчик",
+    "reviewer":         "Ревьюер",
+    "excel_specialist": "Excel-специалист",
+}
+
 
 # ---------------------------------------------------------------------------
 # Вспомогательные функции
@@ -114,6 +124,16 @@ class Conclave:
         self.tool_schemas    = tool_schemas or []
         self.execute_tool_fn = execute_tool_fn
         self.should_stop     = False
+        self.on_progress     = None  # callable(str) | None — heartbeat для Telegram
+
+    def _progress(self, text: str) -> None:
+        """Отправляет прогресс-сообщение через on_progress callback (если задан) и в лог."""
+        logger.info(f"Conclave progress: {text}")
+        if callable(self.on_progress):
+            try:
+                self.on_progress(f"💭 {text}")
+            except Exception as e:
+                logger.warning(f"on_progress callback error: {e}")
 
     # ------------------------------------------------------------------
     # Публичные методы
@@ -233,11 +253,12 @@ class Conclave:
         for iteration in range(1, MAX_ITER + 1):
 
             if self.should_stop:
-                print("[Конклав] Остановлен.")
+                self._progress("Остановлено. Отдаю что есть.")
                 logger.info("Conclave: остановлен флагом should_stop")
                 break
 
-            print(f"\n[Конклав] Итерация {iteration}/{MAX_ITER} — {executor_name}...")
+            executor_label = _AGENT_NAMES.get(executor_name, executor_name)
+            self._progress(f"{executor_label} работает над задачей...")
 
             # --- Executor ---
             exec_ctx = (
@@ -253,10 +274,11 @@ class Conclave:
                 return f"[Ошибка: специалист '{executor_name}' недоступен — {e}]"
 
             if self.should_stop:
+                self._progress("Остановлено. Отдаю что есть.")
                 break
 
             # --- Editor ---
-            print(f"[Конклав] Итерация {iteration}/{MAX_ITER} — editor...")
+            self._progress("Редактор улучшает результат...")
             try:
                 result = self.run(
                     "editor",
@@ -267,12 +289,12 @@ class Conclave:
                 logger.warning(f"Conclave: editor упал ({e}), продолжаю без редактуры")
 
             if self.should_stop:
+                self._progress("Остановлено. Отдаю что есть.")
                 break
 
             # --- Critic ---
-            print(f"[Конклав] Итерация {iteration}/{MAX_ITER} — critic...")
+            self._progress("Критик проверяет качество...")
             score, feedback = self._run_critic(task, result)
-            print(f"[Конклав] Оценка: {score}/10")
 
             if score > best_score:
                 best_score  = score
@@ -280,7 +302,7 @@ class Conclave:
 
             # Принимаем если достаточно хорошо
             if score >= PASS_SCORE:
-                print(f"[Конклав] Принято (оценка {score}/10).")
+                self._progress(f"Критик доволен ({score}/10). Готовлю ответ.")
                 logger.info(f"Conclave: принято на итерации {iteration}, score={score}")
                 break
 
@@ -288,7 +310,7 @@ class Conclave:
             if score <= prev_score:
                 stagnation += 1
                 if stagnation >= 2:
-                    print(f"[Конклав] Оценка не растёт. Завершаю с лучшим результатом.")
+                    self._progress("Оценка не меняется. Беру лучший вариант.")
                     logger.info(f"Conclave: стагнация {stagnation}, best_score={best_score}")
                     break
             else:
@@ -297,7 +319,7 @@ class Conclave:
             prev_score = score
 
             if iteration < MAX_ITER and not self.should_stop:
-                print(f"[Конклав] Продолжаю. Критика: {feedback[:120]}...")
+                self._progress(f"Критик: {score}/10. Пробую ещё раз.")
 
         if not best_result:
             best_result = "[Конклав не смог получить результат]"
