@@ -10,7 +10,7 @@ import tempfile
 import logging
 import difflib
 from datetime import datetime
-from logging.handlers import RotatingFileHandler
+from logging.handlers import TimedRotatingFileHandler
 from dotenv import load_dotenv
 from openai import OpenAI
 from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search
@@ -31,12 +31,15 @@ from conclave import Conclave
 logger = logging.getLogger("Ouroborus")
 logger.setLevel(logging.INFO)
 
-log_handler = RotatingFileHandler(
-    "agent.log",
-    maxBytes=5 * 1024 * 1024,
+os.makedirs("logs", exist_ok=True)
+log_handler = TimedRotatingFileHandler(
+    "logs/agent.log",
+    when="midnight",
+    interval=1,
     backupCount=3,
-    encoding="utf-8"
+    encoding="utf-8",
 )
+log_handler.suffix = "%Y-%m-%d"
 log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 logger.addHandler(log_handler)
 
