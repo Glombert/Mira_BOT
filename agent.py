@@ -813,7 +813,8 @@ def smoke_test(code_path: str) -> tuple[bool, str]:
     try:
         result = subprocess.run(
             [sys.executable, code_path, "--self-test"],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=10,
+            cwd=os.path.dirname(AGENT_FILE),  # нужен чтобы from tools import ... работал
         )
         if result.returncode == 0 and "OK" in result.stdout:
             return True, ""
