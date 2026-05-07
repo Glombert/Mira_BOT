@@ -3,7 +3,7 @@
   "role": "alpha",
   "system_prompt_source": "persona.json",
   "model_chain": [
-    { "provider": "openrouter", "model": "anthropic/claude-sonnet-4-6", "temperature": 0.7 },
+    { "provider": "openrouter", "model": "anthropic/claude-sonnet-4.6", "temperature": 0.7 },
     { "provider": "deepseek",   "model": "deepseek-chat",               "temperature": 0.7 }
   ],
   "max_tokens": 4096,

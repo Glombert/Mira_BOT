@@ -4,7 +4,7 @@
   "role": "executor",
   "system_prompt": "Ты специалист по...",
   "model_chain": [
-    { "provider": "openrouter", "model": "anthropic/claude-sonnet-4-6", "temperature": 0.3 },
+    { "provider": "openrouter", "model": "anthropic/claude-sonnet-4.6", "temperature": 0.3 },
     { "provider": "openrouter", "model": "deepseek/deepseek-v4-flash",  "temperature": 0.3 },
     { "provider": "deepseek",   "model": "deepseek-chat",               "temperature": 0.3 }
   ],

@@ -204,13 +204,13 @@ def save_user_profile(user_id: str, data: dict) -> None:
         logger.error(f"Ошибка сохранения профиля {user_id}: {e}")
 
 
-def run_onboarding(client: OpenAI, model: str, user_id: str) -> dict:
+def run_onboarding(model_chain: list[dict], user_id: str) -> dict:
     """
     Онбординг — знакомство с новым пользователем через диалог.
 
-    Мира задаёт вопросы по одному, пользователь отвечает.
-    После 3-4 обменов — один API-вызов структурирует профиль в JSON.
-    Сохраняет и возвращает готовый профиль.
+    Использует providers.call(model_chain, ...) — то же резервирование,
+    что и в обычном чате. Провайдер и модель берутся из model_chain, а не
+    передаются отдельным client/model.
     """
     print("\n[Мира] Привет. Я Мира. Давай познакомимся — это займёт минуту.")
     print("[Мира] Как тебя зовут?")
@@ -237,11 +237,7 @@ def run_onboarding(client: OpenAI, model: str, user_id: str) -> dict:
         onboarding_history.append({"role": "user", "content": user_input})
 
         try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=onboarding_history,
-                temperature=0.7,
-            )
+            response = _providers.call(model_chain, onboarding_history, temperature=0.7)
             reply = response.choices[0].message.content
         except Exception as e:
             print(f"[-] Ошибка API во время знакомства: {e}. Попробуй ещё раз.")
@@ -281,8 +277,8 @@ def run_onboarding(client: OpenAI, model: str, user_id: str) -> dict:
     )
 
     try:
-        response = client.chat.completions.create(
-            model=model,
+        response = _providers.call(
+            model_chain,
             messages=[{"role": "user", "content": structure_prompt}],
             temperature=0.1,
         )
@@ -880,10 +876,10 @@ def read_own_code() -> str:
         return ""
 
 
-def reflect(client: OpenAI, model: str, messages: list) -> None:
+def reflect(model_chain: list[dict], messages: list) -> None:
     """
-    Агент читает свой код и даёт аналитику:
-    что работает хорошо, что можно улучшить.
+    Агент читает свой код и даёт аналитику через providers.call(model_chain).
+    Резервирование работает так же, как в обычном чате.
     """
     print("\n[Ouroborus] Запуск рефлексии — читаю собственный код...")
     logger.info("Команда /reflect: запуск самоанализа.")
@@ -906,9 +902,7 @@ def reflect(client: OpenAI, model: str, messages: list) -> None:
     temp_messages = [{"role": "system", "content": SYSTEM_PROMPT},
                      {"role": "user",   "content": prompt}]
     try:
-        response = client.chat.completions.create(
-            model=model, messages=temp_messages, temperature=0.5
-        )
+        response = _providers.call(model_chain, temp_messages, temperature=0.5)
         analysis = response.choices[0].message.content
         print(f"\n[Рефлексия]:\n{analysis}")
         logger.info("Рефлексия завершена.")
@@ -1219,12 +1213,11 @@ is_owner_login = owner_cli and current_user_id == f"cli_{owner_cli}"
 
 if user_profile is None:
     # Первый запуск — онбординг
-    client_for_onboard = _providers.first_client()
-    model_for_onboard  = alpha.model_chain[0]["model"] if alpha else ""
-    if client_for_onboard and model_for_onboard:
-        user_profile = run_onboarding(client_for_onboard, model_for_onboard, current_user_id)
+    onboard_chain = alpha.model_chain if alpha else []
+    if onboard_chain and _providers.PROVIDERS:
+        user_profile = run_onboarding(onboard_chain, current_user_id)
     else:
-        print("[-] Модель не настроена, онбординг пропущен. Проверь .env")
+        print("[-] Провайдеры не настроены, онбординг пропущен. Проверь .env")
         user_profile = {"id": current_user_id, "name": current_user_id.replace("cli_", ""), "sessions_count": 0}
     # Ставим статус сразу при создании
     user_profile["status"] = "owner" if is_owner_login else "regular"
@@ -1306,8 +1299,8 @@ while True:
             if os.path.exists(path):
                 os.remove(path)
             print("[*] Профиль удалён.")
-            if current_client:
-                user_profile = run_onboarding(current_client, current_config["model"], current_user_id)
+            if alpha and _providers.PROVIDERS:
+                user_profile = run_onboarding(alpha.model_chain, current_user_id)
             logger.info(f"Профиль сброшен: {current_user_id}")
         else:
             print("[*] Отмена.")
@@ -1439,10 +1432,10 @@ while True:
 
     # --- Рефлексия ---
     if cmd == "/reflect":
-        if current_client:
-            reflect(current_client, current_config["model"], messages)
+        if alpha and _providers.PROVIDERS:
+            reflect(alpha.model_chain, messages)
         else:
-            print("[-] Модель не настроена. Введи /switch.")
+            print("[-] Провайдеры не настроены. Проверь .env.")
         continue
 
     # --- Релиз (mira-dev → main) ---
