@@ -47,6 +47,8 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 import providers as _providers
 _providers.init()
+import memory_crypto
+memory_crypto.init()
 
 from router   import classify
 from conclave import Conclave
@@ -131,20 +133,15 @@ def _session_path(user_id: str) -> str:
 def _load_session(user_id: str) -> list:
     sys_prompt = _system_prompt_for(user_id)
     path = _session_path(user_id)
-    if os.path.exists(path):
-        try:
-            with open(path, encoding="utf-8") as f:
-                msgs = json.load(f)
-            # Обновляем системный промпт при каждой загрузке (мог измениться)
-            for m in msgs:
-                if m["role"] == "system":
-                    m["content"] = sys_prompt
-                    break
-            else:
-                msgs.insert(0, {"role": "system", "content": sys_prompt})
-            return msgs
-        except Exception:
-            pass
+    msgs = memory_crypto.load_json(path)
+    if isinstance(msgs, list):
+        for m in msgs:
+            if m["role"] == "system":
+                m["content"] = sys_prompt
+                break
+        else:
+            msgs.insert(0, {"role": "system", "content": sys_prompt})
+        return msgs
     return [{"role": "system", "content": sys_prompt}]
 
 
@@ -153,11 +150,9 @@ def _save_session(user_id: str, msgs: list) -> None:
     system   = [m for m in msgs if m["role"] == "system"]
     the_rest = [m for m in msgs if m["role"] != "system"]
     trimmed  = system + the_rest[-MAX_HISTORY:]
-    # Не сохраняем tool-сообщения — они не нужны между сессиями
     saveable = [m for m in trimmed if isinstance(m.get("content"), str)]
     try:
-        with open(_session_path(user_id), "w", encoding="utf-8") as f:
-            json.dump(saveable, f, ensure_ascii=False, indent=2)
+        memory_crypto.save_json(_session_path(user_id), saveable)
     except Exception as e:
         logger.warning(f"Не удалось сохранить сессию {user_id}: {e}")
 

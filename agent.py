@@ -13,7 +13,8 @@ from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from dotenv import load_dotenv
 from openai import OpenAI
-from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search
+from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search, list_self, read_self
+import memory_crypto
 from tools.git_tools   import sync_with_git, get_current_branch, ensure_dev_branch, release_to_main
 from tools.cloud_tools import cloud_sync, cloud_restore
 from tools.access_tools import (
@@ -78,7 +79,8 @@ logger.info("=== Запуск агента Ouroborus ===")
 # Менять настройки проекта нужно только здесь, больше нигде
 # ---------------------------------------------------------------------------
 load_dotenv()
-_providers.init()  # инициализируем провайдеров из .env
+_providers.init()       # инициализируем провайдеров из .env
+memory_crypto.init()    # включаем шифрование памяти если задан ключ
 
 # Файлы и папки
 AGENT_FILE    = os.path.abspath(__file__)  # путь к самому себе (не менять)
@@ -182,29 +184,21 @@ def get_user_profile_path(user_id: str) -> str:
 
 
 def load_user_profile(user_id: str) -> dict | None:
-    """
-    Загружает профиль пользователя из memory/{user_id}.json.
-    Возвращает dict если файл есть, None если нет (первый запуск).
-    """
+    """Загружает профиль пользователя. Прозрачно расшифровывает если включено шифрование."""
     path = get_user_profile_path(user_id)
-    if not os.path.exists(path):
+    data = memory_crypto.load_json(path)
+    if data is not None and not isinstance(data, dict):
         return None
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"Ошибка чтения профиля {user_id}: {e}")
-        return None
+    return data
 
 
 def save_user_profile(user_id: str, data: dict) -> None:
-    """Сохраняет профиль пользователя в memory/{user_id}.json."""
+    """Сохраняет профиль пользователя. Прозрачно шифрует если включено шифрование."""
     os.makedirs(MEMORY_DIR, exist_ok=True)
     path = get_user_profile_path(user_id)
     data["updated_at"] = datetime.now().strftime("%Y-%m-%d")
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        memory_crypto.save_json(path, data)
         logger.info(f"Профиль пользователя сохранён: {path}")
     except Exception as e:
         logger.error(f"Ошибка сохранения профиля {user_id}: {e}")
@@ -364,7 +358,8 @@ def load_persona() -> str:
         dislikes = "\n".join(f"— {d}" for d in b.get("dislikes", []))
         style_items = "\n".join(f"— {v}" for v in p.get("communication", {}).values())
 
-        formatting = p.get("formatting", "")
+        formatting     = p.get("formatting", "")
+        self_awareness = p.get("self_awareness", "")
         return f"""Тебя зовут {p["name"]}. {p["origin"]}
 {p["core"]}
 Любопытство: {p["curiosity"]}
@@ -375,6 +370,7 @@ def load_persona() -> str:
 Как ты общаешься:
 {style_items}
 Конклав: {p["conclave"]}
+Самосознание: {self_awareness}
 Границы:
 {dislikes}
 {b.get("reaction", "")}
@@ -582,6 +578,40 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "list_self",
+            "description": (
+                "Показывает структуру собственного проекта: файлы кода, конфиги агентов, "
+                "инструменты, профили. Используй чтобы понять из чего ты состоишь."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_self",
+            "description": (
+                "Читает собственный файл кода или конфига. "
+                "Разрешены: agent.py, conclave.py, router.py, providers.py, telegram_bot.py, "
+                "persona.json, PRINCIPLES.md, requirements.txt, README.md, PLAN.md, "
+                "agents/*.json, tools/*.py, profiles/*.json. "
+                "Запрещены: .env, memory/, workspace/."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Путь к файлу. Примеры: 'agent.py', 'agents/scout.json', 'PRINCIPLES.md'"
+                    }
+                },
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "web_search",
             "description": (
                 "Ищет актуальную информацию в интернете (DuckDuckGo). "
@@ -672,6 +702,12 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
                 tool_args["query"],
                 max_results=tool_args.get("max_results", 5),
             )
+
+        elif tool_name == "list_self":
+            result = list_self()
+
+        elif tool_name == "read_self":
+            result = read_self(tool_args["path"])
 
         else:
             result = {"ok": False, "error": f"Неизвестный инструмент: {tool_name}"}
