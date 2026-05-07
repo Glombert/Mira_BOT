@@ -125,13 +125,15 @@ def init() -> None:
 # ---------------------------------------------------------------------------
 
 def _log_switch(from_entry: dict, to_entry: dict, reason: str) -> None:
-    """Записывает переключение провайдера в decisions.log."""
+    """Записывает переключение провайдера в decisions.log и уведомляет владельца."""
     os.makedirs("memory", exist_ok=True)
+    from_str = f"{from_entry.get('provider')}/{from_entry.get('model')}"
+    to_str   = f"{to_entry.get('provider')}/{to_entry.get('model')}"
     entry = {
         "ts":     datetime.now().isoformat(),
         "event":  "provider_switch",
-        "from":   f"{from_entry.get('provider')}/{from_entry.get('model')}",
-        "to":     f"{to_entry.get('provider')}/{to_entry.get('model')}",
+        "from":   from_str,
+        "to":     to_str,
         "reason": str(reason)[:300],
     }
     try:
@@ -139,6 +141,37 @@ def _log_switch(from_entry: dict, to_entry: dict, reason: str) -> None:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception as e:
         logger.warning(f"providers: не удалось записать в decisions.log: {e}")
+
+    # Уведомление в Telegram — отправляем в фоне чтобы не задерживать ответ
+    import threading
+    threading.Thread(
+        target=_notify_switch,
+        args=(from_str, to_str, str(reason)[:300]),
+        daemon=True,
+    ).start()
+
+
+def _notify_switch(from_str: str, to_str: str, reason: str) -> None:
+    """Отправляет Telegram-уведомление о переключении провайдера."""
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    owner = os.getenv("OWNER_TELEGRAM_ID", "")
+    if not token or not owner:
+        return
+    try:
+        import urllib.request, urllib.parse
+        text = (
+            f"⚡ Смена модели\n"
+            f"От: {from_str}\n"
+            f"На: {to_str}\n"
+            f"Причина: {reason[:200]}"
+        )
+        data = urllib.parse.urlencode({"chat_id": owner, "text": text}).encode()
+        urllib.request.urlopen(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data=data, timeout=5,
+        )
+    except Exception:
+        pass  # Не блокируем основной поток
 
 
 def _apply_prompt_caching(messages: list, provider: str, model: str) -> list:
