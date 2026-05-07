@@ -1197,6 +1197,10 @@ for key in os.environ:
         providers.add(key[4:-4])
 
 for provider in sorted(providers):
+    # Anthropic обрабатывается нативным SDK в providers.py — пропускаем здесь
+    if provider == "ANTHROPIC":
+        continue
+
     api_key    = os.getenv(f"API_{provider}_KEY")
     base_url   = os.getenv(f"API_{provider}_URL")
     models_str = os.getenv(f"API_{provider}_MODELS")
