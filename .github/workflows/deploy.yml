@@ -18,5 +18,10 @@ jobs:
             cd /root/mira_agent
             git pull origin main
             /root/mira_agent/venv/bin/pip install -r requirements.txt -q
+            chmod +x /root/mira_agent/scripts/notify.sh
+            # Watchdog: cron каждые 5 минут проверяет что бот жив
+            (crontab -l 2>/dev/null | grep -v "notify.sh"; \
+             echo "*/5 * * * * systemctl is-active --quiet mira-bot || /root/mira_agent/scripts/notify.sh") \
+             | crontab -
             systemctl restart mira-bot
             systemctl status mira-bot --no-pager
