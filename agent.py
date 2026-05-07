@@ -1344,10 +1344,13 @@ print(f"Профиль: {profile.name}  |  Инструменты: {', '.join(pr
 print(f"Пользователь: {current_user_id}  |  Статус: {user_status}")
 if _providers.PROVIDERS:
     first_chain = alpha.model_chain[0] if alpha else {}
-    print(f"Провайдеры: {', '.join(_providers.PROVIDERS.keys())}")
+    all_providers = list(_providers.PROVIDERS.keys())
+    if _providers._anthropic_client:
+        all_providers.append("anthropic(native)")
+    print(f"Провайдеры: {', '.join(all_providers)}")
     if first_chain:
         print(f"Основная модель: {first_chain.get('provider')}/{first_chain.get('model')}")
-    logger.info(f"Провайдеры: {list(_providers.PROVIDERS.keys())}")
+    logger.info(f"Провайдеры: {all_providers}")
 else:
     print("[-] Провайдеры не настроены. Проверь .env файл.")
     logger.warning("Провайдеры не настроены.")
