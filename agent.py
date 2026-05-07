@@ -932,22 +932,73 @@ def reflect(model_chain: list[dict], messages: list) -> None:
         logger.error(f"Reflect Error: {e}", exc_info=True)
 
 
+def _apply_unified_diff(original: str, diff_text: str) -> tuple[bool, str]:
+    """
+    Применяет unified diff (формат diff -u) к тексту.
+    Возвращает (True, new_code) или (False, error_message).
+
+    Зачем своя реализация вместо patch: независимость от системных утилит,
+    работает на Windows и в средах без patch.
+    """
+    import re
+    orig_lines  = original.splitlines(keepends=True)
+    result      = list(orig_lines)
+    offset      = 0  # смещение индексов из-за уже применённых вставок/удалений
+
+    hunk_re = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", re.MULTILINE)
+    matches = list(hunk_re.finditer(diff_text))
+
+    if not matches:
+        return False, "Diff не содержит hunks (@@ ... @@). Проверь формат ответа модели."
+
+    for idx, m in enumerate(matches):
+        orig_start = int(m.group(1)) - 1  # 0-indexed
+
+        content_start = diff_text.index("\n", m.start()) + 1
+        content_end   = matches[idx + 1].start() if idx + 1 < len(matches) else len(diff_text)
+        hunk_lines    = diff_text[content_start:content_end].splitlines(keepends=True)
+
+        i = orig_start + offset
+        for line in hunk_lines:
+            if not line:
+                continue
+            ch = line[0]
+            body = line[1:]
+            if not body.endswith("\n"):
+                body += "\n"
+            if ch == "+":
+                result.insert(i, body)
+                i += 1
+                offset += 1
+            elif ch == "-":
+                if i < len(result):
+                    result.pop(i)
+                    offset -= 1
+            elif ch == " ":
+                i += 1
+            # \ No newline at end of file — игнорируем
+
+    return True, "".join(result)
+
+
 def evolve(task: str) -> None:
     """
     Агент предлагает конкретный патч к своему коду под задачу.
 
-    Использует alpha.model_chain через providers.call() — резервирование работает
-    точно так же, как в обычном чате. При сбое первого провайдера — следующий.
+    Ключевое отличие от прежней версии: модель возвращает unified diff,
+    а не полный файл. Это решает проблему обрезания при max_tokens —
+    diff на одну строку занимает ~10 токенов вместо ~40 000.
 
     Порядок действий (защищённый):
     0. Переключение на ветку mira-dev
     1. Чтение принципов (PRINCIPLES.md)
-    2. Генерация нового кода через providers.call(alpha.model_chain)
+    2. Запрос unified diff через providers.call(alpha.model_chain)
     3. Показ diff пользователю
-    4. Проверка diff на соответствие принципам (отдельный вызов)
+    4. Проверка diff на соответствие принципам
     5. Подтверждение пользователем
-    6. Бэкап + валидация синтаксиса + smoke-test
-    7. Запись — только если всё прошло
+    6. Применение diff → new_code через _apply_unified_diff()
+    7. Бэкап + validate_code + smoke-test
+    8. Запись — только если всё прошло
     """
     model_chain = alpha.model_chain if alpha else []
     if not model_chain:
@@ -969,17 +1020,36 @@ def evolve(task: str) -> None:
         print("[-] Не удалось прочитать код для эволюции.")
         return
 
+    code_lines   = code.splitlines()
+    total_lines  = len(code_lines)
+    # Контекст: первые 80 строк (импорты, константы) + последние 20
+    preview_head = "\n".join(code_lines[:80])
+    preview_tail = "\n".join(code_lines[-20:]) if total_lines > 100 else ""
+
     principles_block = (
-        f"\nВот нерушимые принципы — ты ОБЯЗАН их соблюдать:\n{principles}\n"
+        f"\nНерушимые принципы (ОБЯЗАН соблюдать):\n{principles}\n"
         if principles else ""
     )
+
+    diff_example = (
+        "--- agent.py\n+++ agent.py\n"
+        "@@ -1,3 +1,4 @@\n"
+        "+# новая строка\n"
+        " import os\n"
+        " import ast\n"
+        " import sys\n"
+    )
+
     prompt = (
-        f"Ниже — твой текущий исходный код. Задача: {task}\n"
+        f"Файл agent.py содержит {total_lines} строк. Задача: {task}\n"
         f"{principles_block}\n"
-        "Верни ТОЛЬКО полный обновлённый файл agent.py — никаких пояснений, "
-        "никаких markdown-блоков, только чистый Python-код. "
-        "Не меняй то, что не относится к задаче.\n\n"
-        f"{code}"
+        f"Первые 80 строк (для контекста нумерации):\n"
+        f"```python\n{preview_head}\n```\n"
+        + (f"\nПоследние 20 строк:\n```python\n{preview_tail}\n```\n" if preview_tail else "")
+        + "\nВерни ТОЛЬКО unified diff в формате `diff -u`. "
+        "НЕ возвращай полный файл — только diff. "
+        "Нумерация строк — как в исходном файле. "
+        f"Пример формата:\n{diff_example}"
     )
 
     try:
@@ -989,55 +1059,46 @@ def evolve(task: str) -> None:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user",   "content": prompt},
             ],
-            temperature=0.3,
-            max_tokens=4096,
+            temperature=0.2,
+            max_tokens=2048,
         )
-        new_code = response.choices[0].message.content.strip()
+        raw_diff = response.choices[0].message.content.strip()
 
-        # Убираем возможные ```python / ``` обёртки
-        if new_code.startswith("```"):
-            lines = new_code.splitlines()
-            new_code = "\n".join(
-                l for l in lines if not l.strip().startswith("```")
-            )
+        # Убираем возможные ```diff / ``` обёртки
+        if raw_diff.startswith("```"):
+            raw_diff = "\n".join(
+                l for l in raw_diff.splitlines() if not l.strip().startswith("```")
+            ).strip()
 
-        # Показываем diff
-        diff = list(difflib.unified_diff(
-            code.splitlines(keepends=True),
-            new_code.splitlines(keepends=True),
-            fromfile="agent.py (текущий)",
-            tofile="agent.py (предлагаемый)",
-            n=3
-        ))
-
-        if not diff:
-            print("[Evolve] Модель не нашла что менять — код уже соответствует задаче.")
+        if not raw_diff or "@@" not in raw_diff:
+            print("[-] Модель не вернула корректный diff. Попробуй переформулировать задачу.")
+            logger.warning(f"Evolve: модель вернула не-diff: {raw_diff[:200]}")
             return
 
+        # Показываем diff
+        diff_lines = raw_diff.splitlines(keepends=True)
         print("\n--- ПРЕДЛАГАЕМЫЕ ИЗМЕНЕНИЯ ---")
-        diff_lines = diff
         page_size = 60
         if len(diff_lines) > page_size:
             for i in range(0, len(diff_lines), page_size):
-                chunk = diff_lines[i:i + page_size]
-                print("".join(chunk))
+                print("".join(diff_lines[i:i + page_size]))
                 if i + page_size < len(diff_lines):
                     more = input(f"[{i + page_size}/{len(diff_lines)} строк] Показать ещё? [Enter/n]: ").strip().lower()
                     if more == "n":
                         print(f"... (пропущено {len(diff_lines) - i - page_size} строк)")
                         break
         else:
-            print("".join(diff_lines))
+            print(raw_diff)
         print("------------------------------")
 
-        # --- Проверка принципов через providers.call() ---
+        # --- Проверка принципов ---
         if principles:
             print("\n[Evolve] Проверяю соответствие принципам...")
             check_prompt = (
-                f"Вот принципы которые нельзя нарушать:\n\n{principles}\n\n"
-                f"Вот diff патча:\n{''.join(diff)}\n\n"
-                "Нарушает ли этот патч какой-либо из принципов?\n"
-                "Отвечай ТОЛЬКО: 'OK' если нарушений нет, или кратко опиши нарушения."
+                f"Принципы:\n{principles}\n\n"
+                f"Diff:\n{raw_diff}\n\n"
+                "Нарушает ли diff какой-либо принцип?\n"
+                "Отвечай ТОЛЬКО: 'OK' или кратко опиши нарушения."
             )
             try:
                 check_resp = _providers.call(
@@ -1061,6 +1122,15 @@ def evolve(task: str) -> None:
             logger.info("Evolve: изменения отклонены пользователем.")
             return
 
+        # --- Применяем diff ---
+        ok, result = _apply_unified_diff(code, raw_diff)
+        if not ok:
+            print(f"[-] Не удалось применить diff: {result}")
+            print("[-] Изменения не применены.")
+            logger.error(f"Evolve: ошибка применения diff — {result}")
+            return
+        new_code = result
+
         # --- Бэкап ---
         print("[Evolve] Создаю резервную копию...")
         backup_path = backup_agent()
@@ -1071,10 +1141,9 @@ def evolve(task: str) -> None:
         valid, error = validate_code(new_code)
         if not valid:
             print(f"[-] Код не прошёл проверку синтаксиса: {error}")
-            print("[-] Изменения не применены. Бэкап сохранён на случай если нужен.")
+            print("[-] Изменения не применены.")
             logger.error(f"Evolve: синтаксическая ошибка — {error}")
             return
-
         print("[Evolve] Синтаксис OK.")
 
         # --- Smoke-test ---
@@ -1093,7 +1162,6 @@ def evolve(task: str) -> None:
             print("[-] Изменения не применены. Агент в безопасности.")
             logger.error(f"Evolve: smoke-test провалился — {error}")
             return
-
         print("[Evolve] Smoke-test OK.")
 
         # --- Записываем финально ---
