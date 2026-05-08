@@ -140,7 +140,30 @@ systemctl start mira-bot
 В настройках репозитория добавь три секрета: `SSH_PRIVATE_KEY`, `VPS_HOST`, `VPS_USER`.
 Файл `.github/workflows/deploy.yml` уже в репозитории — при каждом пуше в `main` сервер обновляется автоматически.
 
-**6. Настрой бэкап памяти:**
+**6. Веб-интерфейс:**
+```bash
+cp scripts/mira-web.service /etc/systemd/system/
+systemctl daemon-reload && systemctl enable mira-web && systemctl start mira-web
+# Добавь в .env: WEB_ACCESS_TOKEN=<случайная строка>
+```
+
+**7. Nginx + SSL (DuckDNS + acme.sh):**
+```bash
+# Получить бесплатный субдомен на duckdns.org, затем:
+curl https://get.acme.sh | sh -s email=your@email.com
+export DuckDNS_Token="токен_с_duckdns.org"
+~/.acme.sh/acme.sh --issue --dns dns_duckdns -d your-name.duckdns.org --server letsencrypt
+mkdir -p /etc/ssl/mira
+~/.acme.sh/acme.sh --install-cert -d your-name.duckdns.org \
+  --fullchain-file /etc/ssl/mira/fullchain.cer \
+  --key-file /etc/ssl/mira/key.key \
+  --reloadcmd "systemctl reload nginx"
+# Шаблон Nginx конфига: scripts/nginx.conf.example
+cp scripts/nginx.conf.example /etc/nginx/sites-available/mira
+# Замени YOUR_DOMAIN, запусти: nginx -t && systemctl start nginx
+```
+
+**8. Настрой бэкап памяти:**
 ```bash
 # Ежедневно в 3:00 UTC
 echo "0 3 * * * rclone sync /root/mira_agent/memory gdrive:Mira/memory" | crontab -

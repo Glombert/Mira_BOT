@@ -1,0 +1,13 @@
+[Unit]
+Description=Mira AI Bot
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/mira_agent
+ExecStart=/root/mira_agent/venv/bin/python telegram_bot.py
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
