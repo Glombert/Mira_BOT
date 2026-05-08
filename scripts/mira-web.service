@@ -1,0 +1,13 @@
+[Unit]
+Description=Mira Web Interface
+After=network.target mira-bot.service
+
+[Service]
+Type=simple
+WorkingDirectory=/root/mira_agent
+ExecStart=/root/mira_agent/venv/bin/uvicorn web.app:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

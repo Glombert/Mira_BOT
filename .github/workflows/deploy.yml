@@ -30,4 +30,9 @@ jobs:
             # Веб-интерфейс
             if [ -f /etc/systemd/system/mira-web.service ]; then
               systemctl restart mira-web
+              systemctl status mira-web --no-pager
+            fi
+            # Nginx — перезагружаем конфиг если запущен
+            if systemctl is-active --quiet nginx; then
+              systemctl reload nginx
             fi
