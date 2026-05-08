@@ -27,3 +27,7 @@ jobs:
              | crontab -
             systemctl restart mira-bot
             systemctl status mira-bot --no-pager
+            # Веб-интерфейс
+            if [ -f /etc/systemd/system/mira-web.service ]; then
+              systemctl restart mira-web
+            fi
