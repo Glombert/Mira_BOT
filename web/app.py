@@ -145,14 +145,9 @@ async def health():
 
 @app.websocket("/ws")
 async def chat(websocket: WebSocket, token: str = "", session_id: str = ""):
-    # Проверка токена
-    if WEB_TOKEN and token != WEB_TOKEN:
-        await websocket.close(code=4001, reason="Unauthorized")
-        return
-
     await websocket.accept()
 
-    # Проверка токена после accept (иначе браузер получает HTTP 403, не WS close)
+    # Проверка токена после accept — иначе браузер получает HTTP 403, не WS close-код
     if WEB_TOKEN and token != WEB_TOKEN:
         await websocket.send_json({"type": "auth_required"})
         await websocket.close(code=4001, reason="Unauthorized")
