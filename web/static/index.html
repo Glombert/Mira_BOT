@@ -64,7 +64,7 @@
     #cmd-bar {
       width: 100%; max-width: 760px;
       padding: 8px 16px;
-      display: flex; gap: 8px;
+      display: flex; gap: 8px; flex-wrap: wrap;
       border-bottom: 1px solid var(--border);
       background: rgba(13,24,48,0.7);
     }
@@ -74,10 +74,37 @@
       border: 1px solid var(--border);
       background: var(--blue-soft);
       color: var(--blue); font-size: 12px; cursor: pointer;
-      transition: all .2s;
+      transition: all .2s; white-space: nowrap;
     }
     .cmd-btn:hover { background: rgba(59,130,246,0.2); border-color: var(--blue); }
+    .cmd-btn.danger { color: #f87171; background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.2); }
+    .cmd-btn.danger:hover { background: rgba(239,68,68,0.15); }
     .cmd-btn svg { width: 13px; height: 13px; }
+
+    /* ---- FILES PANEL ---- */
+    #files-panel {
+      display: none;
+      width: 100%; max-width: 760px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+    }
+    #files-panel h3 { font-size: 13px; color: var(--muted); margin-bottom: 10px; text-transform: uppercase; letter-spacing: .5px; }
+    .file-section { margin-bottom: 12px; }
+    .file-section-title { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+    .file-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 7px 10px; border-radius: 8px;
+      background: var(--surface2); margin-bottom: 4px;
+    }
+    .file-item span { font-size: 13px; color: var(--text); }
+    .file-item small { font-size: 11px; color: var(--muted); margin-left: 8px; }
+    .file-dl {
+      padding: 4px 10px; border-radius: 6px; font-size: 12px;
+      background: var(--blue-soft); color: var(--blue);
+      text-decoration: none; border: 1px solid var(--border);
+    }
+    .file-dl:hover { background: rgba(59,130,246,0.2); }
+    #files-empty { font-size: 13px; color: var(--muted); text-align: center; padding: 10px 0; }
 
     /* ---- MESSAGES ---- */
     #messages {
@@ -164,6 +191,15 @@
       border-color: var(--blue);
       box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
     }
+    .attach-btn {
+      width: 40px; height: 40px; flex-shrink: 0;
+      border: 1px solid var(--border); border-radius: 50%;
+      background: var(--surface2); color: var(--muted);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: all .2s;
+    }
+    .attach-btn:hover { color: var(--blue); border-color: var(--blue); background: var(--blue-soft); }
+
     #send {
       width: 44px; height: 44px; flex-shrink: 0;
       border: none; border-radius: 50%; cursor: pointer;
@@ -256,14 +292,28 @@
 
 <!-- COMMANDS -->
 <div id="cmd-bar">
-  <button class="cmd-btn" onclick="sendCmd('clear')">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-    Очистить
-  </button>
   <button class="cmd-btn" onclick="sendCmd('whoami')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
     Профиль
   </button>
+  <button class="cmd-btn" onclick="sendCmd('files')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+    Файлы
+  </button>
+  <button class="cmd-btn" onclick="sendCmd('clear')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+    Очистить чат
+  </button>
+  <button class="cmd-btn danger" onclick="sendCmd('forget')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
+    Сброс профиля
+  </button>
+</div>
+
+<!-- FILES PANEL -->
+<div id="files-panel">
+  <h3>Файлы рабочего пространства</h3>
+  <div id="files-content"><p id="files-empty">Нет файлов</p></div>
 </div>
 
 <!-- MESSAGES -->
@@ -271,6 +321,12 @@
 
 <!-- INPUT -->
 <div id="input-area">
+  <input type="file" id="file-input" style="display:none" multiple onchange="uploadFiles(this.files)">
+  <button class="attach-btn" onclick="document.getElementById('file-input').click()" title="Прикрепить файл">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+      <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.41 17.41a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+    </svg>
+  </button>
   <textarea id="input" placeholder="Напиши Мире..." rows="1"></textarea>
   <button id="send" disabled>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20">
@@ -316,6 +372,8 @@
       } else if (m.type === "error") {
         hideThinking(); addMsg("error", m.content);
         dot.className = "online"; sendBtn.disabled = false;
+      } else if (m.type === "files") {
+        renderFiles(m.files);
       }
     };
 
@@ -362,7 +420,61 @@
       if (!confirm("Очистить историю разговора?")) return;
       msgsEl.innerHTML = "";
     }
+    if (cmd === "forget" && !confirm("Сбросить профиль и историю полностью?")) return;
+    if (cmd === "files") {
+      const panel = document.getElementById("files-panel");
+      panel.style.display = panel.style.display === "none" ? "block" : "none";
+    }
     ws.send(JSON.stringify({type: "command", cmd}));
+  }
+
+  /* File upload */
+  async function uploadFiles(fileList) {
+    for (const file of fileList) {
+      const fd = new FormData();
+      fd.append("file", file);
+      addMsg("system", `Загружаю: ${file.name}...`);
+      try {
+        const r = await fetch(`/upload?session=${encodeURIComponent(sess())}`, {method:"POST", body:fd});
+        const d = await r.json();
+        if (d.ok) {
+          const kb = (d.size / 1024).toFixed(1);
+          addMsg("system", `Файл загружен: ${d.filename} (${kb} КБ)\nМира может с ним поработать.`);
+          if (ws?.readyState === WebSocket.OPEN)
+            ws.send(JSON.stringify({type:"message", content:`Я загрузил файл: ${d.filename}. Посмотри его в папке inbox.`}));
+        } else {
+          addMsg("error", `Ошибка загрузки: ${d.detail || "неизвестная"}`);
+        }
+      } catch(e) {
+        addMsg("error", `Ошибка: ${e.message}`);
+      }
+    }
+    document.getElementById("file-input").value = "";
+  }
+
+  /* Files panel */
+  function renderFiles(files) {
+    const content = document.getElementById("files-content");
+    if (!files.length) {
+      content.innerHTML = "<p id='files-empty'>Нет файлов</p>";
+      return;
+    }
+    const byDir = {};
+    for (const f of files) {
+      (byDir[f.dir] = byDir[f.dir] || []).push(f);
+    }
+    const labels = {inbox: "📥 Входящие", output: "📤 Результаты"};
+    content.innerHTML = Object.entries(byDir).map(([dir, fs]) => `
+      <div class="file-section">
+        <div class="file-section-title">${labels[dir] || dir}</div>
+        ${fs.map(f => {
+          const kb = (f.size / 1024).toFixed(1);
+          return `<div class="file-item">
+            <span>${f.name}<small>${kb} КБ</small></span>
+            <a class="file-dl" href="/files/${dir}/${encodeURIComponent(f.name)}?session=${encodeURIComponent(sess())}" download="${f.name}">Скачать</a>
+          </div>`;
+        }).join("")}
+      </div>`).join("");
   }
 
   /* Messages */
