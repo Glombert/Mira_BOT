@@ -186,24 +186,19 @@ async def health():
 
 @app.get("/auth/telegram")
 async def auth_telegram(request: Request):
-    """Callback от Telegram Login Widget."""
+    """Верифицирует данные Telegram Login Widget и возвращает session token."""
     data = dict(request.query_params)
     if not data or not BOT_TOKEN or not _verify_telegram(data):
-        return HTMLResponse("<h2>Ошибка авторизации</h2><a href='/'>Назад</a>", status_code=400)
+        return {"ok": False, "error": "Ошибка авторизации"}
 
     tg_id   = int(data["id"])
-    name    = data.get("first_name", "") + (" " + data.get("last_name", "")).rstrip()
-    token   = _make_session(tg_id, name.strip())
+    name    = (data.get("first_name", "") + " " + data.get("last_name", "")).strip()
+    token   = _make_session(tg_id, name)
     user_id = _web_user_id(tg_id)
-    _ensure_profile(user_id, name.strip())
+    _ensure_profile(user_id, name)
 
     logger.info(f"Telegram auth: {tg_id} ({name})")
-
-    # Передаём токен через хэш URL — он не логируется сервером
-    return HTMLResponse(f"""<!DOCTYPE html><html><body><script>
-localStorage.setItem('mira_session', '{token}');
-window.location.href = '/';
-</script></body></html>""")
+    return {"ok": True, "session": token, "name": name}
 
 
 @app.websocket("/ws")

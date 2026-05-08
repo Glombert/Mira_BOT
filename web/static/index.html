@@ -181,12 +181,30 @@
       hideThinking();
       if (e.code === 4001) {
         localStorage.removeItem(SESSION_KEY);
+        // Не переподключаемся — ждём авторизации через Telegram
+      } else {
+        setTimeout(connect, 3000);
       }
-      setTimeout(connect, 3000);
     };
 
     ws.onerror = () => ws.close();
   }
+
+  // Вызывается Telegram виджетом напрямую в основном окне
+  window.onTelegramAuth = function(user) {
+    fetch("/auth/telegram?" + new URLSearchParams(user))
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok && data.session) {
+          localStorage.setItem(SESSION_KEY, data.session);
+          overlay.style.display = "none";
+          connect();
+        } else {
+          alert("Ошибка авторизации. Попробуй ещё раз.");
+        }
+      })
+      .catch(() => alert("Ошибка сети. Попробуй ещё раз."));
+  };
 
   function showLogin(botUsername) {
     overlay.style.display = "flex";
@@ -195,12 +213,12 @@
       return;
     }
     const wrap = document.getElementById("tg-btn-wrap");
-    wrap.innerHTML = "";
+    if (wrap.querySelector("script")) return; // уже добавлен
     const script = document.createElement("script");
     script.src = "https://telegram.org/js/telegram-widget.js?22";
     script.setAttribute("data-telegram-login", botUsername);
     script.setAttribute("data-size", "large");
-    script.setAttribute("data-auth-url", `${location.protocol}//${location.host}/auth/telegram`);
+    script.setAttribute("data-onauth", "onTelegramAuth(user)");
     script.setAttribute("data-request-access", "write");
     script.async = true;
     wrap.appendChild(script);
