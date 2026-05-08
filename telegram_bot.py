@@ -179,7 +179,15 @@ def _save_session(user_id: str, msgs: list) -> None:
     system   = [m for m in msgs if m["role"] == "system"]
     the_rest = [m for m in msgs if m["role"] != "system"]
     trimmed  = system + the_rest[-MAX_HISTORY:]
-    saveable = [m for m in trimmed if isinstance(m.get("content"), str)]
+    # Фильтруем tool-сообщения: tool_calls и tool-результаты не сохраняем.
+    # Если сохранить tool-результат без предшествующего tool_calls —
+    # API вернёт 400 "tool result without tool_use".
+    saveable = [
+        m for m in trimmed
+        if isinstance(m.get("content"), str)
+        and m.get("role") != "tool"
+        and not m.get("tool_calls")
+    ]
     try:
         memory_crypto.save_json(_session_path(user_id), saveable)
     except Exception as e:

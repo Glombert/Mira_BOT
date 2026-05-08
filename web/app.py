@@ -134,8 +134,15 @@ def _save_session(user_id: str, msgs: list) -> None:
             return {**m, "content": " ".join(t for t in texts if t) or "[медиа]"}
         return m
 
+    saveable = [
+        _strip(m) for m in trimmed
+        if isinstance(m.get("content"), (str, list))
+        and m.get("role") != "tool"
+        and not m.get("tool_calls")
+    ]
+
     try:
-        memory_crypto.save_json(_session_path(user_id), [_strip(m) for m in trimmed])
+        memory_crypto.save_json(_session_path(user_id), saveable)
     except Exception as e:
         logger.warning(f"save_session {user_id}: {e}")
 
