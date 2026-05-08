@@ -17,6 +17,7 @@ telegram_bot.py — Telegram-интерфейс для Mira.
 
 import asyncio
 import os
+import stat
 import json
 import base64
 import logging
@@ -42,6 +43,22 @@ from telegram.ext import (
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Проверка прав .env при старте
+def _check_env_permissions() -> None:
+    for name in (".env", "../.env"):
+        path = os.path.abspath(name)
+        if not os.path.exists(path):
+            continue
+        mode = os.stat(path).st_mode
+        if mode & (stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH):
+            import logging as _log
+            _log.getLogger("MiraBot").warning(
+                f"БЕЗОПАСНОСТЬ: {path} доступен другим пользователям "
+                f"(права: {oct(mode & 0o777)}). Исправь: chmod 600 {path}"
+            )
+
+_check_env_permissions()
 
 # ---------------------------------------------------------------------------
 # Импорт ядра Mira
@@ -130,6 +147,10 @@ def _system_prompt_for(user_id: str) -> str:
     summary = memory_manager.get_summary(user_id, load_user_profile)
     if summary:
         base += f"\n\nЧто ты знаешь об этом пользователе из прошлых разговоров:\n{summary}"
+
+    templates = memory_manager.get_templates_prompt(user_id)
+    if templates:
+        base += f"\n\n{templates}"
 
     return base
 
