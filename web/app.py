@@ -24,7 +24,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, UploadFile, File, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
 
@@ -191,6 +191,44 @@ async def health():
     return {"status": "ok"}
 
 
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...), session: str = ""):
+    """Загружает файл в workspace/inbox пользователя."""
+    tg_id = _verify_session(session) if session else None
+    if not tg_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    user_id = _web_user_id(tg_id)
+    inbox = os.path.join(WORKSPACE_DIR, user_id, "inbox")
+    os.makedirs(inbox, exist_ok=True)
+    dest = os.path.join(inbox, file.filename or "upload")
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Файл больше 20 МБ")
+    with open(dest, "wb") as f:
+        f.write(content)
+    logger.info(f"upload: {user_id} → {file.filename} ({len(content)} bytes)")
+    return {"ok": True, "filename": file.filename, "size": len(content)}
+
+
+@app.get("/files/{file_path:path}")
+async def download_file(file_path: str, session: str = ""):
+    """Скачивает файл из workspace пользователя (только inbox/ и output/)."""
+    tg_id = _verify_session(session) if session else None
+    if not tg_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    user_id = _web_user_id(tg_id)
+    parts = file_path.replace("\\", "/").split("/", 1)
+    if len(parts) != 2 or parts[0] not in ("output", "inbox"):
+        raise HTTPException(status_code=403, detail="Доступ запрещён")
+    full_path = os.path.join(WORKSPACE_DIR, user_id, parts[0], parts[1])
+    full_path = os.path.normpath(full_path)
+    if not full_path.startswith(os.path.join(WORKSPACE_DIR, user_id)):
+        raise HTTPException(status_code=403, detail="Доступ запрещён")
+    if not os.path.isfile(full_path):
+        raise HTTPException(status_code=404, detail="Файл не найден")
+    return FileResponse(full_path, filename=os.path.basename(full_path))
+
+
 @app.get("/auth/telegram")
 async def auth_telegram(request: Request):
     """Верифицирует данные Telegram Login Widget и возвращает session token."""
@@ -237,15 +275,41 @@ async def chat(websocket: WebSocket, session: str = ""):
                 if cmd == "clear":
                     _save_session(user_id, [{"role": "system", "content": _system_prompt_for(user_id)}])
                     await websocket.send_json({"type": "system", "content": "История очищена."})
+
                 elif cmd == "whoami":
                     p = load_user_profile(user_id) or {}
                     about = p.get("about", {})
-                    lines = [f"Имя: {p.get('name', '—')}"]
-                    if about.get("role"):      lines.append(f"Роль: {about['role']}")
-                    if about.get("project"):   lines.append(f"Проект: {about['project']}")
+                    lines = [f"Имя: {p.get('name', '—')}",
+                             f"Статус: {p.get('status', 'regular')}"]
+                    if about.get("role"):    lines.append(f"Роль: {about['role']}")
+                    if about.get("project"): lines.append(f"Проект: {about['project']}")
                     summary = p.get("conversation_summary", "")
-                    if summary: lines.append(f"\nПамять:\n{summary[:300]}")
+                    if summary: lines.append(f"\nЧто Мира знает о тебе:\n{summary[:400]}")
                     await websocket.send_json({"type": "system", "content": "\n".join(lines)})
+
+                elif cmd == "files":
+                    files = []
+                    for subdir in ("inbox", "output"):
+                        d = os.path.join(WORKSPACE_DIR, user_id, subdir)
+                        if os.path.isdir(d):
+                            for fname in sorted(os.listdir(d)):
+                                fpath = os.path.join(d, fname)
+                                if os.path.isfile(fpath) and not fname.startswith("."):
+                                    files.append({
+                                        "name": fname,
+                                        "dir":  subdir,
+                                        "size": os.path.getsize(fpath),
+                                    })
+                    await websocket.send_json({"type": "files", "files": files})
+
+                elif cmd == "forget":
+                    from agent import get_user_profile_path
+                    path = get_user_profile_path(user_id)
+                    if os.path.exists(path):
+                        os.remove(path)
+                    _save_session(user_id, [{"role": "system", "content": _system_prompt_for(user_id)}])
+                    await websocket.send_json({"type": "system", "content": "Профиль и история сброшены."})
+
                 continue
 
             text = data.get("content", "").strip()
