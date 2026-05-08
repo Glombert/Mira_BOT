@@ -255,7 +255,9 @@
 
     ws.onmessage = ({ data }) => {
       const msg = JSON.parse(data);
-      if (msg.type === "session") {
+      if (msg.type === "auth_required") {
+        document.getElementById("auth-overlay").style.display = "flex";
+      } else if (msg.type === "session") {
         localStorage.setItem(SESSION_KEY, msg.session_id);
       } else if (msg.type === "thinking") {
         showThinking();

@@ -152,6 +152,12 @@ async def chat(websocket: WebSocket, token: str = "", session_id: str = ""):
 
     await websocket.accept()
 
+    # Проверка токена после accept (иначе браузер получает HTTP 403, не WS close)
+    if WEB_TOKEN and token != WEB_TOKEN:
+        await websocket.send_json({"type": "auth_required"})
+        await websocket.close(code=4001, reason="Unauthorized")
+        return
+
     # Генерируем session_id если не передан
     if not session_id:
         session_id = uuid.uuid4().hex
