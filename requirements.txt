@@ -20,6 +20,7 @@ python-telegram-bot>=22.0
 # Веб-интерфейс (Этап 9)
 fastapi>=0.110.0
 uvicorn>=0.29.0
+websockets>=12.0
 
 # Векторная память (Этап 8 — пока не нужно)
 # chromadb>=0.4.0
