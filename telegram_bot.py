@@ -50,6 +50,7 @@ import providers as _providers
 _providers.init()
 import memory_crypto
 memory_crypto.init()
+import memory_manager
 
 from router   import classify
 from conclave import Conclave
@@ -120,11 +121,17 @@ def _profile_for(tg_id: int) -> Profile:
 
 
 def _system_prompt_for(user_id: str) -> str:
-    """Возвращает системный промпт с учётом child_mode пользователя."""
+    """Возвращает системный промпт с учётом child_mode и накопленного резюме."""
     data = load_user_profile(user_id)
+    base = SYSTEM_PROMPT
     if data and data.get("child_mode"):
-        return SYSTEM_PROMPT + _CHILD_PROMPT_ADDON
-    return SYSTEM_PROMPT
+        base += _CHILD_PROMPT_ADDON
+
+    summary = memory_manager.get_summary(user_id, load_user_profile)
+    if summary:
+        base += f"\n\nЧто ты знаешь об этом пользователе из прошлых разговоров:\n{summary}"
+
+    return base
 
 
 def _session_path(user_id: str) -> str:
@@ -924,6 +931,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await _send_long(update, answer)
         await _send_output_files(context, update.effective_chat.id, user_id, ts_before)
         _save_session(user_id, msgs)
+
+        # Фоновые задачи памяти — не блокируют ответ
+        model_chain = alpha.model_chain if alpha else []
+        if model_chain:
+            msgs_snapshot = list(msgs)
+
+            def _memory_tasks():
+                # 1. Суммаризация если история длинная
+                updated = memory_manager.maybe_summarize(
+                    user_id, msgs_snapshot, model_chain,
+                    load_user_profile, save_user_profile,
+                )
+                if updated is not msgs_snapshot:
+                    _save_session(user_id, updated)
+
+                # 2. Обновление профиля новыми фактами
+                memory_manager.update_user_profile(
+                    user_id, msgs_snapshot, model_chain,
+                    load_user_profile, save_user_profile,
+                )
+
+            memory_manager.run_background(_memory_tasks)
 
     except Exception as e:
         logger.error(f"Ошибка при обработке сообщения: {e}", exc_info=True)
