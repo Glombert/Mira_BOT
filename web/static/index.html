@@ -181,8 +181,10 @@
       hideThinking();
       if (e.code === 4001) {
         localStorage.removeItem(SESSION_KEY);
+        // Не переподключаемся — ждём авторизации через Telegram
+      } else {
+        setTimeout(connect, 3000);
       }
-      setTimeout(connect, 3000);
     };
 
     ws.onerror = () => ws.close();
