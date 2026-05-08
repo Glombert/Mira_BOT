@@ -4,24 +4,30 @@ web/app.py — веб-интерфейс Миры.
 FastAPI + WebSocket. Запускается отдельным сервисом на порту 8000.
 Nginx проксирует запросы снаружи.
 
-Аутентификация: WEB_ACCESS_TOKEN в .env.
-Сессии: per-browser session_id → user_id "web_{id}", та же memory/ что у Telegram.
+Аутентификация: Telegram Login Widget.
+  1. Пользователь нажимает "Войти через Telegram"
+  2. Telegram верифицирует личность и вызывает /auth/telegram
+  3. Сервер проверяет подпись и выдаёт подписанный session token
+  4. Token хранится в localStorage, передаётся в WebSocket
+
+Сессии: tg_id → user_id "web_tg_{tg_id}", та же memory/ что у Telegram.
 """
 
 import os
 import sys
+import hmac
+import time
+import hashlib
 import asyncio
 import json
-import uuid
 import logging
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
-# Добавляем корень проекта в path чтобы импортировать Миру
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dotenv import load_dotenv
@@ -39,25 +45,62 @@ from agent import (
     MEMORY_DIR, WORKSPACE_DIR, MEMORY_SESSIONS_DIR,
 )
 
-logger  = logging.getLogger("MiraWeb")
+logger = logging.getLogger("MiraWeb")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
-WEB_TOKEN   = os.getenv("WEB_ACCESS_TOKEN", "")
-MAX_HISTORY = 40
-
-STATIC_DIR = Path(__file__).parent / "static"
+BOT_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN", "")
+BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")   # например: MyMiraBot (без @)
+MAX_HISTORY  = 40
+STATIC_DIR   = Path(__file__).parent / "static"
 
 app = FastAPI(title="Mira Web")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 # ---------------------------------------------------------------------------
-# Вспомогательные функции
+# Telegram Auth
 # ---------------------------------------------------------------------------
 
-def _web_user_id(session_id: str) -> str:
-    safe = "".join(c for c in session_id if c.isalnum())[:32]
-    return f"web_{safe}"
+def _verify_telegram(data: dict) -> bool:
+    """Проверяет подпись Telegram Login Widget."""
+    received_hash = data.get("hash", "")
+    check_data    = {k: v for k, v in data.items() if k != "hash"}
+    check_string  = "\n".join(f"{k}={v}" for k, v in sorted(check_data.items()))
+    secret        = hashlib.sha256(BOT_TOKEN.encode()).digest()
+    computed      = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
+    # Данные не старше суток
+    if time.time() - int(data.get("auth_date", 0)) > 86400:
+        return False
+    return hmac.compare_digest(computed, received_hash)
+
+
+def _make_session(tg_id: int, name: str) -> str:
+    """Создаёт подписанный session token."""
+    payload = f"{tg_id}:{name}:{int(time.time())}"
+    sig     = hmac.new(BOT_TOKEN.encode(), payload.encode(), hashlib.sha256).hexdigest()[:24]
+    return f"{payload}:{sig}"
+
+
+def _verify_session(token: str) -> int | None:
+    """Возвращает tg_id если токен валиден, иначе None."""
+    try:
+        *parts, sig = token.split(":")
+        payload  = ":".join(parts)
+        expected = hmac.new(BOT_TOKEN.encode(), payload.encode(), hashlib.sha256).hexdigest()[:24]
+        if not hmac.compare_digest(expected, sig):
+            return None
+        tg_id = int(parts[0])
+        return tg_id
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Memory helpers
+# ---------------------------------------------------------------------------
+
+def _web_user_id(tg_id: int) -> str:
+    return f"web_tg_{tg_id}"
 
 
 def _session_path(user_id: str) -> str:
@@ -66,8 +109,7 @@ def _session_path(user_id: str) -> str:
 
 def _load_session(user_id: str) -> list:
     sys_prompt = _system_prompt_for(user_id)
-    path = _session_path(user_id)
-    msgs = memory_crypto.load_json(path)
+    msgs = memory_crypto.load_json(_session_path(user_id))
     if isinstance(msgs, list):
         for m in msgs:
             if m.get("role") == "system":
@@ -85,32 +127,31 @@ def _save_session(user_id: str, msgs: list) -> None:
     the_rest = [m for m in msgs if m["role"] != "system"]
     trimmed  = system + the_rest[-MAX_HISTORY:]
 
-    def _strip_images(m: dict) -> dict:
+    def _strip(m):
         c = m.get("content")
         if isinstance(c, list):
             texts = [p.get("text", "") for p in c if p.get("type") == "text"]
-            return {**m, "content": " ".join(t for t in texts if t).strip() or "[медиа]"}
+            return {**m, "content": " ".join(t for t in texts if t) or "[медиа]"}
         return m
 
-    saveable = [_strip_images(m) for m in trimmed if m.get("content") is not None]
     try:
-        memory_crypto.save_json(_session_path(user_id), saveable)
+        memory_crypto.save_json(_session_path(user_id), [_strip(m) for m in trimmed])
     except Exception as e:
-        logger.warning(f"Не удалось сохранить сессию {user_id}: {e}")
+        logger.warning(f"save_session {user_id}: {e}")
 
 
 def _system_prompt_for(user_id: str) -> str:
-    base = SYSTEM_PROMPT
-    summary = memory_manager.get_summary(user_id, load_user_profile)
+    base      = SYSTEM_PROMPT
+    summary   = memory_manager.get_summary(user_id, load_user_profile)
+    templates = memory_manager.get_templates_prompt(user_id)
     if summary:
         base += f"\n\nЧто ты знаешь об этом пользователе из прошлых разговоров:\n{summary}"
-    templates = memory_manager.get_templates_prompt(user_id)
     if templates:
         base += f"\n\n{templates}"
     return base
 
 
-def _ensure_profile(user_id: str) -> None:
+def _ensure_profile(user_id: str, tg_name: str = "") -> None:
     if load_user_profile(user_id):
         return
     os.makedirs(MEMORY_DIR, exist_ok=True)
@@ -118,7 +159,7 @@ def _ensure_profile(user_id: str) -> None:
         os.makedirs(os.path.join(WORKSPACE_DIR, user_id, sub), exist_ok=True)
     save_user_profile(user_id, {
         "id":           user_id,
-        "name":         "",
+        "name":         tg_name,
         "status":       "regular",
         "created_at":   datetime.now().strftime("%Y-%m-%d"),
         "last_seen":    datetime.now().strftime("%Y-%m-%d"),
@@ -130,7 +171,7 @@ def _ensure_profile(user_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Маршруты
+# Routes
 # ---------------------------------------------------------------------------
 
 @app.get("/")
@@ -143,34 +184,48 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/auth/telegram")
+async def auth_telegram(request: Request):
+    """Callback от Telegram Login Widget."""
+    data = dict(request.query_params)
+    if not data or not BOT_TOKEN or not _verify_telegram(data):
+        return HTMLResponse("<h2>Ошибка авторизации</h2><a href='/'>Назад</a>", status_code=400)
+
+    tg_id   = int(data["id"])
+    name    = data.get("first_name", "") + (" " + data.get("last_name", "")).rstrip()
+    token   = _make_session(tg_id, name.strip())
+    user_id = _web_user_id(tg_id)
+    _ensure_profile(user_id, name.strip())
+
+    logger.info(f"Telegram auth: {tg_id} ({name})")
+
+    # Передаём токен через хэш URL — он не логируется сервером
+    return HTMLResponse(f"""<!DOCTYPE html><html><body><script>
+localStorage.setItem('mira_session', '{token}');
+window.location.href = '/';
+</script></body></html>""")
+
+
 @app.websocket("/ws")
-async def chat(websocket: WebSocket, token: str = "", session_id: str = ""):
+async def chat(websocket: WebSocket, session: str = ""):
     await websocket.accept()
 
-    # Проверка токена после accept — иначе браузер получает HTTP 403, не WS close-код
-    if WEB_TOKEN and token != WEB_TOKEN:
-        await websocket.send_json({"type": "auth_required"})
-        await websocket.close(code=4001, reason="Unauthorized")
+    tg_id = _verify_session(session) if session else None
+    if not tg_id:
+        await websocket.send_json({"type": "auth_required", "bot": BOT_USERNAME})
+        await websocket.close(code=4001)
         return
 
-    # Генерируем session_id если не передан
-    if not session_id:
-        session_id = uuid.uuid4().hex
-
-    user_id = _web_user_id(session_id)
+    user_id  = _web_user_id(tg_id)
     _ensure_profile(user_id)
-
+    await websocket.send_json({"type": "ready", "name": load_user_profile(user_id).get("name", "")})
     logger.info(f"WS connect: {user_id}")
-
-    # Отправляем session_id клиенту чтобы он сохранил
-    await websocket.send_json({"type": "session", "session_id": session_id})
 
     try:
         while True:
             data = await websocket.receive_json()
-            msg_type = data.get("type", "message")
 
-            if msg_type == "ping":
+            if data.get("type") == "ping":
                 await websocket.send_json({"type": "pong"})
                 continue
 
@@ -178,12 +233,9 @@ async def chat(websocket: WebSocket, token: str = "", session_id: str = ""):
             if not text:
                 continue
 
-            # Загружаем сессию
-            msgs = _load_session(user_id)
+            msgs    = _load_session(user_id)
             profile = Profile("default")
-            alpha = Agent.from_config_file(
-                "alpha", profile, user_id, _system_prompt_for(user_id)
-            )
+            alpha   = Agent.from_config_file("alpha", profile, user_id, _system_prompt_for(user_id))
 
             msgs.append({"role": "user", "content": text})
             system   = [m for m in msgs if m["role"] == "system"]
@@ -195,43 +247,26 @@ async def chat(websocket: WebSocket, token: str = "", session_id: str = ""):
             try:
                 answer = await asyncio.to_thread(alpha.run, msgs)
             except Exception as e:
-                logger.error(f"Ошибка alpha.run: {e}", exc_info=True)
-                await websocket.send_json({
-                    "type": "error",
-                    "content": "Что-то пошло не так. Попробуй ещё раз."
-                })
+                logger.error(f"alpha.run: {e}", exc_info=True)
+                await websocket.send_json({"type": "error", "content": "Что-то пошло не так. Попробуй ещё раз."})
                 continue
 
             await websocket.send_json({"type": "message", "content": answer})
             _save_session(user_id, msgs)
 
-            # Фоновые задачи памяти
-            model_chain = alpha.model_chain
-            msgs_snap   = list(msgs)
-
-            def _memory():
-                updated = memory_manager.maybe_summarize(
-                    user_id, msgs_snap, model_chain,
-                    load_user_profile, save_user_profile,
-                )
-                if updated is not msgs_snap:
+            snap = list(msgs)
+            def _bg():
+                updated = memory_manager.maybe_summarize(user_id, snap, alpha.model_chain, load_user_profile, save_user_profile)
+                if updated is not snap:
                     _save_session(user_id, updated)
-                memory_manager.update_user_profile(
-                    user_id, msgs_snap, model_chain,
-                    load_user_profile, save_user_profile,
-                )
-
-            memory_manager.run_background(_memory)
+                memory_manager.update_user_profile(user_id, snap, alpha.model_chain, load_user_profile, save_user_profile)
+            memory_manager.run_background(_bg)
 
     except WebSocketDisconnect:
         logger.info(f"WS disconnect: {user_id}")
     except Exception as e:
         logger.error(f"WS error: {e}", exc_info=True)
 
-
-# ---------------------------------------------------------------------------
-# Запуск
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     import uvicorn
