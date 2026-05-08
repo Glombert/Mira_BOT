@@ -168,3 +168,77 @@ def save_summary(user_id: str, summary: str,
 def run_background(fn, *args) -> None:
     """Запускает функцию в фоновом потоке."""
     threading.Thread(target=fn, args=args, daemon=True).start()
+
+
+# ---------------------------------------------------------------------------
+# Шаблоны задач
+# ---------------------------------------------------------------------------
+
+TEMPLATES_DIR = os.path.join("memory", "templates")
+
+
+def _templates_path(user_id: str) -> str:
+    path = os.path.join(TEMPLATES_DIR, user_id)
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def save_template(user_id: str, name: str, description: str, example: str) -> dict:
+    """
+    Сохраняет шаблон повторяющейся задачи.
+
+    name        — короткое имя (slug), например "перевод_текста"
+    description — что делает этот шаблон
+    example     — типичный запрос пользователя для этой задачи
+    """
+    name = name.strip().replace(" ", "_").lower()[:40]
+    if not name:
+        return {"ok": False, "error": "Имя шаблона не может быть пустым"}
+
+    template = {
+        "name":        name,
+        "description": description.strip()[:300],
+        "example":     example.strip()[:300],
+        "created_at":  __import__("datetime").datetime.now().strftime("%Y-%m-%d"),
+    }
+    path = os.path.join(_templates_path(user_id), f"{name}.json")
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(template, f, ensure_ascii=False, indent=2)
+        logger.info(f"memory_manager: шаблон '{name}' сохранён для {user_id}")
+        return {"ok": True, "name": name, "path": path}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def list_templates(user_id: str) -> dict:
+    """Возвращает список шаблонов пользователя."""
+    dir_path = _templates_path(user_id)
+    templates = []
+    for fname in sorted(os.listdir(dir_path)):
+        if not fname.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(dir_path, fname), encoding="utf-8") as f:
+                t = json.load(f)
+            templates.append({
+                "name":        t.get("name", fname[:-5]),
+                "description": t.get("description", ""),
+                "example":     t.get("example", ""),
+            })
+        except Exception:
+            pass
+    return {"ok": True, "templates": templates, "count": len(templates)}
+
+
+def get_templates_prompt(user_id: str) -> str:
+    """
+    Возвращает текст для системного промпта с шаблонами пользователя.
+    Пустая строка если шаблонов нет.
+    """
+    result = list_templates(user_id)
+    templates = result.get("templates", [])
+    if not templates:
+        return ""
+    lines = [f"— {t['name']}: {t['description']}" for t in templates]
+    return "Сохранённые шаблоны задач пользователя:\n" + "\n".join(lines)

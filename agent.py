@@ -13,6 +13,7 @@ from logging.handlers import TimedRotatingFileHandler
 from dotenv import load_dotenv
 from openai import OpenAI
 from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search, list_self, read_self, write_persona
+import memory_manager as _memory_manager
 import memory_crypto
 from tools.git_tools   import sync_with_git, get_current_branch, ensure_dev_branch, release_to_main
 from tools.cloud_tools import cloud_sync, cloud_restore
@@ -585,6 +586,35 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "save_template",
+            "description": (
+                "Сохраняет шаблон повторяющейся задачи пользователя. "
+                "Используй когда пользователь делает одно и то же несколько раз — "
+                "переводы, генерация отчётов, анализ данных. "
+                "Шаблон появится в контексте следующих сессий."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name":        {"type": "string", "description": "Короткое имя шаблона, например 'перевод_текста'"},
+                    "description": {"type": "string", "description": "Что делает этот шаблон"},
+                    "example":     {"type": "string", "description": "Типичный запрос пользователя"},
+                },
+                "required": ["name", "description", "example"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_templates",
+            "description": "Показывает сохранённые шаблоны задач пользователя.",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "list_self",
             "description": (
                 "Показывает структуру собственного проекта: файлы кода, конфиги агентов, "
@@ -736,6 +766,17 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
                 tool_args["query"],
                 max_results=tool_args.get("max_results", 5),
             )
+
+        elif tool_name == "save_template":
+            result = _memory_manager.save_template(
+                user_id,
+                tool_args["name"],
+                tool_args["description"],
+                tool_args["example"],
+            )
+
+        elif tool_name == "list_templates":
+            result = _memory_manager.list_templates(user_id)
 
         elif tool_name == "list_self":
             result = list_self()
