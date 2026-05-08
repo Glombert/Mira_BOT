@@ -11,15 +11,15 @@ cryptography>=42.0.0
 # Переменные окружения
 python-dotenv>=1.0.0
 
-# Excel (понадобится в Этапе 3)
+# Excel
 openpyxl>=3.1.0
 
-# Web backend (Этап 4)
-fastapi>=0.110.0
-uvicorn>=0.29.0
+# Telegram bot
+python-telegram-bot>=22.0
 
-# Telegram bot (Этап 4)
-python-telegram-bot>=21.0
+# Веб-интерфейс (Этап 9 — пока не активен)
+# fastapi>=0.110.0
+# uvicorn>=0.29.0
 
-# Векторная память (Этап 5, пока не нужно)
+# Векторная память (Этап 8 — пока не нужно)
 # chromadb>=0.4.0

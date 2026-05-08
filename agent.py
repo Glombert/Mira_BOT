@@ -8,7 +8,6 @@ import argparse
 import subprocess
 import tempfile
 import logging
-import difflib
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from dotenv import load_dotenv
@@ -625,7 +624,7 @@ TOOL_SCHEMAS = [
                 "Обновляет одно поле собственной персоны (persona.json). "
                 "Используй когда хочешь зафиксировать что-то новое о себе: "
                 "новое понимание, наблюдение, размышление. "
-                "Разрешены поля: notes, curiosity, emotions, self_awareness, reflections. "
+                "Разрешены поля: curiosity, emotions, self_awareness, reflections. "
                 "Поля name, core, boundaries, formatting — изменить нельзя. "
                 "Перед изменением делается бэкап. Владелец получает уведомление."
             ),
@@ -634,7 +633,7 @@ TOOL_SCHEMAS = [
                 "properties": {
                     "field": {
                         "type": "string",
-                        "description": "Имя поля: notes | curiosity | emotions | self_awareness | reflections"
+                        "description": "Имя поля: curiosity | emotions | self_awareness | reflections"
                     },
                     "value": {
                         "description": "Новое значение. Для reflections — строка-наблюдение, добавится в список с датой."

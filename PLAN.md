@@ -1,10 +1,40 @@
 # Mira_BOT — План разработки
 
-> Версия: 3.7
+> Версия: 3.8 (релиз Mira v1.0)
 > Последнее обновление: 2026-05-08
 > Архитектура: см. ARCHITECTURE.md
 
 ---
+
+## Mira v1.0 — что входит в релиз
+
+Система достигла уровня полноценного помощника. Все ключевые функции работают в production на VPS.
+
+**Возможности v1.0:**
+- Telegram-бот с многоагентной оркестрацией (Конклав из 7 специалистов)
+- Веб-поиск: Perplexity sonar-pro → DuckDuckGo (без ключей)
+- Vision: понимает фото через Claude Sonnet 4.6
+- Самосознание: читает свой код (`list_self`, `read_self`), обновляет персону (`write_persona`)
+- Шифрование памяти: Fernet, прозрачное, с backwards compatibility
+- Многопровайдерность: OpenRouter → DeepSeek direct → Anthropic direct
+- VPS + systemd + GitHub Actions CI/CD + rclone бэкап
+- Детский режим, система доступа, уведомления о сбоях
+
+**Следующая цель:** v1.1 — долгая память (суммаризация сессий).
+
+---
+
+## Что изменилось в v3.8
+
+Финальная очистка и аудит перед v1.0:
+
+- **`import difflib` удалён** из agent.py — не использовался.
+- **`critic.json`** — заменены нереальные модели (`~google/gemini-pro-latest`, `gpt-5.1-codex-max`) на `google/gemini-2.0-flash-001` и `openai/gpt-4o`.
+- **`profiles/dev.json`** — удалены несуществующие инструменты `git_commit` и `spawn_agent`.
+- **`requirements.txt`** — fastapi/uvicorn закомментированы (активируются в Этапе 9).
+- **`persona.json`** — добавлено поле `reflections: []`, которое было в коде но отсутствовало в файле.
+- **`write_persona` описание** — убрано упоминание удалённого поля `notes`.
+- **README** — версия 1.0, добавлена Vision, обновлён стек и дорожная карта.
 
 ## Что изменилось в v3.7
 
@@ -592,17 +622,20 @@ mira_bot/
 ## Текущий статус
 
 ```
-[x] ЭТАП 0   — Фундамент (0.1–0.8 полностью)
-[x] ЭТАП 1   — Agent класс + инструменты + защиты (1.1–1.8 полностью)
-[x] ЭТАП 2   — Конклав: router.py, conclave.py, 7 конфигов агентов, /stop
-[x] ЭТАП 3   — Excel: excel_read, excel_write, excel_specialist
-[x] ЭТАП 4   — Telegram Bot + UX: прогресс 💭, поиск, Scout v3, без markdown
-[x] ЭТАП 5   — VPS: переезд ✓, systemd ✓, CI/CD ✓, бэкап ✓, логи ✓
-              Осталось: алерты, изоляция run_python
-[x] ЭТАП 6   — Самосознание: list_self, read_self, persona self_awareness
-[x] ЭТАП 7   — Приватность: Fernet-шифрование памяти (memory_crypto.py)
-              Осталось: chmod .env, bэкапы уже шифруются rclone
-[ ] ЭТАП 8   — Долгая память: суммаризация, обновление профиля, шаблоны  ← СЛЕДУЮЩИЙ
-[ ] ЭТАП 9   — Веб-интерфейс: FastAPI, WebSocket, Nginx, HTTPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  MIRA v1.0  —  production ready
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[x] ЭТАП 0   — Фундамент
+[x] ЭТАП 1   — Agent: tools, providers, fallback
+[x] ЭТАП 2   — Конклав: 7 специалистов, роутер, QA-цикл
+[x] ЭТАП 3   — Excel
+[x] ЭТАП 4   — Telegram Bot + UX: поиск, vision, 💭 прогресс
+[x] ЭТАП 5   — VPS: systemd, CI/CD, бэкап, мониторинг
+[x] ЭТАП 6   — Самосознание: list_self, read_self, write_persona
+[x] ЭТАП 7   — Приватность: Fernet-шифрование памяти
+
+[ ] ЭТАП 8   — Долгая память                    ← СЛЕДУЮЩИЙ
+[ ] ЭТАП 9   — Веб-интерфейс (резерв к Telegram)
 [ ] ЭТАП 10  — Тесты
 ```
