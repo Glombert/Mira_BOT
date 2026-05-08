@@ -18,6 +18,8 @@ jobs:
             cd /root/mira_agent
             git pull origin main
             /root/mira_agent/venv/bin/pip install -r requirements.txt -q
+            # Изоляция run_python
+            which firejail >/dev/null 2>&1 || apt-get install -y firejail -q
             chmod +x /root/mira_agent/scripts/notify.sh
             # Watchdog: cron каждые 5 минут проверяет что бот жив
             (crontab -l 2>/dev/null | grep -v "notify.sh"; \
