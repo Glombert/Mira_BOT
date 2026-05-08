@@ -3,271 +3,407 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Мира</title>
+  <title>Mira</title>
   <style>
     :root {
-      --bg:        #f5f5f7;
-      --surface:   #ffffff;
-      --mira:      #6d4aff;
-      --mira-soft: #ede8ff;
-      --user-soft: #e5e5ea;
-      --text:      #1c1c1e;
-      --muted:     #8e8e93;
-      --border:    #d1d1d6;
-      --radius:    18px;
+      --bg:         #080f1e;
+      --surface:    #0d1830;
+      --surface2:   #111f3a;
+      --blue:       #3b82f6;
+      --purple:     #8b5cf6;
+      --blue-soft:  rgba(59,130,246,0.12);
+      --purple-soft:rgba(139,92,246,0.12);
+      --text:       #e2e8f0;
+      --muted:      #64748b;
+      --border:     rgba(59,130,246,0.2);
+      --glow:       rgba(91,133,246,0.25);
+      --radius:     16px;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: var(--bg); color: var(--text);
       height: 100dvh; display: flex; flex-direction: column; align-items: center;
+      background-image:
+        radial-gradient(ellipse at 20% 50%, rgba(59,130,246,0.06) 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 20%, rgba(139,92,246,0.06) 0%, transparent 60%);
     }
+
+    /* ---- HEADER ---- */
     header {
-      width: 100%; max-width: 720px;
-      padding: 16px 20px 12px;
-      display: flex; align-items: center; gap: 10px;
-      border-bottom: 1px solid var(--border); background: var(--surface);
+      width: 100%; max-width: 760px;
+      padding: 14px 20px;
+      display: flex; align-items: center; gap: 12px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(13,24,48,0.9);
+      backdrop-filter: blur(12px);
+      position: sticky; top: 0; z-index: 5;
     }
-    .avatar {
-      width: 36px; height: 36px; background: var(--mira); border-radius: 50%;
-      display: flex; align-items: center; justify-content: center; color: white; font-size: 18px;
+
+    .logo-svg { width: 38px; height: 38px; flex-shrink: 0; }
+
+    .header-title { flex: 1; }
+    .header-title h1 {
+      font-size: 18px; font-weight: 700; letter-spacing: .5px;
+      background: linear-gradient(90deg, var(--blue), var(--purple));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     }
-    header h1 { font-size: 17px; font-weight: 600; }
+    .header-title span { font-size: 12px; color: var(--muted); }
+
     #status-dot {
       width: 8px; height: 8px; border-radius: 50%;
-      background: #ccc; margin-left: auto; transition: background 0.3s;
+      background: var(--muted); transition: all .3s;
+      box-shadow: none;
     }
-    #status-dot.online   { background: #34c759; }
-    #status-dot.thinking { background: var(--mira); animation: pulse 1s infinite; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    #status-dot.online   { background: #22c55e; box-shadow: 0 0 8px #22c55e80; }
+    #status-dot.thinking { background: var(--blue); box-shadow: 0 0 8px var(--blue); animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 
+    /* ---- COMMANDS BAR ---- */
+    #cmd-bar {
+      width: 100%; max-width: 760px;
+      padding: 8px 16px;
+      display: flex; gap: 8px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(13,24,48,0.7);
+    }
+    .cmd-btn {
+      display: flex; align-items: center; gap: 5px;
+      padding: 5px 12px; border-radius: 20px;
+      border: 1px solid var(--border);
+      background: var(--blue-soft);
+      color: var(--blue); font-size: 12px; cursor: pointer;
+      transition: all .2s;
+    }
+    .cmd-btn:hover { background: rgba(59,130,246,0.2); border-color: var(--blue); }
+    .cmd-btn svg { width: 13px; height: 13px; }
+
+    /* ---- MESSAGES ---- */
     #messages {
-      flex: 1; width: 100%; max-width: 720px;
-      overflow-y: auto; padding: 16px 16px 8px;
-      display: flex; flex-direction: column; gap: 8px;
+      flex: 1; width: 100%; max-width: 760px;
+      overflow-y: auto; padding: 20px 16px 12px;
+      display: flex; flex-direction: column; gap: 10px;
+      scrollbar-width: thin; scrollbar-color: var(--surface2) transparent;
     }
+
     .msg {
-      max-width: 78%; padding: 10px 14px;
-      border-radius: var(--radius); font-size: 15px;
-      line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+      max-width: 76%; padding: 11px 16px;
+      font-size: 15px; line-height: 1.6;
+      white-space: pre-wrap; word-break: break-word;
+      border-radius: var(--radius);
+      animation: fadeUp .2s ease;
     }
-    .msg.mira  { align-self:flex-start; background:var(--mira-soft); border-bottom-left-radius:4px; }
-    .msg.user  { align-self:flex-end;   background:var(--user-soft); border-bottom-right-radius:4px; }
-    .msg.error { align-self:center; background:#fee; color:#c00; font-size:13px; border-radius:8px; }
+    @keyframes fadeUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
 
-    .thinking-dots {
-      display:flex; gap:4px; align-items:center;
-      padding:12px 16px; background:var(--mira-soft);
-      border-radius:var(--radius); border-bottom-left-radius:4px; align-self:flex-start;
+    .msg.mira {
+      align-self: flex-start;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+      box-shadow: 0 0 20px var(--glow);
     }
-    .thinking-dots span {
-      width:7px; height:7px; border-radius:50%;
-      background:var(--mira); animation: dot 1.2s infinite;
+    .msg.user {
+      align-self: flex-end;
+      background: linear-gradient(135deg, #1e3a8a, #4c1d95);
+      border: 1px solid rgba(139,92,246,0.3);
+      border-bottom-right-radius: 4px;
     }
-    .thinking-dots span:nth-child(2){animation-delay:.2s}
-    .thinking-dots span:nth-child(3){animation-delay:.4s}
-    @keyframes dot{0%,80%,100%{transform:scale(1);opacity:.4}40%{transform:scale(1.3);opacity:1}}
+    .msg.system {
+      align-self: center; max-width: 90%;
+      background: rgba(59,130,246,0.08);
+      border: 1px solid rgba(59,130,246,0.15);
+      border-radius: 10px;
+      color: var(--muted); font-size: 13px; text-align: center;
+    }
+    .msg.error {
+      align-self: center;
+      background: rgba(239,68,68,0.1);
+      border: 1px solid rgba(239,68,68,0.2);
+      border-radius: 10px;
+      color: #f87171; font-size: 13px;
+    }
 
+    /* ---- THINKING ---- */
+    .thinking-wrap {
+      align-self: flex-start;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius); border-bottom-left-radius: 4px;
+      padding: 12px 18px;
+      display: flex; gap: 5px; align-items: center;
+    }
+    .thinking-wrap span {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: linear-gradient(135deg, var(--blue), var(--purple));
+      animation: dot 1.2s infinite;
+    }
+    .thinking-wrap span:nth-child(2){animation-delay:.2s}
+    .thinking-wrap span:nth-child(3){animation-delay:.4s}
+    @keyframes dot{0%,80%,100%{transform:scale(1);opacity:.4}40%{transform:scale(1.4);opacity:1}}
+
+    /* ---- INPUT ---- */
     #input-area {
-      width:100%; max-width:720px; padding:10px 16px 16px;
-      background:var(--surface); border-top:1px solid var(--border);
-      display:flex; gap:10px; align-items:flex-end;
+      width: 100%; max-width: 760px;
+      padding: 12px 16px 16px;
+      background: rgba(13,24,48,0.9);
+      border-top: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+      display: flex; gap: 10px; align-items: flex-end;
     }
     textarea {
-      flex:1; border:1px solid var(--border); border-radius:12px;
-      padding:10px 14px; font-size:15px; font-family:inherit;
-      resize:none; min-height:42px; max-height:160px;
-      outline:none; background:var(--bg); line-height:1.4; transition:border-color .2s;
+      flex: 1; background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 14px;
+      padding: 11px 16px; color: var(--text);
+      font-size: 15px; font-family: inherit;
+      resize: none; min-height: 44px; max-height: 160px;
+      outline: none; line-height: 1.5; transition: border-color .2s, box-shadow .2s;
     }
-    textarea:focus { border-color:var(--mira); }
-    button#send {
-      width:42px; height:42px; border:none; border-radius:50%;
-      background:var(--mira); color:white; font-size:20px; cursor:pointer;
-      display:flex; align-items:center; justify-content:center;
-      transition:opacity .2s; flex-shrink:0;
+    textarea::placeholder { color: var(--muted); }
+    textarea:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
     }
-    button#send:disabled { opacity:.4; cursor:default; }
+    #send {
+      width: 44px; height: 44px; flex-shrink: 0;
+      border: none; border-radius: 50%; cursor: pointer;
+      background: linear-gradient(135deg, var(--blue), var(--purple));
+      color: white; font-size: 18px;
+      display: flex; align-items: center; justify-content: center;
+      transition: opacity .2s, transform .1s;
+      box-shadow: 0 4px 15px var(--glow);
+    }
+    #send:hover { transform: scale(1.05); }
+    #send:active { transform: scale(.95); }
+    #send:disabled { opacity: .35; cursor: default; transform: none; box-shadow: none; }
 
-    /* Login overlay */
+    /* ---- LOGIN OVERLAY ---- */
     #login-overlay {
-      position:fixed; inset:0; background:rgba(0,0,0,0.5);
-      display:flex; align-items:center; justify-content:center; z-index:10;
+      position: fixed; inset: 0; z-index: 20;
+      background: rgba(8,15,30,0.95);
+      backdrop-filter: blur(16px);
+      display: flex; align-items: center; justify-content: center;
     }
     #login-box {
-      background:var(--surface); border-radius:20px;
-      padding:36px 28px; width:340px; text-align:center;
-      display:flex; flex-direction:column; align-items:center; gap:20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 40px 32px; width: 360px; text-align: center;
+      display: flex; flex-direction: column; align-items: center; gap: 20px;
+      box-shadow: 0 0 60px rgba(59,130,246,0.15);
     }
-    #login-box .logo { font-size:48px; }
-    #login-box h2    { font-size:22px; font-weight:700; }
-    #login-box p     { font-size:14px; color:var(--muted); line-height:1.5; }
-    #tg-btn-wrap     { min-height:48px; display:flex; align-items:center; justify-content:center; }
+    #login-box h2 {
+      font-size: 28px; font-weight: 800; letter-spacing: 1px;
+      background: linear-gradient(90deg, var(--blue), var(--purple));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    #login-box p { font-size: 14px; color: var(--muted); line-height: 1.6; }
+    #tg-btn-wrap { min-height: 50px; display: flex; align-items: center; justify-content: center; }
   </style>
 </head>
 <body>
 
+<!-- LOGIN -->
 <div id="login-overlay">
   <div id="login-box">
-    <div class="logo">🌟</div>
-    <h2>Мира</h2>
-    <p>Войди через Telegram чтобы начать общение</p>
-    <div id="tg-btn-wrap">
-      <!-- Telegram Login Widget появится здесь -->
-      <p id="bot-hint" style="color:var(--muted);font-size:13px">Загрузка...</p>
-    </div>
+    <svg class="logo-svg" style="width:64px;height:64px" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="lg" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#3b82f6"/>
+          <stop offset="100%" stop-color="#8b5cf6"/>
+        </linearGradient>
+        <filter id="glow"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+      <circle cx="50" cy="50" r="44" fill="none" stroke="url(#lg)" stroke-width="1.5" opacity=".6"/>
+      <path d="M50 6 L56 44 L50 50 L44 44 Z" fill="url(#lg)"/>
+      <path d="M94 50 L56 56 L50 50 L56 44 Z" fill="url(#lg)" opacity=".7"/>
+      <path d="M50 94 L44 56 L50 50 L56 56 Z" fill="url(#lg)"/>
+      <path d="M6 50 L44 44 L50 50 L44 56 Z" fill="url(#lg)" opacity=".7"/>
+      <polygon points="50,38 53,47 62,50 53,53 50,62 47,53 38,50 47,47" fill="white" filter="url(#glow)" opacity=".95"/>
+      <circle cx="50" cy="18" r="2.5" fill="url(#lg)"/>
+      <circle cx="82" cy="50" r="2.5" fill="url(#lg)" opacity=".7"/>
+      <circle cx="50" cy="82" r="2.5" fill="url(#lg)"/>
+      <circle cx="18" cy="50" r="2.5" fill="url(#lg)" opacity=".7"/>
+    </svg>
+    <h2>MIRA_BOT</h2>
+    <p>Персональный ИИ-помощник<br>Войди через Telegram чтобы начать</p>
+    <div id="tg-btn-wrap"><span style="color:var(--muted);font-size:13px">Загрузка...</span></div>
   </div>
 </div>
 
+<!-- HEADER -->
 <header>
-  <div class="avatar">✦</div>
-  <div><h1>Мира</h1></div>
+  <svg class="logo-svg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="hg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#3b82f6"/>
+        <stop offset="100%" stop-color="#8b5cf6"/>
+      </linearGradient>
+    </defs>
+    <circle cx="50" cy="50" r="44" fill="none" stroke="url(#hg)" stroke-width="1.5" opacity=".5"/>
+    <path d="M50 6 L56 44 L50 50 L44 44 Z" fill="url(#hg)"/>
+    <path d="M94 50 L56 56 L50 50 L56 44 Z" fill="url(#hg)" opacity=".7"/>
+    <path d="M50 94 L44 56 L50 50 L56 56 Z" fill="url(#hg)"/>
+    <path d="M6 50 L44 44 L50 50 L44 56 Z" fill="url(#hg)" opacity=".7"/>
+    <polygon points="50,38 53,47 62,50 53,53 50,62 47,53 38,50 47,47" fill="white" opacity=".9"/>
+  </svg>
+  <div class="header-title">
+    <h1>MIRA_BOT</h1>
+    <span id="user-name">Персональный ассистент</span>
+  </div>
   <div id="status-dot"></div>
 </header>
 
+<!-- COMMANDS -->
+<div id="cmd-bar">
+  <button class="cmd-btn" onclick="sendCmd('clear')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+    Очистить
+  </button>
+  <button class="cmd-btn" onclick="sendCmd('whoami')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+    Профиль
+  </button>
+</div>
+
+<!-- MESSAGES -->
 <div id="messages"></div>
 
+<!-- INPUT -->
 <div id="input-area">
   <textarea id="input" placeholder="Напиши Мире..." rows="1"></textarea>
-  <button id="send" disabled>↑</button>
+  <button id="send" disabled>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20">
+      <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
+    </svg>
+  </button>
 </div>
 
 <script>
   const SESSION_KEY = "mira_session";
-  const msgs        = document.getElementById("messages");
-  const input       = document.getElementById("input");
-  const sendBtn     = document.getElementById("send");
-  const statusDot   = document.getElementById("status-dot");
-  const overlay     = document.getElementById("login-overlay");
+  const msgsEl  = document.getElementById("messages");
+  const inputEl = document.getElementById("input");
+  const sendBtn = document.getElementById("send");
+  const dot     = document.getElementById("status-dot");
+  const overlay = document.getElementById("login-overlay");
 
-  let ws      = null;
-  let thinking = null;
+  let ws = null, thinkEl = null;
 
-  function getSession() { return localStorage.getItem(SESSION_KEY) || ""; }
+  function sess() { return localStorage.getItem(SESSION_KEY) || ""; }
 
+  /* WebSocket */
   function connect() {
-    const session = getSession();
-    const proto   = location.protocol === "https:" ? "wss" : "ws";
-    const url     = `${proto}://${location.host}/ws?session=${encodeURIComponent(session)}`;
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    ws = new WebSocket(`${proto}://${location.host}/ws?session=${encodeURIComponent(sess())}`);
 
-    ws = new WebSocket(url);
-    ws.onopen = () => {};
-
-    ws.onmessage = ({ data }) => {
-      const msg = JSON.parse(data);
-      if (msg.type === "auth_required") {
-        showLogin(msg.bot);
-      } else if (msg.type === "ready") {
+    ws.onmessage = ({data}) => {
+      const m = JSON.parse(data);
+      if (m.type === "auth_required") {
+        showLogin(m.bot);
+      } else if (m.type === "ready") {
         overlay.style.display = "none";
-        statusDot.className   = "online";
-        sendBtn.disabled      = false;
-      } else if (msg.type === "thinking") {
+        dot.className = "online";
+        sendBtn.disabled = false;
+        if (m.name) document.getElementById("user-name").textContent = m.name;
+      } else if (m.type === "thinking") {
         showThinking();
-      } else if (msg.type === "message") {
-        hideThinking();
-        addMsg("mira", msg.content);
-        statusDot.className = "online";
-        sendBtn.disabled    = false;
-      } else if (msg.type === "error") {
-        hideThinking();
-        addMsg("error", msg.content);
-        statusDot.className = "online";
-        sendBtn.disabled    = false;
+      } else if (m.type === "message") {
+        hideThinking(); addMsg("mira", m.content);
+        dot.className = "online"; sendBtn.disabled = false;
+      } else if (m.type === "system") {
+        hideThinking(); addMsg("system", m.content);
+        dot.className = "online"; sendBtn.disabled = false;
+      } else if (m.type === "error") {
+        hideThinking(); addMsg("error", m.content);
+        dot.className = "online"; sendBtn.disabled = false;
       }
     };
 
-    ws.onclose = (e) => {
-      statusDot.className = "";
-      sendBtn.disabled    = true;
-      hideThinking();
-      if (e.code === 4001) {
-        localStorage.removeItem(SESSION_KEY);
-        // Не переподключаемся — ждём авторизации через Telegram
-      } else {
-        setTimeout(connect, 3000);
-      }
+    ws.onclose = e => {
+      dot.className = ""; sendBtn.disabled = true; hideThinking();
+      if (e.code === 4001) { localStorage.removeItem(SESSION_KEY); }
+      else { setTimeout(connect, 3000); }
     };
-
     ws.onerror = () => ws.close();
   }
 
-  // Вызывается Telegram виджетом напрямую в основном окне
-  window.onTelegramAuth = function(user) {
-    fetch("/auth/telegram?" + new URLSearchParams(user))
-      .then(r => r.json())
-      .then(data => {
-        if (data.ok && data.session) {
-          localStorage.setItem(SESSION_KEY, data.session);
-          overlay.style.display = "none";
-          connect();
-        } else {
-          alert("Ошибка авторизации. Попробуй ещё раз.");
-        }
-      })
-      .catch(() => alert("Ошибка сети. Попробуй ещё раз."));
-  };
-
-  function showLogin(botUsername) {
+  function showLogin(bot) {
     overlay.style.display = "flex";
-    if (!botUsername) {
-      document.getElementById("bot-hint").textContent = "Бот не настроен (нет TELEGRAM_BOT_USERNAME)";
-      return;
-    }
+    if (!bot) { document.getElementById("tg-btn-wrap").innerHTML = "<span style='color:var(--muted);font-size:13px'>Бот не настроен</span>"; return; }
     const wrap = document.getElementById("tg-btn-wrap");
-    if (wrap.querySelector("script")) return; // уже добавлен
-    const script = document.createElement("script");
-    script.src = "https://telegram.org/js/telegram-widget.js?22";
-    script.setAttribute("data-telegram-login", botUsername);
-    script.setAttribute("data-size", "large");
-    script.setAttribute("data-onauth", "onTelegramAuth(user)");
-    script.setAttribute("data-request-access", "write");
-    script.async = true;
-    wrap.appendChild(script);
+    if (wrap.querySelector("script")) return;
+    wrap.innerHTML = "";
+    const s = document.createElement("script");
+    s.src = "https://telegram.org/js/telegram-widget.js?22";
+    s.setAttribute("data-telegram-login", bot);
+    s.setAttribute("data-size", "large");
+    s.setAttribute("data-onauth", "onTelegramAuth(user)");
+    s.setAttribute("data-request-access", "write");
+    s.async = true;
+    wrap.appendChild(s);
   }
 
+  window.onTelegramAuth = user => {
+    fetch("/auth/telegram?" + new URLSearchParams(user))
+      .then(r => r.json())
+      .then(d => {
+        if (d.ok) {
+          localStorage.setItem(SESSION_KEY, d.session);
+          overlay.style.display = "none";
+          connect();
+        }
+      });
+  };
+
+  /* Commands */
+  function sendCmd(cmd) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (cmd === "clear") {
+      if (!confirm("Очистить историю разговора?")) return;
+      msgsEl.innerHTML = "";
+    }
+    ws.send(JSON.stringify({type: "command", cmd}));
+  }
+
+  /* Messages */
   function send() {
-    const text = input.value.trim();
+    const text = inputEl.value.trim();
     if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
     addMsg("user", text);
-    ws.send(JSON.stringify({ type: "message", content: text }));
-    input.value = "";
-    input.style.height = "auto";
-    sendBtn.disabled    = true;
-    statusDot.className = "thinking";
+    ws.send(JSON.stringify({type: "message", content: text}));
+    inputEl.value = ""; inputEl.style.height = "auto";
+    sendBtn.disabled = true; dot.className = "thinking";
   }
 
   function addMsg(role, text) {
     const el = document.createElement("div");
-    el.className  = `msg ${role}`;
+    el.className = `msg ${role}`;
     el.textContent = text;
-    msgs.appendChild(el);
-    msgs.scrollTop = msgs.scrollHeight;
+    msgsEl.appendChild(el);
+    msgsEl.scrollTop = msgsEl.scrollHeight;
   }
 
   function showThinking() {
-    if (thinking) return;
-    thinking = document.createElement("div");
-    thinking.className = "thinking-dots";
-    thinking.innerHTML = "<span></span><span></span><span></span>";
-    msgs.appendChild(thinking);
-    msgs.scrollTop = msgs.scrollHeight;
+    if (thinkEl) return;
+    thinkEl = document.createElement("div");
+    thinkEl.className = "thinking-wrap";
+    thinkEl.innerHTML = "<span></span><span></span><span></span>";
+    msgsEl.appendChild(thinkEl);
+    msgsEl.scrollTop = msgsEl.scrollHeight;
   }
+  function hideThinking() { if (thinkEl) { thinkEl.remove(); thinkEl = null; } }
 
-  function hideThinking() {
-    if (thinking) { thinking.remove(); thinking = null; }
-  }
-
-  input.addEventListener("input", () => {
-    input.style.height = "auto";
-    input.style.height = Math.min(input.scrollHeight, 160) + "px";
+  /* Input */
+  inputEl.addEventListener("input", () => {
+    inputEl.style.height = "auto";
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + "px";
   });
-  input.addEventListener("keydown", e => {
+  inputEl.addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   });
   sendBtn.addEventListener("click", send);
 
-  setInterval(() => {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "ping" }));
-  }, 25000);
+  setInterval(() => { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:"ping"})); }, 25000);
 
   connect();
 </script>

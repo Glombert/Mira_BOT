@@ -231,6 +231,23 @@ async def chat(websocket: WebSocket, session: str = ""):
                 await websocket.send_json({"type": "pong"})
                 continue
 
+            # Команды
+            if data.get("type") == "command":
+                cmd = data.get("cmd", "")
+                if cmd == "clear":
+                    _save_session(user_id, [{"role": "system", "content": _system_prompt_for(user_id)}])
+                    await websocket.send_json({"type": "system", "content": "История очищена."})
+                elif cmd == "whoami":
+                    p = load_user_profile(user_id) or {}
+                    about = p.get("about", {})
+                    lines = [f"Имя: {p.get('name', '—')}"]
+                    if about.get("role"):      lines.append(f"Роль: {about['role']}")
+                    if about.get("project"):   lines.append(f"Проект: {about['project']}")
+                    summary = p.get("conversation_summary", "")
+                    if summary: lines.append(f"\nПамять:\n{summary[:300]}")
+                    await websocket.send_json({"type": "system", "content": "\n".join(lines)})
+                continue
+
             text = data.get("content", "").strip()
             if not text:
                 continue
