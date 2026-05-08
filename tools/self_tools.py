@@ -15,7 +15,7 @@ _READABLE_ROOT = {
 }
 
 # Папки, содержимое которых Мира может читать
-_READABLE_DIRS = {"agents", "tools", "profiles"}
+_READABLE_DIRS = {"agents", "tools", "profiles", "web", "scripts"}
 
 
 def list_self() -> dict:
