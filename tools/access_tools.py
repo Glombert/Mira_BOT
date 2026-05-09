@@ -20,6 +20,11 @@ import urllib.request
 import urllib.parse
 from datetime import datetime, timedelta
 
+try:
+    import memory_crypto as _crypto
+except ImportError:
+    _crypto = None
+
 logger = logging.getLogger("Ouroborus")
 
 MEMORY_DIR      = "memory"
@@ -40,6 +45,10 @@ def _load_profile(user_id: str) -> dict | None:
     if not os.path.exists(path):
         return None
     try:
+        # Используем memory_crypto если доступен и инициализирован
+        if _crypto and _crypto.is_enabled():
+            data = _crypto.load_json(path)
+            return data if isinstance(data, dict) else None
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
@@ -51,8 +60,11 @@ def _save_profile(user_id: str, data: dict) -> bool:
     path = os.path.join(MEMORY_DIR, f"{user_id}.json")
     data["updated_at"] = datetime.now().strftime("%Y-%m-%d")
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        if _crypto and _crypto.is_enabled():
+            _crypto.save_json(path, data)
+        else:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
         return True
     except Exception as e:
         logger.error(f"access_tools: ошибка записи {user_id}: {e}")
