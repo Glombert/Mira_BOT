@@ -80,7 +80,11 @@ from agent import (
     run_onboarding, cleanup_temp, cleanup_expired_guests,
     evolve, reflect, backup_agent, rollback, list_backups,
     sync_with_git, ensure_dev_branch, release_to_main,
-    list_users, approve, reject, block, unblock, notify_owner,
+    list_users, approve, reject, block, unblock,
+    blacklist, unblacklist, delete_user,
+    notify_owner, notify_new_user,
+    should_notify_blacklisted, mark_blacklist_notified,
+    get_evolution_stats,
     MEMORY_DIR, WORKSPACE_DIR, MEMORY_SESSIONS_DIR,
 )
 
@@ -267,18 +271,17 @@ BASIC_COMMANDS = [
 ]
 
 OWNER_COMMANDS = BASIC_COMMANDS + [
-    BotCommand("evolve",   "Изменить код агента"),
-    BotCommand("reflect",  "Агент читает свой код"),
-    BotCommand("rollback", "Откат agent.py"),
-    BotCommand("versions", "Резервные копии"),
-    BotCommand("release",  "Смержить mira-dev в main"),
-    BotCommand("git",      "Закоммитить изменения"),
-    BotCommand("users",    "Список пользователей"),
-    BotCommand("approve",  "Одобрить гостя"),
-    BotCommand("block",    "Заблокировать"),
-    BotCommand("unblock",  "Разблокировать"),
-    BotCommand("kidmode",  "Детский режим: /kidmode <user_id> on|off"),
-    BotCommand("restart",  "Перезапустить бота"),
+    BotCommand("evolve",          "Изменить код агента"),
+    BotCommand("reflect",         "Агент читает свой код"),
+    BotCommand("rollback",        "Откат agent.py"),
+    BotCommand("versions",        "Резервные копии"),
+    BotCommand("release",         "Смержить mira-dev в main"),
+    BotCommand("git",             "Закоммитить изменения"),
+    BotCommand("users",           "Управление пользователями"),
+    BotCommand("blacklist",       "Чёрный список"),
+    BotCommand("kidmode",         "Детский режим: /kidmode <user_id> on|off"),
+    BotCommand("restart",         "Перезапустить бота"),
+    BotCommand("evolution_count", "Статистика эволюций"),
 ]
 
 
@@ -323,34 +326,60 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     profile_data = load_user_profile(user_id)
     is_owner = _is_owner(tg_id)
 
+    tg_name = update.effective_user.first_name or ""
+
     if profile_data is None:
-        # Первый запуск — онбординг
-        alpha = _make_alpha(tg_id, user_id)
-        if alpha:
-            await update.message.reply_text(
-                "Привет. Я Мира. Давай познакомимся.\n\nКак тебя зовут?"
-            )
-            # Онбординг идёт через обычные сообщения — контекст хранится в user_data
-            context.user_data["onboarding"] = True
-            context.user_data["onboarding_history"] = [
-                {"role": "system", "content": (
-                    "Ты Мира. Знакомишься с новым пользователем. "
-                    "Задавай вопросы по одному: имя, чем занимается, как предпочитает общаться. "
-                    "После 3-4 вопросов скажи 'Принято. Начинаем.' и остановись."
-                )}
-            ]
-        else:
-            await update.message.reply_text("Привет! Я Мира. Напиши что-нибудь, начнём работать.")
-        status = "owner" if is_owner else "regular"
+        # Первый запуск
+        status = "owner" if is_owner else "guest"
         save_user_profile(user_id, {
-            "id": user_id, "name": "", "status": status,
+            "id": user_id, "name": tg_name, "status": status,
             "created_at": datetime.now().strftime("%Y-%m-%d"),
-            "last_seen": datetime.now().strftime("%Y-%m-%d"),
-            "sessions_count": 1, "about": {}, "preferences": {}, "domain": {}, "notes": [],
+            "last_seen":  datetime.now().strftime("%Y-%m-%d"),
+            "sessions_count": 1, "about": {}, "preferences": {}, "domain": {},
         })
+        if is_owner:
+            await update.message.reply_text(
+                "Привет! Я Мира. Напиши что-нибудь, начнём работать.",
+                reply_markup=_help_keyboard(True),
+            )
+        else:
+            await update.message.reply_text(
+                "Привет! Я Мира. Мой владелец должен одобрить твой доступ — я ему уже написала. "
+                "Пока ты можешь написать до 10 сообщений. Жди подтверждения."
+            )
+            notify_new_user(user_id, tg_name, "telegram")
     else:
-        # Не первый запуск
-        if is_owner and profile_data.get("status") != "owner":
+        existing_status = profile_data.get("status", "regular")
+
+        # Проверка чёрного списка
+        if existing_status == "blacklisted":
+            if should_notify_blacklisted(user_id):
+                mark_blacklist_notified(user_id)
+                notify_owner(
+                    f"Пользователь из чёрного списка пытается войти.\n"
+                    f"Имя: {profile_data.get('name', '—')}\nID: {user_id}"
+                )
+            return  # молчание
+
+        # Отклонённый пользователь
+        if existing_status == "rejected":
+            await update.message.reply_text(
+                "Ранее твой запрос на доступ был отклонён владельцем. "
+                "Если это ошибка — обратись к нему напрямую."
+            )
+            notify_owner(
+                f"Отклонённый пользователь пытается войти снова.\n"
+                f"Имя: {profile_data.get('name', '—')}\nID: {user_id}",
+                user_id=user_id,
+                buttons=[
+                    {"text": "Одобрить ✅",  "callback_data": f"u_ap_{user_id}"},
+                    {"text": "В ЧС 🚫",      "callback_data": f"u_bl_{user_id}"},
+                ],
+            )
+            return
+
+        # Обычный возврат
+        if is_owner and existing_status != "owner":
             profile_data["status"] = "owner"
             save_user_profile(user_id, profile_data)
         name = profile_data.get("name") or "снова"
@@ -621,10 +650,83 @@ async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not users:
         await update.message.reply_text("Пользователей нет.")
         return
-    lines = ["*Пользователи:*"]
+    status_icons = {"owner": "👑", "regular": "✅", "guest": "👤", "rejected": "❌", "blacklisted": "🚫", "blocked": "🚫"}
+    buttons = []
+    lines = [f"Пользователи ({len(users)}):"]
     for u in users:
-        lines.append(f"• `{u['id']}` — {u['status']} | {u['last_seen']}")
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        if u["status"] == "owner":
+            continue
+        icon = status_icons.get(u["status"], "?")
+        lines.append(f"{icon} {u['name'] or u['id']} [{u['status']}]")
+        buttons.append([InlineKeyboardButton(
+            f"{icon} {u['name'] or u['id'][:12]}",
+            callback_data=f"u_card_{u['id']}"
+        )])
+    if not buttons:
+        await update.message.reply_text("Других пользователей нет.")
+        return
+    await update.message.reply_text(
+        "\n".join(lines),
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def cmd_blacklist_view(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user.id):
+        return
+    users = [u for u in list_users() if u["status"] in ("blacklisted", "blocked")]
+    if not users:
+        await update.message.reply_text("Чёрный список пуст.")
+        return
+    buttons = []
+    lines = [f"Чёрный список ({len(users)}):"]
+    for u in users:
+        lines.append(f"🚫 {u['name'] or u['id']} — {u['last_seen']}")
+        buttons.append([InlineKeyboardButton(
+            f"Убрать из ЧС: {u['name'] or u['id'][:12]}",
+            callback_data=f"u_ubl_{u['id']}"
+        )])
+    await update.message.reply_text(
+        "\n".join(lines),
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def cmd_evolution_count(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user.id):
+        return
+    evo = get_evolution_stats()
+    total, success, failed = evo.get("total", 0), evo.get("success", 0), evo.get("failed", 0)
+    rate = f"{round(success/total*100)}%" if total else "—"
+    await update.message.reply_text(
+        f"Счётчик эволюций:\n"
+        f"Всего попыток: {total}\n"
+        f"Успешных: {success}\n"
+        f"Неуспешных: {failed}\n"
+        f"Успешность: {rate}"
+    )
+
+
+def _user_card_keyboard(uid: str, status: str, child_mode: bool) -> InlineKeyboardMarkup:
+    """Кнопки карточки пользователя — текущий статус не показывается."""
+    btns = []
+    status_btns = []
+    if status != "regular":    status_btns.append(InlineKeyboardButton("Одобрить ✅", callback_data=f"u_ap_{uid}"))
+    if status != "guest":      status_btns.append(InlineKeyboardButton("В гости 👤",  callback_data=f"u_gs_{uid}"))
+    if status != "rejected":   status_btns.append(InlineKeyboardButton("Отклонить ❌", callback_data=f"u_rj_{uid}"))
+    if status not in ("blacklisted", "blocked"):
+        status_btns.append(InlineKeyboardButton("В ЧС 🚫", callback_data=f"u_bl_{uid}"))
+    else:
+        status_btns.append(InlineKeyboardButton("Из ЧС ↩️", callback_data=f"u_ubl_{uid}"))
+    for i in range(0, len(status_btns), 2):
+        btns.append(status_btns[i:i+2])
+    kids_label = "Дет. режим: вкл 🧒" if child_mode else "Дет. режим: выкл 🧒"
+    btns.append([InlineKeyboardButton(kids_label, callback_data=f"u_kids_{uid}")])
+    btns.append([
+        InlineKeyboardButton("Удалить ⚠️", callback_data=f"u_del_{uid}"),
+        InlineKeyboardButton("← Назад",    callback_data="u_list"),
+    ])
+    return InlineKeyboardMarkup(btns)
 
 
 async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -646,7 +748,7 @@ async def cmd_block(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Использование: /block <user_id>")
         return
     result = block(context.args[0])
-    await update.message.reply_text("Заблокирован." if result else "Не найден.")
+    await update.message.reply_text("В чёрный список." if result else "Не найден.")
 
 
 async def cmd_unblock(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -656,7 +758,7 @@ async def cmd_unblock(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text("Использование: /unblock <user_id>")
         return
     result = unblock(context.args[0])
-    await update.message.reply_text("Разблокирован." if result else "Не найден.")
+    await update.message.reply_text("Статус изменён на regular." if result else "Не найден.")
 
 
 async def cmd_kidmode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -774,6 +876,140 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
     elif data == "release_cancel":
         await query.edit_message_text("Отменено.")
+
+    # --- Управление пользователями ---
+    elif data == "u_list":
+        if not _is_owner(tg_id):
+            return
+        users = [u for u in list_users() if u["status"] != "owner"]
+        status_icons = {"regular": "✅", "guest": "👤", "rejected": "❌", "blacklisted": "🚫", "blocked": "🚫"}
+        buttons = [[InlineKeyboardButton(
+            f"{status_icons.get(u['status'], '?')} {u['name'] or u['id'][:12]}",
+            callback_data=f"u_card_{u['id']}"
+        )] for u in users]
+        text = f"Пользователи ({len(users)}):" if users else "Других пользователей нет."
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(buttons) if buttons else None)
+
+    elif data.startswith("u_card_"):
+        if not _is_owner(tg_id):
+            return
+        uid = data[7:]
+        p = load_user_profile(uid)
+        if not p:
+            await query.edit_message_text("Пользователь не найден.")
+            return
+        status = p.get("status", "regular")
+        child  = p.get("child_mode", False)
+        text = (
+            f"👤 {p.get('name', '—')}\n"
+            f"ID: {uid}\n"
+            f"Статус: {status}\n"
+            f"Последний визит: {p.get('last_seen', '—')}\n"
+            f"Детский режим: {'вкл' if child else 'выкл'}"
+        )
+        await query.edit_message_text(text, reply_markup=_user_card_keyboard(uid, status, child))
+
+    elif data.startswith("u_ap_"):
+        if not _is_owner(tg_id):
+            return
+        uid = data[5:]
+        p = load_user_profile(uid)
+        if approve(uid):
+            await query.edit_message_text(f"✅ {p.get('name', uid)} одобрен.")
+            # Уведомление пользователю
+            raw_uid = uid.replace("tg_", "")
+            if raw_uid.isdigit():
+                try:
+                    await context.bot.send_message(
+                        chat_id=int(raw_uid),
+                        text="Твой доступ одобрен!\n\nТеперь тебе доступны:\n"
+                             "— общение с Мирой без ограничений\n"
+                             "— работа с файлами (отправляй файлы боту)\n"
+                             "— веб-интерфейс\n\n"
+                             "Напиши что-нибудь — начнём работать."
+                    )
+                except Exception:
+                    pass
+        else:
+            await query.edit_message_text("Не найден.")
+
+    elif data.startswith("u_rj_"):
+        if not _is_owner(tg_id):
+            return
+        uid = data[5:]
+        p = load_user_profile(uid)
+        if reject(uid):
+            await query.edit_message_text(f"❌ {p.get('name', uid)} отклонён.")
+            raw_uid = uid.replace("tg_", "")
+            if raw_uid.isdigit():
+                try:
+                    await context.bot.send_message(
+                        chat_id=int(raw_uid),
+                        text="К сожалению, владелец не одобрил твой доступ. "
+                             "Общение с Мирой будет прекращено."
+                    )
+                except Exception:
+                    pass
+        else:
+            await query.edit_message_text("Не найден.")
+
+    elif data.startswith("u_gs_"):
+        if not _is_owner(tg_id):
+            return
+        uid = data[5:]
+        set_status(uid, "guest")
+        await query.edit_message_text(f"👤 Переведён в гости.")
+
+    elif data.startswith("u_bl_"):
+        if not _is_owner(tg_id):
+            return
+        uid = data[5:]
+        p = load_user_profile(uid)
+        blacklist(uid)
+        await query.edit_message_text(f"🚫 {p.get('name', uid) if p else uid} добавлен в чёрный список.")
+
+    elif data.startswith("u_ubl_"):
+        if not _is_owner(tg_id):
+            return
+        uid = data[6:]
+        p = load_user_profile(uid)
+        unblacklist(uid)
+        await query.edit_message_text(f"↩️ {p.get('name', uid) if p else uid} убран из чёрного списка.")
+
+    elif data.startswith("u_kids_"):
+        if not _is_owner(tg_id):
+            return
+        uid = data[7:]
+        p = load_user_profile(uid)
+        if p:
+            p["child_mode"] = not p.get("child_mode", False)
+            save_user_profile(uid, p)
+            state = "включён" if p["child_mode"] else "выключен"
+            await query.edit_message_text(
+                f"🧒 Детский режим {state} для {p.get('name', uid)}.",
+                reply_markup=_user_card_keyboard(uid, p.get("status", "regular"), p["child_mode"])
+            )
+
+    elif data.startswith("u_del_"):
+        if not _is_owner(tg_id):
+            return
+        uid = data[6:]
+        p = load_user_profile(uid)
+        name = p.get("name", uid) if p else uid
+        await query.edit_message_text(
+            f"Удалить {name} и всю его историю? Это необратимо.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("Да, удалить ⚠️", callback_data=f"u_cdel_{uid}"),
+                InlineKeyboardButton("Отмена",          callback_data=f"u_card_{uid}"),
+            ]])
+        )
+
+    elif data.startswith("u_cdel_"):
+        if not _is_owner(tg_id):
+            return
+        uid = data[7:]
+        delete_user(uid)
+        await query.edit_message_text(f"Пользователь {uid} удалён.")
 
 
 # ---------------------------------------------------------------------------
@@ -1100,11 +1336,13 @@ def main() -> None:
     app.add_handler(CommandHandler("restart",  cmd_restart))
     app.add_handler(CommandHandler("release",  cmd_release))
     app.add_handler(CommandHandler("git",      cmd_git))
-    app.add_handler(CommandHandler("users",    cmd_users))
-    app.add_handler(CommandHandler("approve",  cmd_approve))
-    app.add_handler(CommandHandler("block",    cmd_block))
-    app.add_handler(CommandHandler("unblock",  cmd_unblock))
-    app.add_handler(CommandHandler("kidmode",  cmd_kidmode))
+    app.add_handler(CommandHandler("users",           cmd_users))
+    app.add_handler(CommandHandler("blacklist",       cmd_blacklist_view))
+    app.add_handler(CommandHandler("evolution_count", cmd_evolution_count))
+    app.add_handler(CommandHandler("approve",         cmd_approve))
+    app.add_handler(CommandHandler("block",           cmd_block))
+    app.add_handler(CommandHandler("unblock",         cmd_unblock))
+    app.add_handler(CommandHandler("kidmode",         cmd_kidmode))
 
     # Файлы и сообщения
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))

@@ -19,7 +19,11 @@ from tools.git_tools   import sync_with_git, get_current_branch, ensure_dev_bran
 from tools.cloud_tools import cloud_sync, cloud_restore
 from tools.access_tools import (
     get_status, set_status, list_users, approve, reject, block, unblock,
-    increment_guest_counter, cleanup_expired_guests, notify_owner,
+    blacklist, unblacklist, delete_user,
+    increment_guest_counter, cleanup_expired_guests,
+    notify_owner, notify_new_user,
+    should_notify_blacklisted, mark_blacklist_notified,
+    increment_evolution, get_evolution_stats,
     GUEST_LIMIT,
 )
 import providers as _providers
@@ -1403,6 +1407,7 @@ def evolve(task: str) -> None:
             print(f"[-] Smoke-test провалился: {error}")
             print("[-] Изменения не применены. Агент в безопасности.")
             logger.error(f"Evolve: smoke-test провалился — {error}")
+            increment_evolution(success=False)
             return
         print("[Evolve] Smoke-test OK.")
 
@@ -1410,11 +1415,13 @@ def evolve(task: str) -> None:
         with open(AGENT_FILE, "w", encoding="utf-8") as f:
             f.write(new_code)
 
+        increment_evolution(success=True)
         print("[*] Код обновлён на ветке mira-dev. Перезапусти агента.")
         print("[*] Когда готов к релизу — введи /release.")
         logger.info(f"Evolve: код успешно обновлён. Задача: {task}")
 
     except Exception as e:
+        increment_evolution(success=False)
         print(f"[-] Ошибка при генерации патча: {e}")
         logger.error(f"Evolve Error: {e}", exc_info=True)
 
