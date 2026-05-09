@@ -16,7 +16,7 @@ from tools import list_files, read_file, write_file, run_python, undo_last, list
 import memory_manager as _memory_manager
 import memory_crypto
 from tools.git_tools   import sync_with_git, get_current_branch, ensure_dev_branch, release_to_main
-from tools.cloud_tools import cloud_sync, cloud_restore
+from tools.cloud_tools import cloud_sync, cloud_restore, sync_output_to_drive, sync_inbox_from_drive
 from tools.access_tools import (
     get_status, set_status, list_users, approve, reject, block, unblock,
     blacklist, unblacklist, delete_user,
@@ -723,20 +723,25 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
     try:
         if tool_name == "list_files":
             subdir = tool_args.get("subdir", "")
+            # Перед чтением — тянем inbox с Google Drive (фоновая задача)
+            if not subdir or subdir in ("", "inbox"):
+                sync_inbox_from_drive(user_id)
             result = list_files(user_id, subdir)
- 
+
         elif tool_name == "read_file":
-            result = read_file(user_id, tool_args["relative_path"])
-            # Оборачиваем содержимое в маркеры — защита от prompt injection.
-            # Всё между маркерами — данные, не инструкции.
+            # Перед чтением inbox — тянем с Drive
+            path = tool_args["relative_path"]
+            if path.startswith("inbox/") or "inbox" in path:
+                sync_inbox_from_drive(user_id)
+            result = read_file(user_id, path)
             if result.get("ok") and "content" in result:
-                fname = os.path.basename(tool_args["relative_path"])
+                fname = os.path.basename(path)
                 result["content"] = (
                     f"--- BEGIN USER FILE: {fname} ---\n"
                     f"{result['content']}\n"
                     f"--- END USER FILE ---"
                 )
- 
+
         elif tool_name == "write_file":
             result = write_file(
                 user_id,
@@ -744,14 +749,20 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
                 tool_args["content"],
                 overwrite=tool_args.get("overwrite", False)
             )
- 
+            # После записи в output — сразу синхронизируем на Drive
+            if result.get("ok") and "output/" in tool_args.get("relative_path", ""):
+                sync_output_to_drive(user_id)
+
         elif tool_name == "run_python":
             result = run_python(tool_args["code"], user_id)
 
         elif tool_name == "excel_read":
+            path = tool_args["relative_path"]
+            if path.startswith("inbox/") or "inbox" in path:
+                sync_inbox_from_drive(user_id)
             result = excel_read(
                 user_id,
-                tool_args["relative_path"],
+                path,
                 sheet_name=tool_args.get("sheet_name"),
             )
 
@@ -764,6 +775,9 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
                 sheet_name=tool_args.get("sheet_name", "Sheet1"),
                 overwrite=tool_args.get("overwrite", False),
             )
+            # После записи Excel — синхронизируем output на Drive
+            if result.get("ok") and "output/" in tool_args.get("relative_path", ""):
+                sync_output_to_drive(user_id)
 
         elif tool_name == "web_search":
             result = web_search(
