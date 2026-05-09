@@ -158,16 +158,17 @@ def _system_prompt_for(user_id: str) -> str:
     return base
 
 
-def _ensure_profile(user_id: str, tg_name: str = "") -> None:
+def _ensure_profile(user_id: str, tg_name: str = "") -> bool:
+    """Создаёт профиль если не существует. Возвращает True если профиль новый."""
     if load_user_profile(user_id):
-        return
+        return False
     os.makedirs(MEMORY_DIR, exist_ok=True)
     for sub in ("inbox", "output", "temp", ".undo"):
         os.makedirs(os.path.join(WORKSPACE_DIR, user_id, sub), exist_ok=True)
     save_user_profile(user_id, {
         "id":           user_id,
         "name":         tg_name,
-        "status":       "regular",
+        "status":       "guest",   # новые пользователи ждут одобрения
         "created_at":   datetime.now().strftime("%Y-%m-%d"),
         "last_seen":    datetime.now().strftime("%Y-%m-%d"),
         "sessions_count": 1,
@@ -175,6 +176,7 @@ def _ensure_profile(user_id: str, tg_name: str = "") -> None:
         "preferences":  {"language": "ru"},
         "domain":       {},
     })
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -240,9 +242,30 @@ async def auth_telegram(request: Request):
     name    = (data.get("first_name", "") + " " + data.get("last_name", "")).strip()
     token   = _make_session(tg_id, name)
     user_id = _web_user_id(tg_id)
-    _ensure_profile(user_id, name)
+    is_new  = _ensure_profile(user_id, name)
 
-    logger.info(f"Telegram auth: {tg_id} ({name})")
+    if is_new:
+        import threading, json as _j
+        owner_tg = os.getenv("OWNER_TELEGRAM_ID", "")
+        if owner_tg and BOT_TOKEN:
+            msg = f"Новый пользователь через веб!\nИмя: {name}\nID: {user_id}"
+            payload = {
+                "chat_id": owner_tg, "text": msg,
+                "reply_markup": _j.dumps({"inline_keyboard": [[
+                    {"text": "Одобрить ✅", "callback_data": f"u_ap_{user_id}"},
+                    {"text": "Отклонить ❌", "callback_data": f"u_rj_{user_id}"},
+                ]]})
+            }
+            def _sn():
+                try:
+                    import urllib.request, urllib.parse
+                    urllib.request.urlopen(
+                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                        data=urllib.parse.urlencode(payload).encode(), timeout=8)
+                except Exception: pass
+            threading.Thread(target=_sn, daemon=True).start()
+
+    logger.info(f"Telegram auth: {tg_id} ({name}) new={is_new}")
     return {"ok": True, "session": token, "name": name}
 
 
