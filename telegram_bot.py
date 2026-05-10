@@ -850,7 +850,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not diff or not code:
             await query.edit_message_text("Сессия устарела — запусти /evolve снова.")
             return
-        from agent import _apply_unified_diff, validate_code, backup_agent, AGENT_FILE
+        from agent import _apply_unified_diff, validate_code, backup_agent, smoke_test, AGENT_FILE
         import tempfile
         ok, new_code = _apply_unified_diff(code, diff)
         if not ok:
@@ -864,16 +864,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as tmp:
             tmp.write(new_code)
             tmp_path = tmp.name
-        import sys
-        env = os.environ.copy()
-        env["PYTHONPATH"] = os.path.dirname(AGENT_FILE)
-        import subprocess
-        result = subprocess.run([sys.executable, tmp_path, "--self-test"],
-                                capture_output=True, text=True, timeout=10,
-                                cwd=os.path.dirname(AGENT_FILE), env=env)
+        passed, error = smoke_test(tmp_path)
         os.unlink(tmp_path)
-        if not (result.returncode == 0 and "OK" in result.stdout):
-            await query.edit_message_text(f"Smoke-test не прошёл: {result.stderr[:500]}")
+        if not passed:
+            await query.edit_message_text(f"Smoke-test не прошёл: {error[:500]}")
             return
         with open(AGENT_FILE, "w", encoding="utf-8") as f:
             f.write(new_code)
