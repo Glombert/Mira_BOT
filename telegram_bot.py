@@ -652,18 +652,23 @@ async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     status_icons = {"owner": "👑", "regular": "✅", "guest": "👤", "rejected": "❌", "blacklisted": "🚫", "blocked": "🚫"}
     buttons = []
-    lines = [f"Пользователи ({len(users)}):"]
+    owner_line = ""
+    non_owners = [u for u in users if u["status"] != "owner"]
     for u in users:
         if u["status"] == "owner":
+            owner_line = f"👑 {u['name'] or u['id']} [owner]\n"
             continue
         icon = status_icons.get(u["status"], "?")
-        lines.append(f"{icon} {u['name'] or u['id']} [{u['status']}]")
         buttons.append([InlineKeyboardButton(
             f"{icon} {u['name'] or u['id'][:12]}",
             callback_data=f"u_card_{u['id']}"
         )])
+    lines = [f"{owner_line}Пользователи ({len(non_owners)}):"]
+    for u in non_owners:
+        icon = status_icons.get(u["status"], "?")
+        lines.append(f"{icon} {u['name'] or u['id']} [{u['status']}]")
     if not buttons:
-        await update.message.reply_text("Других пользователей нет.")
+        await update.message.reply_text(f"{owner_line}Других пользователей нет.")
         return
     await update.message.reply_text(
         "\n".join(lines),
@@ -869,11 +874,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not _is_owner(tg_id):
             return
         await query.edit_message_text("Мерджу mira-dev → main...")
-        ok = release_to_main()
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text="✅ Релиз выполнен." if ok else "❌ Ошибка при релизе — смотри лог.",
-        )
+        ok, err = release_to_main()
+        text = "✅ Релиз выполнен. GitHub Actions задеплоит через ~1 мин." if ok else f"❌ Ошибка при релизе:\n{err}"
+        await context.bot.send_message(chat_id=query.message.chat_id, text=text)
     elif data == "release_cancel":
         await query.edit_message_text("Отменено.")
 
