@@ -150,19 +150,19 @@ def ensure_dev_branch() -> bool:
 
 def release_to_main() -> bool:
     """
-    Мерджит mira-dev в main и пушит оба.
-    Возвращает True при успехе, False при ошибке.
+    Мерджит origin/mira-dev в main и пушит.
+    Работает независимо от текущей ветки.
 
     Логика:
-    1. Убеждаемся что мы на mira-dev и всё закоммичено
-    2. Переключаемся на main, делаем merge --no-ff
-    3. Пушим main
-    4. Возвращаемся на mira-dev
+    1. Проверяем нет ли незакоммиченных изменений
+    2. Делаем fetch, чтобы иметь свежий origin/mira-dev
+    3. Переключаемся на main, мержим origin/mira-dev
+    4. Пушим main, возвращаемся на mira-dev
     """
     try:
-        current = get_current_branch()
+        original = get_current_branch()
 
-        # Убеждаемся что нет незакоммиченных изменений
+        # Незакоммиченные изменения — стоп
         status = subprocess.run(
             ["git", "status", "--porcelain"],
             capture_output=True, text=True
@@ -171,20 +171,37 @@ def release_to_main() -> bool:
             print("[-] Есть незакоммиченные изменения. Сначала /git.")
             return False
 
-        if current != DEV_BRANCH:
-            print(f"[-] /release работает только с ветки '{DEV_BRANCH}'.")
-            print(f"    Сейчас: '{current}'. Переключись через /git или запусти /evolve.")
-            return False
+        # Fetch чтобы видеть свежий remote
+        print("[Git] Обновляю данные из origin...")
+        subprocess.run(
+            ["git", "fetch", "origin"],
+            capture_output=True, text=True, timeout=30
+        )
 
-        # Переключаемся на main и мерджим
-        print(f"[Git] Переключаюсь на main...")
+        # Переключаемся на main
+        print("[Git] Переключаюсь на main...")
         subprocess.run(["git", "checkout", "main"], check=True, capture_output=True, text=True)
 
-        print(f"[Git] Мерджу {DEV_BRANCH} → main...")
+        # Синхронизируем local main с origin/main
         subprocess.run(
-            ["git", "merge", "--no-ff", DEV_BRANCH, "-m", f"Release: merge {DEV_BRANCH} into main"],
-            check=True, capture_output=True, text=True
+            ["git", "merge", "--ff-only", "origin/main"],
+            capture_output=True, text=True
         )
+
+        # Мержим origin/mira-dev
+        print(f"[Git] Мерджу origin/{DEV_BRANCH} → main...")
+        result = subprocess.run(
+            ["git", "merge", "--no-ff", f"origin/{DEV_BRANCH}",
+             "-m", f"Release: merge {DEV_BRANCH} into main"],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            err = result.stderr.strip()
+            print(f"[-] Ошибка merge: {err}")
+            logger.error(f"release_to_main merge error: {err}")
+            subprocess.run(["git", "merge", "--abort"], capture_output=True, text=True)
+            subprocess.run(["git", "checkout", original], capture_output=True, text=True)
+            return False
 
         print("[Git] Пушу main...")
         subprocess.run(
@@ -195,7 +212,6 @@ def release_to_main() -> bool:
         print("[*] Релиз выполнен. main обновлён.")
         logger.info(f"Release: {DEV_BRANCH} → main успешно.")
 
-        # Возвращаемся на mira-dev
         subprocess.run(["git", "checkout", DEV_BRANCH], capture_output=True, text=True)
         return True
 
@@ -203,7 +219,6 @@ def release_to_main() -> bool:
         error_msg = e.stderr.strip() if e.stderr else str(e)
         print(f"[-] Ошибка при релизе: {error_msg}")
         logger.error(f"release_to_main error: {error_msg}")
-        # Пытаемся вернуться на mira-dev
         subprocess.run(["git", "checkout", DEV_BRANCH], capture_output=True, text=True)
         return False
 
