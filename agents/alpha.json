@@ -18,7 +18,7 @@
   "allowed_tools": [
     "list_files", "read_file", "write_file", "run_python",
     "web_search", "excel_read", "excel_write",
-    "list_self", "read_self", "write_persona",
+    "list_self", "read_self", "git_log", "write_persona",
     "save_template", "list_templates"
   ],
   "created_by": "human",

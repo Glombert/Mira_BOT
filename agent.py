@@ -12,7 +12,7 @@ from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from dotenv import load_dotenv
 from openai import OpenAI
-from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search, list_self, read_self, write_persona
+from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search, list_self, read_self, write_persona, git_log
 import memory_manager as _memory_manager
 import memory_crypto
 from tools.git_tools   import sync_with_git, get_current_branch, ensure_dev_branch, release_to_main
@@ -638,6 +638,27 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "git_log",
+            "description": (
+                "Возвращает последние коммиты проекта — хеш, дату, сообщение. "
+                "Используй когда нужно увидеть свою историю изменений или вспомнить "
+                "что недавно поменялось в коде."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "Сколько последних коммитов вернуть (по умолчанию 20, максимум 100)"
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "read_self",
             "description": (
                 "Читает собственный файл кода или конфига. "
@@ -809,6 +830,9 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
 
         elif tool_name == "read_self":
             result = read_self(tool_args["path"])
+
+        elif tool_name == "git_log":
+            result = git_log(tool_args.get("limit", 20))
 
         elif tool_name == "write_persona":
             result = write_persona(tool_args["field"], tool_args.get("value"))
