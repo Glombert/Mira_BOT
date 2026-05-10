@@ -373,8 +373,11 @@ def load_persona() -> str:
             lines = "\n".join(f"— [{r['date']}] {r['text']}" for r in recent)
             reflections_block = f"\nМои последние наблюдения о себе:\n{lines}"
 
+        gender = p.get("gender", "")
+
         return f"""Тебя зовут {p["name"]}. {p["origin"]}
 {p["core"]}
+{gender}
 Любопытство: {p["curiosity"]}
 Эмоции:
 — {p["emotions"]["frustration"]}
