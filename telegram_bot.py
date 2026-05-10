@@ -76,7 +76,7 @@ from conclave import Conclave
 from agent import (
     Agent, Profile, SYSTEM_PROMPT, TOOL_SCHEMAS, execute_tool,
     load_principles, load_user_profile, save_user_profile, get_user_profile_path,
-    cleanup_temp,
+    cleanup_temp, cleanup_expired_guests,
     reflect, rollback, list_backups,
     sync_with_git, ensure_dev_branch, release_to_main,
     list_users, approve, reject, block, unblock, set_status,
@@ -1303,7 +1303,7 @@ async def _handle_onboarding(update, context, tg_id, user_id, text):
 # ---------------------------------------------------------------------------
 
 async def post_init(app: Application) -> None:
-    """Устанавливает меню команд при старте бота."""
+    """Устанавливает меню команд при старте бота и чистит просроченных гостей."""
     # Базовые команды для всех
     await app.bot.set_my_commands(BASIC_COMMANDS, scope=BotCommandScopeDefault())
     # Расширенные для владельца
@@ -1315,6 +1315,15 @@ async def post_init(app: Application) -> None:
             )
         except Exception as e:
             logger.warning(f"Не удалось установить owner-меню: {e}")
+
+    # Очистка просроченных гостей (старше 3 дней)
+    try:
+        expired = cleanup_expired_guests()
+        if expired:
+            logger.info(f"При старте удалено просроченных гостей: {expired}")
+    except Exception as e:
+        logger.warning(f"cleanup_expired_guests упал: {e}")
+
     logger.info("Бот запущен. Команды установлены.")
 
 
