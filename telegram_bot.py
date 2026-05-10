@@ -75,12 +75,11 @@ from conclave import Conclave
 # agent.py теперь импортируемый — берём всё нужное
 from agent import (
     Agent, Profile, SYSTEM_PROMPT, TOOL_SCHEMAS, execute_tool,
-    load_persona, load_principles,
-    load_user_profile, save_user_profile, get_user_profile_path,
-    run_onboarding, cleanup_temp, cleanup_expired_guests,
-    evolve, reflect, backup_agent, rollback, list_backups,
+    load_principles, load_user_profile, save_user_profile, get_user_profile_path,
+    cleanup_temp,
+    reflect, rollback, list_backups,
     sync_with_git, ensure_dev_branch, release_to_main,
-    list_users, approve, reject, block, unblock,
+    list_users, approve, reject, block, unblock, set_status,
     blacklist, unblacklist, delete_user,
     notify_owner, notify_new_user,
     should_notify_blacklisted, mark_blacklist_notified,
@@ -539,8 +538,7 @@ async def cmd_evolve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 async def _run_evolve_preview(update, context, task):
     """Генерирует diff и отправляет владельцу для одобрения через кнопки."""
-    import difflib
-    from agent import read_own_code, load_principles, ensure_dev_branch, SYSTEM_PROMPT
+    from agent import read_own_code
     import providers as _providers
 
     if not ensure_dev_branch():
@@ -852,7 +850,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not diff or not code:
             await query.edit_message_text("Сессия устарела — запусти /evolve снова.")
             return
-        from agent import _apply_unified_diff, validate_code, backup_agent, smoke_test, AGENT_FILE
+        from agent import _apply_unified_diff, validate_code, backup_agent, AGENT_FILE
         import tempfile
         ok, new_code = _apply_unified_diff(code, diff)
         if not ok:
@@ -980,7 +978,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         uid = data[5:]
         set_status(uid, "guest")
-        await query.edit_message_text(f"👤 Переведён в гости.")
+        await query.edit_message_text("👤 Переведён в гости.")
 
     elif data.startswith("u_bl_"):
         if not _is_owner(tg_id):

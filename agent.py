@@ -15,7 +15,7 @@ from openai import OpenAI
 from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search, list_self, read_self, write_persona, git_log
 import memory_manager as _memory_manager
 import memory_crypto
-from tools.git_tools   import sync_with_git, get_current_branch, ensure_dev_branch, release_to_main
+from tools.git_tools   import sync_with_git, ensure_dev_branch, release_to_main
 from tools.cloud_tools import cloud_sync, cloud_restore, sync_output_to_drive, sync_inbox_from_drive
 from tools.access_tools import (
     get_status, set_status, list_users, approve, reject, block, unblock,
@@ -1964,7 +1964,7 @@ if __name__ == "__main__":
                 save_history(messages)
 
         except Exception as e:
-            print(f"\n[Ошибка API]: Подробности записаны в лог.")
+            print("\n[Ошибка API]: Подробности записаны в лог.")
             logger.error(f"API Error: {e}", exc_info=True)
             if messages and messages[-1]["role"] == "user":
                 messages.pop()

@@ -85,7 +85,7 @@ def init() -> None:
     Для провайдера 'anthropic' создаёт нативный Anthropic SDK клиент.
     URL не нужен — SDK знает адрес сам (https://api.anthropic.com).
     """
-    global PROVIDERS, _anthropic_client
+    global _anthropic_client
 
     for key in os.environ:
         if not (key.startswith("API_") and key.endswith("_KEY")):
