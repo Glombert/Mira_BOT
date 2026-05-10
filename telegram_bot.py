@@ -874,11 +874,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not _is_owner(tg_id):
             return
         await query.edit_message_text("Мерджу mira-dev → main...")
-        ok = release_to_main()
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text="✅ Релиз выполнен." if ok else "❌ Ошибка при релизе — смотри лог.",
-        )
+        ok, err = release_to_main()
+        text = "✅ Релиз выполнен. GitHub Actions задеплоит через ~1 мин." if ok else f"❌ Ошибка при релизе:\n{err}"
+        await context.bot.send_message(chat_id=query.message.chat_id, text=text)
     elif data == "release_cancel":
         await query.edit_message_text("Отменено.")
 

@@ -148,17 +148,13 @@ def ensure_dev_branch() -> bool:
         return False
 
 
-def release_to_main() -> bool:
+def release_to_main() -> tuple[bool, str]:
     """
     Мерджит origin/mira-dev в main и пушит.
     Работает независимо от текущей ветки.
-
-    Логика:
-    1. Проверяем нет ли незакоммиченных изменений
-    2. Делаем fetch, чтобы иметь свежий origin/mira-dev
-    3. Переключаемся на main, мержим origin/mira-dev
-    4. Пушим main, возвращаемся на mira-dev
+    Возвращает (success, error_message).
     """
+    original = "mira-dev"
     try:
         original = get_current_branch()
 
@@ -168,19 +164,18 @@ def release_to_main() -> bool:
             capture_output=True, text=True
         )
         if status.stdout.strip():
-            print("[-] Есть незакоммиченные изменения. Сначала /git.")
-            return False
+            return False, "Есть незакоммиченные изменения. Сначала /git."
 
         # Fetch чтобы видеть свежий remote
-        print("[Git] Обновляю данные из origin...")
         subprocess.run(
             ["git", "fetch", "origin"],
             capture_output=True, text=True, timeout=30
         )
 
         # Переключаемся на main
-        print("[Git] Переключаюсь на main...")
-        subprocess.run(["git", "checkout", "main"], check=True, capture_output=True, text=True)
+        r = subprocess.run(["git", "checkout", "main"], capture_output=True, text=True)
+        if r.returncode != 0:
+            return False, f"checkout main: {r.stderr.strip()}"
 
         # Синхронизируем local main с origin/main
         subprocess.run(
@@ -189,39 +184,34 @@ def release_to_main() -> bool:
         )
 
         # Мержим origin/mira-dev
-        print(f"[Git] Мерджу origin/{DEV_BRANCH} → main...")
         result = subprocess.run(
             ["git", "merge", "--no-ff", f"origin/{DEV_BRANCH}",
              "-m", f"Release: merge {DEV_BRANCH} into main"],
             capture_output=True, text=True
         )
         if result.returncode != 0:
-            err = result.stderr.strip()
-            print(f"[-] Ошибка merge: {err}")
+            err = (result.stderr or result.stdout).strip()
             logger.error(f"release_to_main merge error: {err}")
             subprocess.run(["git", "merge", "--abort"], capture_output=True, text=True)
             subprocess.run(["git", "checkout", original], capture_output=True, text=True)
-            return False
+            return False, f"merge: {err}"
 
-        print("[Git] Пушу main...")
-        subprocess.run(
+        # Пушим main
+        push = subprocess.run(
             ["git", "push", "origin", "main"],
-            check=True, capture_output=True, text=True
+            capture_output=True, text=True
         )
+        if push.returncode != 0:
+            err = (push.stderr or push.stdout).strip()
+            logger.error(f"release_to_main push error: {err}")
+            subprocess.run(["git", "checkout", original], capture_output=True, text=True)
+            return False, f"push: {err}"
 
-        print("[*] Релиз выполнен. main обновлён.")
         logger.info(f"Release: {DEV_BRANCH} → main успешно.")
-
         subprocess.run(["git", "checkout", DEV_BRANCH], capture_output=True, text=True)
-        return True
+        return True, ""
 
-    except subprocess.CalledProcessError as e:
-        error_msg = e.stderr.strip() if e.stderr else str(e)
-        print(f"[-] Ошибка при релизе: {error_msg}")
-        logger.error(f"release_to_main error: {error_msg}")
-        subprocess.run(["git", "checkout", DEV_BRANCH], capture_output=True, text=True)
-        return False
-
-    except FileNotFoundError:
-        print("[-] Утилита git не найдена.")
-        return False
+    except Exception as e:
+        logger.error(f"release_to_main error: {e}")
+        subprocess.run(["git", "checkout", original], capture_output=True, text=True)
+        return False, str(e)
