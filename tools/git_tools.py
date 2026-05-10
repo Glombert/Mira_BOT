@@ -11,10 +11,44 @@ tools/git_tools.py — инструменты для работы с Git.
 - release_to_main()     — смержить mira-dev в main и запушить
 """
 
+import os
 import subprocess
 import logging
 
 logger = logging.getLogger("Ouroborus")
+
+
+def _github_push_url() -> str | None:
+    """Строит push URL с токеном из env если GITHUB_TOKEN задан."""
+    token = os.getenv("GITHUB_TOKEN", "").strip()
+    if not token:
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True, text=True
+        )
+        url = result.stdout.strip()
+        if url.startswith("https://github.com/"):
+            path = url[len("https://github.com/"):]
+            return f"https://{token}@github.com/{path}"
+        if url.startswith("https://") and "@github.com/" in url:
+            # Уже содержит токен — обновляем
+            path = url.split("@github.com/", 1)[1]
+            return f"https://{token}@github.com/{path}"
+    except Exception:
+        pass
+    return None
+
+
+def _configure_git_identity() -> None:
+    """Ставит git user из env если не задан глобально."""
+    email = os.getenv("GIT_USER_EMAIL", "").strip()
+    name  = os.getenv("GIT_USER_NAME", "").strip()
+    if email:
+        subprocess.run(["git", "config", "user.email", email], capture_output=True)
+    if name:
+        subprocess.run(["git", "config", "user.name", name], capture_output=True)
 
 # Файлы и папки которые безопасно добавлять в git.
 # .env, memory/, workspace/ защищены .gitignore,
@@ -155,22 +189,26 @@ def release_to_main() -> tuple[bool, str]:
     Возвращает (success, error_message).
     """
     original = "mira-dev"
+    stashed = False
     try:
         original = get_current_branch()
+        _configure_git_identity()
 
-        # Незакоммиченные изменения — стоп
-        status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            capture_output=True, text=True
-        )
-        if status.stdout.strip():
-            return False, "Есть незакоммиченные изменения. Сначала /git."
+        # Если есть незакоммиченные изменения — stash (persona.json и пр.)
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain"], capture_output=True, text=True
+        ).stdout.strip()
+        if dirty:
+            r = subprocess.run(
+                ["git", "stash", "--include-untracked"],
+                capture_output=True, text=True
+            )
+            if r.returncode != 0:
+                return False, f"stash: {r.stderr.strip()}"
+            stashed = True
 
         # Fetch чтобы видеть свежий remote
-        subprocess.run(
-            ["git", "fetch", "origin"],
-            capture_output=True, text=True, timeout=30
-        )
+        subprocess.run(["git", "fetch", "origin"], capture_output=True, text=True, timeout=30)
 
         # Переключаемся на main
         r = subprocess.run(["git", "checkout", "main"], capture_output=True, text=True)
@@ -178,10 +216,7 @@ def release_to_main() -> tuple[bool, str]:
             return False, f"checkout main: {r.stderr.strip()}"
 
         # Синхронизируем local main с origin/main
-        subprocess.run(
-            ["git", "merge", "--ff-only", "origin/main"],
-            capture_output=True, text=True
-        )
+        subprocess.run(["git", "merge", "--ff-only", "origin/main"], capture_output=True, text=True)
 
         # Мержим origin/mira-dev
         result = subprocess.run(
@@ -191,27 +226,40 @@ def release_to_main() -> tuple[bool, str]:
         )
         if result.returncode != 0:
             err = (result.stderr or result.stdout).strip()
-            logger.error(f"release_to_main merge error: {err}")
-            subprocess.run(["git", "merge", "--abort"], capture_output=True, text=True)
-            subprocess.run(["git", "checkout", original], capture_output=True, text=True)
-            return False, f"merge: {err}"
+            if "Already up to date" in (result.stdout or ""):
+                pass  # нечего мержить — это не ошибка
+            else:
+                logger.error(f"release_to_main merge error: {err}")
+                subprocess.run(["git", "merge", "--abort"], capture_output=True, text=True)
+                subprocess.run(["git", "checkout", original], capture_output=True, text=True)
+                if stashed:
+                    subprocess.run(["git", "stash", "pop"], capture_output=True, text=True)
+                return False, f"merge: {err}"
 
-        # Пушим main
+        # Push с PAT если доступен
+        push_url = _github_push_url()
+        push_target = push_url if push_url else "origin"
         push = subprocess.run(
-            ["git", "push", "origin", "main"],
+            ["git", "push", push_target, "main"] if push_url else ["git", "push", "origin", "main"],
             capture_output=True, text=True
         )
         if push.returncode != 0:
             err = (push.stderr or push.stdout).strip()
             logger.error(f"release_to_main push error: {err}")
             subprocess.run(["git", "checkout", original], capture_output=True, text=True)
+            if stashed:
+                subprocess.run(["git", "stash", "pop"], capture_output=True, text=True)
             return False, f"push: {err}"
 
         logger.info(f"Release: {DEV_BRANCH} → main успешно.")
         subprocess.run(["git", "checkout", DEV_BRANCH], capture_output=True, text=True)
+        if stashed:
+            subprocess.run(["git", "stash", "pop"], capture_output=True, text=True)
         return True, ""
 
     except Exception as e:
         logger.error(f"release_to_main error: {e}")
         subprocess.run(["git", "checkout", original], capture_output=True, text=True)
+        if stashed:
+            subprocess.run(["git", "stash", "pop"], capture_output=True, text=True)
         return False, str(e)
