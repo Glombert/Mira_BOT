@@ -6,5 +6,5 @@ from tools.file_tools    import list_files, read_file, write_file, undo_last, li
 from tools.shell_tools   import run_python
 from tools.excel_tools   import excel_read, excel_write
 from tools.search_tools  import web_search
-from tools.self_tools       import list_self, read_self
+from tools.self_tools       import list_self, read_self, git_log
 from tools.self_write_tools import write_persona

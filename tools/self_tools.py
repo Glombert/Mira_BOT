@@ -6,6 +6,7 @@ tools/self_tools.py — инструменты самосознания Миры
 """
 
 import os
+import subprocess
 
 # Файлы в корне проекта, которые Мира может читать
 _READABLE_ROOT = {
@@ -86,5 +87,34 @@ def read_self(path: str) -> dict:
         with open(full_path, encoding="utf-8") as f:
             content = f.read()
         return {"ok": True, "path": path, "content": content, "size": len(content)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def git_log(limit: int = 20) -> dict:
+    """
+    Возвращает последние коммиты репозитория — короткий хеш, дату и сообщение.
+    Мира использует это чтобы увидеть свою историю изменений.
+    """
+    try:
+        limit = max(1, min(int(limit), 100))
+    except (TypeError, ValueError):
+        limit = 20
+    try:
+        result = subprocess.run(
+            ["git", "log", f"-{limit}", "--pretty=format:%h | %ad | %s", "--date=short"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return {"ok": False, "error": result.stderr.strip() or "git log failed"}
+        return {
+            "ok": True,
+            "commits": result.stdout.strip().splitlines(),
+            "count": len(result.stdout.strip().splitlines()),
+        }
+    except FileNotFoundError:
+        return {"ok": False, "error": "git not installed"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "git log timeout"}
     except Exception as e:
         return {"ok": False, "error": str(e)}

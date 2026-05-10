@@ -229,9 +229,28 @@ def _split_message(text: str) -> list[str]:
     return parts
 
 
+def _reply_target(update: Update):
+    """Возвращает объект с .reply_text — работает и для message, и для callback."""
+    if update.message is not None:
+        return update.message
+    if update.callback_query is not None and update.callback_query.message is not None:
+        return update.callback_query.message
+    return None
+
+
+async def _reply(update: Update, text: str, **kwargs) -> None:
+    """Безопасный reply — работает из message и из callback_query."""
+    target = _reply_target(update)
+    if target is not None:
+        await target.reply_text(text, **kwargs)
+
+
 async def _send_long(update: Update, text: str, **kwargs) -> None:
+    target = _reply_target(update)
+    if target is None:
+        return
     for part in _split_message(text):
-        await update.message.reply_text(part, **kwargs)
+        await target.reply_text(part, **kwargs)
 
 
 async def _send_output_files(context, chat_id: int, user_id: str, since_ts: float) -> None:
@@ -338,12 +357,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "sessions_count": 1, "about": {}, "preferences": {}, "domain": {},
         })
         if is_owner:
-            await update.message.reply_text(
+            await _reply(update,
                 "Привет! Я Мира. Напиши что-нибудь, начнём работать.",
                 reply_markup=_help_keyboard(True),
             )
         else:
-            await update.message.reply_text(
+            await _reply(update,
                 "Привет! Я Мира. Мой владелец должен одобрить твой доступ — я ему уже написала. "
                 "Пока ты можешь написать до 10 сообщений. Жди подтверждения."
             )
@@ -363,7 +382,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         # Отклонённый пользователь
         if existing_status == "rejected":
-            await update.message.reply_text(
+            await _reply(update,
                 "Ранее твой запрос на доступ был отклонён владельцем. "
                 "Если это ошибка — обратись к нему напрямую."
             )
@@ -383,7 +402,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             profile_data["status"] = "owner"
             save_user_profile(user_id, profile_data)
         name = profile_data.get("name") or "снова"
-        await update.message.reply_text(
+        await _reply(update,
             f"С возвращением, {name}.",
             reply_markup=_help_keyboard(is_owner),
         )
@@ -413,14 +432,14 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "/approve <id> — одобрить\n"
             "/block <id> — заблокировать\n"
         )
-    await update.message.reply_text(text, reply_markup=_help_keyboard(is_owner))
+    await _reply(update,text, reply_markup=_help_keyboard(is_owner))
 
 
 async def cmd_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = _user_id(update.effective_user.id)
     data = load_user_profile(user_id)
     if not data:
-        await update.message.reply_text("Профиль не найден. Напиши /start.")
+        await _reply(update,"Профиль не найден. Напиши /start.")
         return
     lines = [
         f"👤 *{data.get('name', '—')}*",
@@ -433,7 +452,7 @@ async def cmd_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         lines.append(f"Роль: {about['role']}")
     if about.get("communication_style"):
         lines.append(f"Стиль: {about['communication_style']}")
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await _reply(update,"\n".join(lines), parse_mode="Markdown")
 
 
 async def cmd_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -444,7 +463,7 @@ async def cmd_files(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if os.path.isdir(d):
             files = [f for f in os.listdir(d) if not f.startswith(".")]
             lines.append(f"📁 *{sub}/*: {', '.join(files) if files else 'пусто'}")
-    await update.message.reply_text(
+    await _reply(update,
         "\n".join(lines) if lines else "Файлов нет.",
         parse_mode="Markdown",
     )
@@ -454,7 +473,7 @@ async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = _user_id(update.effective_user.id)
     _save_session(user_id, [{"role": "system", "content": SYSTEM_PROMPT}])
     context.user_data.pop("onboarding", None)
-    await update.message.reply_text("История очищена.")
+    await _reply(update,"История очищена.")
 
 
 async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -463,14 +482,14 @@ async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if os.path.exists(path):
         os.remove(path)
     _save_session(user_id, [{"role": "system", "content": SYSTEM_PROMPT}])
-    await update.message.reply_text("Профиль удалён. Напиши /start чтобы познакомиться заново.")
+    await _reply(update,"Профиль удалён. Напиши /start чтобы познакомиться заново.")
 
 
 async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ctx_conclave = context.user_data.get("conclave")
     if ctx_conclave:
         ctx_conclave.should_stop = True
-    await update.message.reply_text("Стоп — Конклав остановится после текущего шага.")
+    await _reply(update,"Стоп — Конклав остановится после текущего шага.")
 
 
 # ---------------------------------------------------------------------------
@@ -484,9 +503,9 @@ async def cmd_reflect(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_id = _user_id(tg_id)
     alpha   = _make_alpha(tg_id, user_id)
     if not alpha:
-        await update.message.reply_text("Ошибка: не удалось создать агента.")
+        await _reply(update,"Ошибка: не удалось создать агента.")
         return
-    await update.message.reply_text("Читаю свой код...")
+    await _reply(update,"Читаю свой код...")
     msgs = _load_session(user_id)
     reflect(alpha.model_chain, msgs)
     # Последний ответ уже добавлен в msgs
@@ -502,13 +521,13 @@ async def cmd_evolve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
     task = " ".join(context.args) if context.args else ""
     if not task:
-        await update.message.reply_text("Укажи задачу: /evolve <что изменить>")
+        await _reply(update,"Укажи задачу: /evolve <что изменить>")
         return
-    await update.message.reply_text(f"Генерирую патч для: «{task}»...")
+    await _reply(update,f"Генерирую патч для: «{task}»...")
     # evolve() интерактивная — в Telegram используем упрощённую версию
     # (показываем diff, просим подтверждение через кнопки)
     context.user_data["pending_evolve"] = task
-    await update.message.reply_text(
+    await _reply(update,
         "⚠️ /evolve в Telegram работает в два шага:\n"
         "1. Генерирую diff\n"
         "2. Присылаю тебе на одобрение\n\n"
@@ -525,18 +544,18 @@ async def _run_evolve_preview(update, context, task):
     import providers as _providers
 
     if not ensure_dev_branch():
-        await update.message.reply_text("[!] Не удалось переключиться на mira-dev.")
+        await _reply(update,"[!] Не удалось переключиться на mira-dev.")
 
     principles = load_principles()
     code = read_own_code()
     if not code:
-        await update.message.reply_text("[-] Не удалось прочитать код.")
+        await _reply(update,"[-] Не удалось прочитать код.")
         return
 
     tg_id   = update.effective_user.id
     alpha   = _make_alpha(tg_id, _user_id(tg_id))
     if not alpha:
-        await update.message.reply_text("Ошибка создания агента.")
+        await _reply(update,"Ошибка создания агента.")
         return
 
     principles_block = f"\nПринципы:\n{principles}\n" if principles else ""
@@ -562,7 +581,7 @@ async def _run_evolve_preview(update, context, task):
             ).strip()
 
         if "@@" not in raw_diff:
-            await update.message.reply_text("Модель не вернула diff. Попробуй другую формулировку.")
+            await _reply(update,"Модель не вернула diff. Попробуй другую формулировку.")
             return
 
         # Сохраняем diff для применения при подтверждении
@@ -575,27 +594,27 @@ async def _run_evolve_preview(update, context, task):
             InlineKeyboardButton("✅ Применить", callback_data="evolve_apply"),
             InlineKeyboardButton("❌ Отклонить", callback_data="evolve_reject"),
         ]])
-        await update.message.reply_text(
+        await _reply(update,
             f"```diff\n{diff_preview}\n```",
             parse_mode="Markdown",
             reply_markup=keyboard,
         )
     except Exception as e:
-        await update.message.reply_text(f"Ошибка: {e}")
+        await _reply(update,f"Ошибка: {e}")
 
 
 async def cmd_rollback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_owner(update.effective_user.id):
         return
     rollback()
-    await update.message.reply_text("Откат выполнен. Перезапусти бота.")
+    await _reply(update,"Откат выполнен. Перезапусти бота.")
 
 
 async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Перезапускает systemd-сервис mira-bot. Работает только на VPS."""
     if not _is_owner(update.effective_user.id):
         return
-    await update.message.reply_text("Перезапускаю...")
+    await _reply(update,"Перезапускаю...")
     import subprocess
     try:
         # Запускаем в отдельном процессе — текущий успеет ответить до смерти
@@ -605,7 +624,7 @@ async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             stderr=subprocess.DEVNULL,
         )
     except Exception as e:
-        await update.message.reply_text(f"Ошибка: {e}")
+        await _reply(update,f"Ошибка: {e}")
 
 
 async def cmd_versions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -618,7 +637,7 @@ async def cmd_versions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     sys.stdout = buf
     list_backups()
     sys.stdout = old
-    await update.message.reply_text(buf.getvalue() or "Резервных копий нет.")
+    await _reply(update,buf.getvalue() or "Резервных копий нет.")
 
 
 async def cmd_release(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -628,7 +647,7 @@ async def cmd_release(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         InlineKeyboardButton("✅ Да, мерджим", callback_data="release_confirm"),
         InlineKeyboardButton("❌ Отмена",       callback_data="release_cancel"),
     ]])
-    await update.message.reply_text(
+    await _reply(update,
         "Смержить mira-dev → main и запушить?",
         reply_markup=keyboard,
     )
@@ -638,9 +657,9 @@ async def cmd_git(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_owner(update.effective_user.id):
         return
     msg = " ".join(context.args) if context.args else "Auto-commit from Telegram"
-    await update.message.reply_text("Синхронизирую...")
+    await _reply(update,"Синхронизирую...")
     sync_with_git(msg)
-    await update.message.reply_text("Готово.")
+    await _reply(update,"Готово.")
 
 
 async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -648,7 +667,7 @@ async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     users = list_users()
     if not users:
-        await update.message.reply_text("Пользователей нет.")
+        await _reply(update,"Пользователей нет.")
         return
     status_icons = {"owner": "👑", "regular": "✅", "guest": "👤", "rejected": "❌", "blacklisted": "🚫", "blocked": "🚫"}
     buttons = []
@@ -668,9 +687,9 @@ async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         icon = status_icons.get(u["status"], "?")
         lines.append(f"{icon} {u['name'] or u['id']} [{u['status']}]")
     if not buttons:
-        await update.message.reply_text(f"{owner_line}Других пользователей нет.")
+        await _reply(update,f"{owner_line}Других пользователей нет.")
         return
-    await update.message.reply_text(
+    await _reply(update,
         "\n".join(lines),
         reply_markup=InlineKeyboardMarkup(buttons),
     )
@@ -681,7 +700,7 @@ async def cmd_blacklist_view(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     users = [u for u in list_users() if u["status"] in ("blacklisted", "blocked")]
     if not users:
-        await update.message.reply_text("Чёрный список пуст.")
+        await _reply(update,"Чёрный список пуст.")
         return
     buttons = []
     lines = [f"Чёрный список ({len(users)}):"]
@@ -691,7 +710,7 @@ async def cmd_blacklist_view(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"Убрать из ЧС: {u['name'] or u['id'][:12]}",
             callback_data=f"u_ubl_{u['id']}"
         )])
-    await update.message.reply_text(
+    await _reply(update,
         "\n".join(lines),
         reply_markup=InlineKeyboardMarkup(buttons),
     )
@@ -703,7 +722,7 @@ async def cmd_evolution_count(update: Update, context: ContextTypes.DEFAULT_TYPE
     evo = get_evolution_stats()
     total, success, failed = evo.get("total", 0), evo.get("success", 0), evo.get("failed", 0)
     rate = f"{round(success/total*100)}%" if total else "—"
-    await update.message.reply_text(
+    await _reply(update,
         f"Счётчик эволюций:\n"
         f"Всего попыток: {total}\n"
         f"Успешных: {success}\n"
@@ -738,32 +757,32 @@ async def cmd_approve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not _is_owner(update.effective_user.id):
         return
     if not context.args:
-        await update.message.reply_text("Использование: /approve <user_id> [имя]")
+        await _reply(update,"Использование: /approve <user_id> [имя]")
         return
     uid  = context.args[0]
     name = " ".join(context.args[1:]) if len(context.args) > 1 else ""
     result = approve(uid, name)
-    await update.message.reply_text("Одобрено." if result else "Пользователь не найден.")
+    await _reply(update,"Одобрено." if result else "Пользователь не найден.")
 
 
 async def cmd_block(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_owner(update.effective_user.id):
         return
     if not context.args:
-        await update.message.reply_text("Использование: /block <user_id>")
+        await _reply(update,"Использование: /block <user_id>")
         return
     result = block(context.args[0])
-    await update.message.reply_text("В чёрный список." if result else "Не найден.")
+    await _reply(update,"В чёрный список." if result else "Не найден.")
 
 
 async def cmd_unblock(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_owner(update.effective_user.id):
         return
     if not context.args:
-        await update.message.reply_text("Использование: /unblock <user_id>")
+        await _reply(update,"Использование: /unblock <user_id>")
         return
     result = unblock(context.args[0])
-    await update.message.reply_text("Статус изменён на regular." if result else "Не найден.")
+    await _reply(update,"Статус изменён на regular." if result else "Не найден.")
 
 
 async def cmd_kidmode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -775,21 +794,21 @@ async def cmd_kidmode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not _is_owner(update.effective_user.id):
         return
     if len(context.args) < 2:
-        await update.message.reply_text("Использование: /kidmode <user_id> on|off")
+        await _reply(update,"Использование: /kidmode <user_id> on|off")
         return
     uid    = context.args[0]
     toggle = context.args[1].lower()
     if toggle not in ("on", "off"):
-        await update.message.reply_text("Укажи on или off.")
+        await _reply(update,"Укажи on или off.")
         return
     data = load_user_profile(uid)
     if not data:
-        await update.message.reply_text(f"Пользователь {uid} не найден.")
+        await _reply(update,f"Пользователь {uid} не найден.")
         return
     data["child_mode"] = (toggle == "on")
     save_user_profile(uid, data)
     state = "включён" if data["child_mode"] else "выключен"
-    await update.message.reply_text(f"Детский режим {state} для {uid}.")
+    await _reply(update,f"Детский режим {state} для {uid}.")
 
 
 # ---------------------------------------------------------------------------
@@ -1032,7 +1051,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     tg_file = await context.bot.get_file(doc.file_id)
     await tg_file.download_to_drive(dest)
 
-    await update.message.reply_text(
+    await _reply(update,
         f"📥 Файл сохранён: `inbox/{fname}`\n\nМогу прочитать, проанализировать или обработать — скажи что нужно.",
         parse_mode="Markdown",
     )
@@ -1066,7 +1085,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     msgs  = _load_session(user_id)
     alpha = _make_alpha(tg_id, user_id)
     if not alpha:
-        await update.message.reply_text("Провайдеры не настроены.")
+        await _reply(update,"Провайдеры не настроены.")
         return
 
     msgs.append({"role": "user", "content": content})
@@ -1095,12 +1114,12 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         logger.error(f"Ошибка при обработке фото: {e}", exc_info=True)
         err = str(e).lower()
         if any(k in err for k in ("vision", "image", "multimodal", "unsupported")):
-            await update.message.reply_text(
+            await _reply(update,
                 "Сейчас не могу посмотреть фото — модель с поддержкой изображений недоступна. "
                 "Попробуй позже или опиши словами что на снимке."
             )
         else:
-            await update.message.reply_text("Что-то пошло не так. Попробуй ещё раз.")
+            await _reply(update,"Что-то пошло не так. Попробуй ещё раз.")
 
 
 # ---------------------------------------------------------------------------
@@ -1120,7 +1139,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Проверка статуса
     profile_data = load_user_profile(user_id)
     if profile_data and profile_data.get("status") == "blocked":
-        await update.message.reply_text("Доступ закрыт.")
+        await _reply(update,"Доступ закрыт.")
         return
 
     # Гостевой лимит
@@ -1129,10 +1148,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         profile_data["guest_message_count"] = count
         save_user_profile(user_id, profile_data)
         if count > 10:
-            await update.message.reply_text("Лимит сообщений исчерпан. Ожидай одобрения.")
+            await _reply(update,"Лимит сообщений исчерпан. Ожидай одобрения.")
             return
         elif count >= 8:
-            await update.message.reply_text(f"(осталось {10 - count} сообщений из 10)")
+            await _reply(update,f"(осталось {10 - count} сообщений из 10)")
 
     msgs   = _load_session(user_id)
     alpha  = _make_alpha(tg_id, user_id)
@@ -1159,12 +1178,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     try:
         if task_type in _EXECUTOR_FOR and alpha:
             executor = _EXECUTOR_FOR[task_type]
-            start_msg = {
-                "scout": "💭 Иду искать в интернете...",
-                "coder": "💭 Задача для специалистов. Подключаю Конклав...",
-            }.get(executor, "💭 Иду к специалистам...")
-            await update.message.reply_text(start_msg)
-
+            # Стартовое сообщение убрано — первый прогресс от Конклава его заменяет
             loop    = asyncio.get_running_loop()
             chat_id = update.effective_chat.id
 
@@ -1193,7 +1207,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         elif alpha:
             answer = alpha.run(msgs)
         else:
-            await update.message.reply_text("Провайдеры не настроены.")
+            await _reply(update,"Провайдеры не настроены.")
             return
 
         await _send_long(update, answer)
@@ -1224,7 +1238,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     except Exception as e:
         logger.error(f"Ошибка при обработке сообщения: {e}", exc_info=True)
-        await update.message.reply_text("Что-то пошло не так. Попробуй снова.")
+        await _reply(update,"Что-то пошло не так. Попробуй снова.")
         if msgs and msgs[-1]["role"] == "user":
             msgs.pop()
 
@@ -1245,7 +1259,7 @@ async def _handle_onboarding(update, context, tg_id, user_id, text):
         hist.append({"role": "assistant", "content": reply})
         context.user_data["onboarding_history"] = hist
 
-        await update.message.reply_text(reply)
+        await _reply(update,reply)
 
         if "Принято" in reply or "Начинаем" in reply or len(hist) >= 10:
             # Завершаем онбординг — структурируем профиль
@@ -1283,13 +1297,13 @@ async def _handle_onboarding(update, context, tg_id, user_id, text):
             save_user_profile(user_id, data)
             context.user_data.pop("onboarding", None)
             context.user_data.pop("onboarding_history", None)
-            await update.message.reply_text(
+            await _reply(update,
                 "Профиль сохранён. Можем начинать.",
                 reply_markup=_help_keyboard(_is_owner(tg_id)),
             )
     except Exception as e:
         logger.error(f"Онбординг: {e}")
-        await update.message.reply_text("Ошибка API. Попробуй снова.")
+        await _reply(update,"Ошибка API. Попробуй снова.")
 
 
 # ---------------------------------------------------------------------------
