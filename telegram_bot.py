@@ -75,12 +75,11 @@ from conclave import Conclave
 # agent.py теперь импортируемый — берём всё нужное
 from agent import (
     Agent, Profile, SYSTEM_PROMPT, TOOL_SCHEMAS, execute_tool,
-    load_persona, load_principles,
-    load_user_profile, save_user_profile, get_user_profile_path,
-    run_onboarding, cleanup_temp, cleanup_expired_guests,
-    evolve, reflect, backup_agent, rollback, list_backups,
+    load_principles, load_user_profile, save_user_profile, get_user_profile_path,
+    cleanup_temp, cleanup_expired_guests,
+    reflect, rollback, list_backups,
     sync_with_git, ensure_dev_branch, release_to_main,
-    list_users, approve, reject, block, unblock,
+    list_users, approve, reject, block, unblock, set_status,
     blacklist, unblacklist, delete_user,
     notify_owner, notify_new_user,
     should_notify_blacklisted, mark_blacklist_notified,
@@ -539,8 +538,7 @@ async def cmd_evolve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 async def _run_evolve_preview(update, context, task):
     """Генерирует diff и отправляет владельцу для одобрения через кнопки."""
-    import difflib
-    from agent import read_own_code, load_principles, ensure_dev_branch, SYSTEM_PROMPT
+    from agent import read_own_code
     import providers as _providers
 
     if not ensure_dev_branch():
@@ -866,16 +864,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as tmp:
             tmp.write(new_code)
             tmp_path = tmp.name
-        import sys
-        env = os.environ.copy()
-        env["PYTHONPATH"] = os.path.dirname(AGENT_FILE)
-        import subprocess
-        result = subprocess.run([sys.executable, tmp_path, "--self-test"],
-                                capture_output=True, text=True, timeout=10,
-                                cwd=os.path.dirname(AGENT_FILE), env=env)
+        passed, error = smoke_test(tmp_path)
         os.unlink(tmp_path)
-        if not (result.returncode == 0 and "OK" in result.stdout):
-            await query.edit_message_text(f"Smoke-test не прошёл: {result.stderr[:500]}")
+        if not passed:
+            await query.edit_message_text(f"Smoke-test не прошёл: {error[:500]}")
             return
         with open(AGENT_FILE, "w", encoding="utf-8") as f:
             f.write(new_code)
@@ -980,7 +972,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         uid = data[5:]
         set_status(uid, "guest")
-        await query.edit_message_text(f"👤 Переведён в гости.")
+        await query.edit_message_text("👤 Переведён в гости.")
 
     elif data.startswith("u_bl_"):
         if not _is_owner(tg_id):
@@ -1311,7 +1303,7 @@ async def _handle_onboarding(update, context, tg_id, user_id, text):
 # ---------------------------------------------------------------------------
 
 async def post_init(app: Application) -> None:
-    """Устанавливает меню команд при старте бота."""
+    """Устанавливает меню команд при старте бота и чистит просроченных гостей."""
     # Базовые команды для всех
     await app.bot.set_my_commands(BASIC_COMMANDS, scope=BotCommandScopeDefault())
     # Расширенные для владельца
@@ -1323,6 +1315,15 @@ async def post_init(app: Application) -> None:
             )
         except Exception as e:
             logger.warning(f"Не удалось установить owner-меню: {e}")
+
+    # Очистка просроченных гостей (старше 3 дней)
+    try:
+        expired = cleanup_expired_guests()
+        if expired:
+            logger.info(f"При старте удалено просроченных гостей: {expired}")
+    except Exception as e:
+        logger.warning(f"cleanup_expired_guests упал: {e}")
+
     logger.info("Бот запущен. Команды установлены.")
 
 
