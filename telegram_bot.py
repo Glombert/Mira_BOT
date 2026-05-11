@@ -68,6 +68,7 @@ _providers.init()
 import memory_crypto
 memory_crypto.init()
 import memory_manager
+from tools import semantic_memory
 
 from router   import classify
 from conclave import Conclave
@@ -481,6 +482,10 @@ async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if os.path.exists(path):
         os.remove(path)
     _save_session(user_id, [{"role": "system", "content": SYSTEM_PROMPT}])
+    try:
+        semantic_memory.delete_user(user_id)
+    except Exception as e:
+        logger.warning(f"semantic_memory delete failed: {e}")
     await _reply(update,"Профиль удалён. Напиши /start чтобы познакомиться заново.")
 
 
@@ -1023,6 +1028,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         uid = data[7:]
         delete_user(uid)
+        try:
+            semantic_memory.delete_user(uid)
+        except Exception as e:
+            logger.warning(f"semantic_memory delete failed: {e}")
         await query.edit_message_text(f"Пользователь {uid} удалён.")
 
 
@@ -1156,6 +1165,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     the_rest = [m for m in msgs if m["role"] != "system"]
     msgs     = system + the_rest[-MAX_HISTORY:]
 
+    # Семантический поиск по прошлым разговорам (Этап v1.3).
+    # Augment-блок добавляем только в copy для LLM — в msgs не сохраняем.
+    semantic_augment = ""
+    try:
+        matches = semantic_memory.search(user_id, text, top_k=4)
+        semantic_augment = semantic_memory.format_for_prompt(matches)
+    except Exception as e:
+        logger.warning(f"semantic_memory search failed: {e}")
+
+    def _augmented(orig: list) -> list:
+        if not semantic_augment:
+            return orig
+        out = list(orig)
+        if out and out[0].get("role") == "system":
+            out[0] = {**out[0], "content": out[0]["content"] + "\n\n" + semantic_augment}
+        return out
+
     task_type = classify(text, alpha.model_chain if alpha else [])
     ts_before = datetime.now().timestamp()
 
@@ -1186,8 +1212,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             presentation = (
                 f"Специалисты выполнили задачу. Представь результат:\n\n{raw}"
             )
+            sys_with_semantic = SYSTEM_PROMPT + ("\n\n" + semantic_augment if semantic_augment else "")
             alpha_msgs = [
-                {"role": "system",    "content": SYSTEM_PROMPT},
+                {"role": "system",    "content": sys_with_semantic},
                 {"role": "user",      "content": text},
                 {"role": "assistant", "content": "[передала специалистам]"},
                 {"role": "user",      "content": presentation},
@@ -1197,7 +1224,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             ).choices[0].message.content
             msgs.append({"role": "assistant", "content": answer})
         elif alpha:
-            answer = alpha.run(msgs)
+            answer = alpha.run(_augmented(msgs))
         else:
             await _reply(update,"Провайдеры не настроены.")
             return
@@ -1208,25 +1235,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         # Фоновые задачи памяти — не блокируют ответ
         model_chain = alpha.model_chain if alpha else []
-        if model_chain:
-            msgs_snapshot = list(msgs)
+        msgs_snapshot = list(msgs)
+        user_text     = text
+        bot_answer    = answer
 
-            def _memory_tasks():
-                # 1. Суммаризация если история длинная
-                updated = memory_manager.maybe_summarize(
-                    user_id, msgs_snapshot, model_chain,
-                    load_user_profile, save_user_profile,
-                )
-                if updated is not msgs_snapshot:
-                    _save_session(user_id, updated)
+        def _memory_tasks():
+            # 1. Семантическая память — индексируем оба сообщения
+            try:
+                semantic_memory.index_message(user_id, "user", user_text)
+                if bot_answer:
+                    semantic_memory.index_message(user_id, "assistant", bot_answer)
+            except Exception as e:
+                logger.warning(f"semantic_memory index failed: {e}")
 
-                # 2. Обновление профиля новыми фактами
-                memory_manager.update_user_profile(
-                    user_id, msgs_snapshot, model_chain,
-                    load_user_profile, save_user_profile,
-                )
+            if not model_chain:
+                return
+            # 2. Суммаризация если история длинная
+            updated = memory_manager.maybe_summarize(
+                user_id, msgs_snapshot, model_chain,
+                load_user_profile, save_user_profile,
+            )
+            if updated is not msgs_snapshot:
+                _save_session(user_id, updated)
 
-            memory_manager.run_background(_memory_tasks)
+            # 3. Обновление профиля новыми фактами
+            memory_manager.update_user_profile(
+                user_id, msgs_snapshot, model_chain,
+                load_user_profile, save_user_profile,
+            )
+
+        memory_manager.run_background(_memory_tasks)
 
     except Exception as e:
         logger.error(f"Ошибка при обработке сообщения: {e}", exc_info=True)
