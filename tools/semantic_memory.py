@@ -123,7 +123,7 @@ def index_message(user_id: str, role: str, text: str, ts: str | None = None) -> 
 
 
 def search(user_id: str, query: str, top_k: int = 5,
-           max_distance: float = 1.2) -> list[dict]:
+           max_distance: float = 0.8) -> list[dict]:
     """
     Ищет релевантные сообщения пользователя по смыслу.
 
