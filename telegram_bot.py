@@ -295,6 +295,7 @@ BASIC_COMMANDS = [
     BotCommand("help",   "Список команд"),
     BotCommand("whoami", "Мой профиль"),
     BotCommand("files",  "Мои файлы"),
+    BotCommand("gdrive", "Мои файлы на Google Drive"),
     BotCommand("clear",  "Очистить историю"),
     BotCommand("forget", "Сбросить профиль"),
     BotCommand("stop",   "Остановить Конклав"),
