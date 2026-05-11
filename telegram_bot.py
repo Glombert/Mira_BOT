@@ -633,14 +633,15 @@ async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def cmd_versions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_owner(update.effective_user.id):
         return
-    import io
+    import io, sys
     buf = io.StringIO()
-    import sys
     old = sys.stdout
-    sys.stdout = buf
-    list_backups()
-    sys.stdout = old
-    await _reply(update,buf.getvalue() or "Резервных копий нет.")
+    try:
+        sys.stdout = buf
+        list_backups()
+    finally:
+        sys.stdout = old
+    await _reply(update, buf.getvalue() or "Резервных копий нет.")
 
 
 async def cmd_release(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

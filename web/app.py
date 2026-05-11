@@ -40,6 +40,8 @@ memory_crypto.init()
 import memory_manager
 from tools import semantic_memory
 
+from router   import classify
+from conclave import Conclave
 from agent import (
     Agent, Profile, SYSTEM_PROMPT, TOOL_SCHEMAS, execute_tool,
     load_user_profile, save_user_profile,
@@ -366,8 +368,34 @@ async def chat(websocket: WebSocket, session: str = ""):
 
             await websocket.send_json({"type": "thinking"})
 
+            # Классификация + роутинг как в CLI и Telegram
+            _EXECUTOR_FOR = {"search": "scout", "code": "coder", "complex": "coder"}
+            task_type = classify(text, alpha.model_chain if alpha else [])
+
             try:
-                answer = await asyncio.to_thread(alpha.run, llm_msgs)
+                if task_type in _EXECUTOR_FOR and alpha:
+                    conclave = Conclave(
+                        system_prompt=SYSTEM_PROMPT, user_id=user_id,
+                        profile=profile, tool_schemas=TOOL_SCHEMAS,
+                        execute_tool_fn=execute_tool,
+                    )
+                    executor = _EXECUTOR_FOR[task_type]
+                    logger.info(f"Web Conclave: task_type={task_type}, executor={executor}")
+                    raw = await asyncio.to_thread(conclave.run_with_qa, text, executor)
+
+                    sys_with_aug = SYSTEM_PROMPT + ("\n\n" + augment if augment else "")
+                    presentation = f"Специалисты выполнили задачу. Представь результат пользователю:\n\n{raw}"
+                    alpha_msgs = [
+                        {"role": "system", "content": sys_with_aug},
+                        {"role": "user", "content": text},
+                        {"role": "assistant", "content": "[передала специалистам]"},
+                        {"role": "user", "content": presentation},
+                    ]
+                    answer = _providers.call(
+                        alpha.model_chain, alpha_msgs, temperature=0.7
+                    ).choices[0].message.content
+                else:
+                    answer = await asyncio.to_thread(alpha.run, llm_msgs)
             except Exception as e:
                 logger.error(f"alpha.run: {e}", exc_info=True)
                 await websocket.send_json({"type": "error", "content": "Что-то пошло не так. Попробуй ещё раз."})

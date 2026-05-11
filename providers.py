@@ -21,6 +21,7 @@ PROVIDERS строится из .env:
 
 import os
 import json
+import time
 import logging
 from datetime import datetime
 from openai import OpenAI
@@ -111,8 +112,14 @@ def init() -> None:
         else:
             # OpenAI-совместимые провайдеры
             base_url = os.getenv(f"API_{name.upper()}_URL")
+            if not base_url:
+                logger.warning(
+                    f"providers.init: для '{name}' не задан API_{name.upper()}_URL. "
+                    f"OpenAI-клиент будет использовать api.openai.com по умолчанию."
+                )
             try:
                 PROVIDERS[name] = OpenAI(api_key=api_key, base_url=base_url)
+                logger.info(f"providers.init: клиент '{name}' создан (base_url={base_url or 'default'})")
             except Exception as e:
                 logger.warning(f"providers.init: не удалось создать клиент {name}: {e}")
 
@@ -263,14 +270,15 @@ def call(model_chain: list[dict], messages: list, **kwargs) -> object:
 
     default_temperature = kwargs.pop("temperature", 0.7)
     last_error: Exception | None = None
+    t_start = time.time()
 
-    # Логируем начало вызова
-    logger.debug(f"providers.call: начало, model_chain={model_chain}, messages_count={len(messages)}")
+    logger.debug(f"providers.call: начало, chain={[(e.get('provider'), e.get('model')) for e in model_chain]}, messages={len(messages)}")
 
     for i, entry in enumerate(model_chain):
         provider_name = entry.get("provider", "")
         model         = entry.get("model", "")
         temperature   = entry.get("temperature", default_temperature)
+        t_call = time.time()
 
         try:
             if provider_name == "anthropic":
@@ -279,9 +287,10 @@ def call(model_chain: list[dict], messages: list, **kwargs) -> object:
                     logger.warning("providers.call: anthropic клиент не инициализирован, пропускаю.")
                     continue
                 max_tokens = kwargs.get("max_tokens", 4096)
-                logger.info(f"providers.call: вызываю anthropic/{model} (temperature={temperature})")
+                logger.info(f"providers.call [{i+1}/{len(model_chain)}]: anthropic/{model} (temp={temperature}, msgs={len(messages)})")
                 result = _call_anthropic_native(model, messages, temperature, max_tokens)
-                logger.info(f"providers.call: anthropic/{model} успешно, длина ответа={len(result.choices[0].message.content)}")
+                dt = time.time() - t_call
+                logger.info(f"providers.call [{i+1}/{len(model_chain)}]: anthropic/{model} OK ({dt:.1f}s, ответ={len(result.choices[0].message.content or '')} символов)")
                 return result
 
             else:
@@ -291,34 +300,37 @@ def call(model_chain: list[dict], messages: list, **kwargs) -> object:
                     logger.warning(f"providers.call: '{provider_name}' не настроен, пропускаю.")
                     continue
                 cached_messages = _apply_prompt_caching(messages, provider_name, model)
-                logger.info(f"providers.call: вызываю {provider_name}/{model} (temperature={temperature})")
+                logger.info(f"providers.call [{i+1}/{len(model_chain)}]: {provider_name}/{model} (temp={temperature}, msgs={len(messages)})")
                 result = client.chat.completions.create(
                     model=model,
                     messages=cached_messages,
                     temperature=temperature,
                     **kwargs,
                 )
-                logger.info(f"providers.call: {provider_name}/{model} успешно, длина ответа={len(result.choices[0].message.content)}")
+                dt = time.time() - t_call
+                has_tools = bool(getattr(result.choices[0].message, 'tool_calls', None))
+                logger.info(f"providers.call [{i+1}/{len(model_chain)}]: {provider_name}/{model} OK ({dt:.1f}s, ответ={len(result.choices[0].message.content or '')} символов, tool_calls={has_tools})")
                 return result
 
         except Exception as e:
             last_error = e
             err_str = str(e).lower()
+            dt = time.time() - t_call
 
             if any(k in err_str for k in _NON_RETRIABLE):
-                logger.error(f"providers.call: невосстановимая ошибка {provider_name}/{model}: {e}")
+                logger.error(f"providers.call [{i+1}/{len(model_chain)}]: {provider_name}/{model} невосстановимая ошибка ({dt:.1f}s): {e}")
                 raise
 
             if i + 1 < len(model_chain):
                 next_entry = model_chain[i + 1]
                 logger.warning(
-                    f"providers.call: {provider_name}/{model} упал ({e}). "
-                    f"Переключаюсь на {next_entry.get('provider')}/{next_entry.get('model')}"
+                    f"providers.call [{i+1}/{len(model_chain)}]: {provider_name}/{model} упал ({dt:.1f}s). "
+                    f"Переключаюсь на {next_entry.get('provider')}/{next_entry.get('model')}: {e}"
                 )
                 print(f"[!] {provider_name} недоступен, переключаюсь на резерв...")
                 _log_switch(entry, next_entry, str(e))
             else:
-                logger.error(f"providers.call: все провайдеры исчерпаны. Ошибка: {e}")
+                logger.error(f"providers.call: все провайдеры исчерпаны ({time.time()-t_start:.1f}s total). Ошибка: {e}")
 
     if last_error:
         raise last_error

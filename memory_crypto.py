@@ -18,10 +18,13 @@ memory_crypto.py — прозрачное шифрование файлов па
 import os
 import json
 import logging
+import threading
 
 logger = logging.getLogger("Ouroborus")
 
 _fernet = None
+_locks: dict[str, threading.Lock] = {}
+_locks_guard = threading.Lock()
 
 
 def init(key: str | None = None) -> None:
@@ -45,6 +48,15 @@ def init(key: str | None = None) -> None:
 
 def is_enabled() -> bool:
     return _fernet is not None
+
+
+def _get_lock(path: str) -> threading.Lock:
+    """Возвращает блокировку для файла — гарантирует что фоновый поток не перезапишет основной."""
+    path = os.path.abspath(path)
+    with _locks_guard:
+        if path not in _locks:
+            _locks[path] = threading.Lock()
+        return _locks[path]
 
 
 def load_json(path: str) -> dict | list | None:
@@ -78,17 +90,21 @@ def save_json(path: str, data: dict | list) -> None:
     """
     Записывает данные в JSON-файл с прозрачным шифрованием.
     Создаёт промежуточные директории автоматически.
+    Потокобезопасна: блокировка на путь файла предотвращает гонку между
+    основным потоком и фоновыми задачами памяти.
     """
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    try:
-        raw = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
-        if _fernet:
-            raw = _fernet.encrypt(raw)
-            with open(path, "wb") as f:
-                f.write(raw)
-        else:
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(raw.decode("utf-8"))
-    except Exception as e:
-        logger.error(f"memory_crypto.save_json({path}): {e}")
-        raise
+    lock = _get_lock(path)
+    with lock:
+        try:
+            raw = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+            if _fernet:
+                raw = _fernet.encrypt(raw)
+                with open(path, "wb") as f:
+                    f.write(raw)
+            else:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(raw.decode("utf-8"))
+        except Exception as e:
+            logger.error(f"memory_crypto.save_json({path}): {e}")
+            raise
