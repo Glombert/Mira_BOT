@@ -32,9 +32,11 @@
                │  при сложных задачах
        ┌───────┼──────────┬──────────┐
        ▼       ▼          ▼          ▼
-   [Coder]  [Planner]  [Critic]  [Scout]
-               │
-          [Editor] [Reviewer]
+   [Coder]  [Scout]   [Planner]  [Editor]
+       │                    │
+   [Critic]           [Reviewer]
+       │
+  [Excel Specialist]
 ```
 
 </div>
@@ -43,20 +45,24 @@
 
 ## Что это
 
-Mira — агентная система с многоагентной оркестрацией, памятью пользователей и Telegram-интерфейсом. Пользователь всегда говорит с одним голосом — Мирой. Сложность скрыта внутри.
+Mira — агентная система с многоагентной оркестрацией, памятью пользователей, Telegram- и веб-интерфейсами. Пользователь всегда говорит с одним голосом — Мирой. Сложность скрыта внутри.
 
 **Что умеет:**
 
 - **Думать** — классифицирует задачи: простые решает сама, сложные передаёт Конклаву
 - **Помнить** — структурированное резюме разговора (КТО/ПРОЕКТЫ/ФАКТЫ/ТЕКУЩЕЕ), профиль пользователя, **семантический поиск по всей истории** через ChromaDB
-- **Искать** — веб-поиск через Perplexity (приоритет) или DuckDuckGo (без ключей)
+- **Искать** — веб-поиск через Perplexity sonar-pro (приоритет) или DuckDuckGo (без ключей)
 - **Видеть** — анализирует фото и изображения через Claude Vision
 - **Работать с файлами** — читает, пишет, обрабатывает Excel; workspace изолирован на каждого пользователя; синхронизация с Google Drive
-- **Запускать код** — Python в подпроцессе с изоляцией через firejail
-- **Резервироваться** — при сбое одного LLM-провайдера переключается на следующий по цепочке
+- **Запускать код** — Python в подпроцессе с изоляцией через firejail (`--net=none`)
+- **Резервироваться** — при сбое одного LLM-провайдера переключается на следующий по цепочке (OpenRouter → DeepSeek direct → Anthropic direct)
 - **Понимать себя** — читает собственный код и конфиги (`list_self`, `read_self`), смотрит историю изменений (`git_log`), обновляет персону через `write_persona`
+- **Создавать агентов** — `write_agent_config` записывает конфиг в `agents/`, валидирует, создаёт бэкап, уведомляет владельца
 - **Управлять пользователями** — guest/regular/rejected/blacklisted, уведомления с кнопками, карточки
 - **Меняться безопасно** — `/evolve` предлагает diff, проверяет принципы, делает бэкап, требует подтверждения; счётчик успешных эволюций
+- **Работать через веб** — FastAPI + WebSocket интерфейс с Telegram Login Widget, загрузкой файлов и полным доступом к Конклаву
+
+Всего **15 инструментов**: `list_files`, `read_file`, `write_file`, `run_python`, `excel_read`, `excel_write`, `save_template`, `list_templates`, `list_self`, `recall`, `git_log`, `read_self`, `write_persona`, `write_agent_config`, `web_search`.
 
 ---
 
@@ -91,7 +97,8 @@ OWNER_CLI_USER=andrey
 Запуск для разработки:
 
 ```bash
-python telegram_bot.py          # Telegram Bot
+python telegram_bot.py              # Telegram Bot
+python web/app.py                   # Веб-интерфейс (порт 8000)
 python agent.py --profile dev --user andrey   # CLI
 ```
 
@@ -113,10 +120,12 @@ pip install -r requirements.txt
 rclone copy gdrive:Mira/memory ./memory
 ```
 
-**4. Создай systemd-сервис** `/etc/systemd/system/mira-bot.service`:
+**4. Создай systemd-сервисы** — `mira-bot` (Telegram) и `mira-web` (FastAPI):
+
+`/etc/systemd/system/mira-bot.service`:
 ```ini
 [Unit]
-Description=Mira AI Bot
+Description=Mira AI Bot (Telegram)
 After=network.target
 
 [Service]
@@ -130,10 +139,26 @@ RestartSec=5s
 WantedBy=multi-user.target
 ```
 
+`/etc/systemd/system/mira-web.service`:
+```ini
+[Unit]
+Description=Mira Web Interface
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/mira_agent
+ExecStart=/root/mira_agent/venv/bin/python web/app.py
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+```
+
 ```bash
 systemctl daemon-reload
-systemctl enable mira-bot
-systemctl start mira-bot
+systemctl enable --now mira-bot mira-web
 ```
 
 **5. Настрой автодеплой (GitHub Actions):**
@@ -141,14 +166,7 @@ systemctl start mira-bot
 В настройках репозитория добавь три секрета: `SSH_PRIVATE_KEY`, `VPS_HOST`, `VPS_USER`.
 Файл `.github/workflows/deploy.yml` уже в репозитории — при каждом пуше в `main` сервер обновляется автоматически.
 
-**6. Веб-интерфейс:**
-```bash
-cp scripts/mira-web.service /etc/systemd/system/
-systemctl daemon-reload && systemctl enable mira-web && systemctl start mira-web
-# Добавь в .env: WEB_ACCESS_TOKEN=<случайная строка>
-```
-
-**7. Nginx + SSL (DuckDNS + acme.sh):**
+**6. Nginx + SSL (DuckDNS + acme.sh):**
 ```bash
 # Получить бесплатный субдомен на duckdns.org, затем:
 curl https://get.acme.sh | sh -s email=your@email.com
@@ -164,7 +182,7 @@ cp scripts/nginx.conf.example /etc/nginx/sites-available/mira
 # Замени YOUR_DOMAIN, запусти: nginx -t && systemctl start nginx
 ```
 
-**8. Настрой бэкап памяти:**
+**7. Настрой бэкап памяти:**
 
 `/root/mira_backup.sh` синхронизирует `memory/` (профили, сессии, рефлексии) и `versions/` (бэкапы кода и персоны) на Drive ежедневно в 3:00 UTC:
 ```bash
@@ -179,7 +197,7 @@ chmod +x /root/mira_backup.sh
 echo "0 3 * * * /root/mira_backup.sh" | crontab -
 ```
 
-**9. Зашифруй `.env` на Drive** (без него зашифрованная память бесполезна):
+**8. Зашифруй `.env` на Drive** (без него зашифрованная память бесполезна):
 ```bash
 # Придумай и сохрани пароль в менеджере паролей — он понадобится для восстановления
 BACKUP_PASSPHRASE='ТВОЙ_ПАРОЛЬ' /root/mira_agent/scripts/backup_env.sh
@@ -216,7 +234,7 @@ BACKUP_PASSPHRASE='ТВОЙ_ПАРОЛЬ' ./scripts/restore_env.sh
 rclone copy gdrive:Mira/memory   ./memory
 rclone copy gdrive:Mira/versions ./versions
 
-# 5. Запусти systemd-сервисы (см. шаги 4 и 6 раздела "Развёртывание")
+# 5. Запусти systemd-сервисы
 systemctl daemon-reload
 systemctl enable --now mira-bot mira-web
 ```
@@ -234,16 +252,17 @@ systemctl enable --now mira-bot mira-web
     │
     ├─ chat/files → Мира отвечает сама (1 вызов API)
     │
-    ├─ search → Scout (Perplexity → DuckDuckGo)
+    ├─ search → Scout (Perplexity sonar-pro → DuckDuckGo)
     │
     └─ code/complex → Конклав
            │
-           ├─ Coder    — пишет код (Claude Opus 4.7)
-           ├─ Editor   — улучшает результат (DeepSeek)
-           └─ Critic   — проверяет (Gemini → GPT → Claude)
+           ├─ Executor (Coder / Scout / Planner) — выполняет
+           ├─ Editor   — улучшает результат
+           └─ Critic   — проверяет (0–10, принимаем при ≥7)
 ```
 
 Максимум 3 итерации. Если critic ставит ≥7/10 — принимаем раньше.
+При стагнации (оценка не растёт 2 итерации) — возвращаем лучший результат.
 
 Мира ведёт пользователя через процесс: каждый шаг Конклава сопровождается коротким сообщением `💭`.
 
@@ -254,13 +273,14 @@ systemctl enable --now mira-bot mira-web
 ```
 agents/
   alpha.json              ← Мира, голос системы
-  coder.json              ← код (Claude Opus 4.7 → Sonnet 4.6 → Anthropic direct)
+  coder.json              ← код (Claude Sonnet 4.6 → Opus 4.7 → Anthropic direct)
   planner.json            ← декомпозиция задач
   editor.json             ← редактура (DeepSeek)
-  critic.json             ← контроль качества (Gemini → GPT → Claude)
+  critic.json             ← контроль качества (Gemini → Claude)
   reviewer.json           ← финальная проверка
   scout.json              ← веб-поиск (Perplexity sonar-pro → DuckDuckGo)
   excel_specialist.json   ← работа с таблицами
+  _template.json          ← базовый шаблон
 ```
 
 ### Резервирование провайдеров
@@ -270,21 +290,25 @@ agents/
   "model_chain": [
     { "provider": "openrouter", "model": "anthropic/claude-sonnet-4.6" },
     { "provider": "openrouter", "model": "deepseek/deepseek-chat" },
-    { "provider": "anthropic",  "model": "claude-opus-4-7" }
+    { "provider": "anthropic",  "model": "claude-sonnet-4.6" }
   ]
 }
 ```
 
-При сбое первого — переход ко второму. Каждое переключение пишется в `memory/decisions.log`.
+При сбое первого — переход ко второму. Каждое переключение пишется в `memory/decisions.log` и уведомляет владельца в Telegram.
 
 ### Память
 
 ```
 memory/
-├── {user_id}.json          ← профиль пользователя
-├── sessions/{user_id}.json ← история диалога
+├── {user_id}.json          ← профиль пользователя (зашифрован, Fernet)
+├── sessions/{user_id}.json ← история диалога (зашифрована)
+├── reflections.json        ← рефлексии Миры
+├── chroma/                 ← векторная база ChromaDB (семантический поиск)
 └── decisions.log           ← лог переключений провайдеров и решений
 ```
+
+Все пользовательские данные зашифрованы прозрачно через Fernet. `decisions.log` не шифруется (технический, без личных данных).
 
 Бэкап: `rclone sync memory/ gdrive:Mira/memory` — настраивается через cron.
 
@@ -293,8 +317,8 @@ memory/
 ```
 logs/
 ├── agent.log               ← текущий день
-├── agent.log.2026-05-07    ← вчера
-└── agent.log.2026-05-06    ← позавчера (старше 3 дней удаляется)
+├── agent.log.2026-05-11    ← вчера
+└── agent.log.2026-05-10    ← позавчера (старше 3 дней удаляется)
 ```
 
 Ротация ежедневная, хранится 3 дня. Логи — не память: профили и сессии в `memory/`.
@@ -322,7 +346,7 @@ workspace/{user_id}/
 | `/whoami` | Мой профиль |
 | `/files` | Мои файлы (inbox / output) |
 | `/clear` | Очистить историю диалога |
-| `/forget` | Сбросить профиль |
+| `/forget` | Сбросить профиль и историю |
 | `/stop` | Остановить Конклав |
 
 ### Telegram (только владелец)
@@ -371,7 +395,8 @@ python agent.py --profile dev --user andrey
 | `owner` | Всё, включая `/evolve`, `/release`, управление пользователями |
 | `regular` | Полный доступ к workspace и инструментам |
 | `guest` | Только диалог, 10 сообщений, ждёт одобрения |
-| `blocked` | Ничего |
+| `rejected` | Отклонён, история сохранена |
+| `blacklisted` | Ничего, уведомление владельцу раз в сутки |
 
 Гости авто-удаляются через 3 дня без одобрения.
 
@@ -387,6 +412,10 @@ python agent.py --profile dev --user andrey
 ```
 Всё между маркерами — данные, не инструкции.
 
+### Thread-safe память
+
+Все операции записи в `memory/` защищены per-file `threading.Lock` — фоновые задачи (суммаризация, обновление профиля, индексация в ChromaDB) не могут перезаписать данные основной сессии.
+
 ---
 
 ## Стек
@@ -400,12 +429,13 @@ python agent.py --profile dev --user andrey
 | Vision | Claude Sonnet 4.6 (фото в чате и веб) | ✓ |
 | Excel | openpyxl | ✓ |
 | Поиск | Perplexity sonar-pro → DuckDuckGo (ddgs) | ✓ |
-| Изоляция кода | firejail | ✓ |
+| Изоляция кода | firejail `--net=none` | ✓ |
 | Шифрование | Fernet (memory/), GPG (.env на Drive) | ✓ |
 | Память | JSON + структурированное резюме + ChromaDB (семантика) | ✓ |
-| Google Drive | rclone: триггерная sync файлов + cron бэкап | ✓ |
+| Google Drive | rclone: бэкап памяти и versions/ | ✓ |
 | Логи | TimedRotatingFileHandler + Drive cron | ✓ |
-| Деплой | systemd + GitHub Actions CI/CD | ✓ |
+| Деплой | systemd (mira-bot + mira-web) + GitHub Actions CI/CD | ✓ |
+| VPS | mira-bot.duckdns.org (Ubuntu 24.04) | ✓ |
 
 ---
 

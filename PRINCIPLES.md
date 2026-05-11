@@ -38,5 +38,7 @@
 ## 5. Ограничения на саморасширение
 
 - Агент не создаёт агентов с ролью `alpha`.
-- `spawn_agent` создаёт только роли `executor` и `specialist`.
+- `write_agent_config` не перезаписывает `alpha.json` и `_template.json`.
+- `write_agent_config` создаёт только роли `executor`, `specialist`, `planner`, `critic` и т.д. (не `alpha`).
 - Новые инструменты добавляются только с явным разрешением в профиле.
+- При создании агента валидируются обязательные поля: `role`, `system_prompt`, `model_chain`.
