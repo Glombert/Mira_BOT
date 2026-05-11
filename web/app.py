@@ -358,7 +358,7 @@ async def chat(websocket: WebSocket, session: str = ""):
             # Семантический поиск — augment только для LLM, не сохраняем
             augment = ""
             try:
-                matches = semantic_memory.search(user_id, text, top_k=3)
+                matches = semantic_memory.search(user_id, text, top_k=5)
                 augment = semantic_memory.format_for_prompt(matches)
             except Exception as e:
                 logger.warning(f"semantic_memory search: {e}")
@@ -385,9 +385,10 @@ async def chat(websocket: WebSocket, session: str = ""):
 
                     sys_with_aug = SYSTEM_PROMPT + ("\n\n" + augment if augment else "")
                     presentation = f"Специалисты выполнили задачу. Представь результат пользователю:\n\n{raw}"
+                    recent = [m for m in msgs if m.get("role") != "system"][-12:]
                     alpha_msgs = [
                         {"role": "system", "content": sys_with_aug},
-                        {"role": "user", "content": text},
+                        *recent,
                         {"role": "assistant", "content": "[передала специалистам]"},
                         {"role": "user", "content": presentation},
                     ]

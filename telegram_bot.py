@@ -1197,7 +1197,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Augment-блок добавляем только в copy для LLM — в msgs не сохраняем.
     semantic_augment = ""
     try:
-        matches = semantic_memory.search(user_id, text, top_k=3)
+        matches = semantic_memory.search(user_id, text, top_k=5)
         semantic_augment = semantic_memory.format_for_prompt(matches)
     except Exception as e:
         logger.warning(f"semantic_memory search failed: {e}")
@@ -1241,9 +1241,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 f"Специалисты выполнили задачу. Представь результат:\n\n{raw}"
             )
             sys_with_semantic = SYSTEM_PROMPT + ("\n\n" + semantic_augment if semantic_augment else "")
+            # Включаем последние 12 не-системных сообщений чтобы Альфа
+            # помнила контекст разговора при подаче результата Конклава.
+            recent = [m for m in msgs if m.get("role") != "system"][-12:]
             alpha_msgs = [
                 {"role": "system",    "content": sys_with_semantic},
-                {"role": "user",      "content": text},
+                *recent,
                 {"role": "assistant", "content": "[передала специалистам]"},
                 {"role": "user",      "content": presentation},
             ]
