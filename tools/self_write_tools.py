@@ -13,8 +13,9 @@ import json
 import shutil
 from datetime import datetime
 
-PERSONA_FILE    = "persona.json"
-DECISIONS_LOG   = os.path.join("memory", "decisions.log")
+PERSONA_FILE     = "persona.json"
+REFLECTIONS_FILE = os.path.join("memory", "reflections.json")
+DECISIONS_LOG    = os.path.join("memory", "decisions.log")
 
 # Поля которые Мира может менять самостоятельно
 _ALLOWED_FIELDS = {"curiosity", "emotions", "self_awareness", "reflections"}
@@ -49,6 +50,11 @@ def write_persona(field: str, value) -> dict:
                      f"Изменяемые поля: {', '.join(sorted(_ALLOWED_FIELDS))}",
         }
 
+    # Reflections живут отдельно — в memory/reflections.json,
+    # чтобы не конфликтовать с git-tracked persona.json при деплое.
+    if field == "reflections":
+        return _append_reflection(value)
+
     if not os.path.exists(PERSONA_FILE):
         return {"ok": False, "error": "persona.json не найден"}
 
@@ -66,20 +72,8 @@ def write_persona(field: str, value) -> dict:
     shutil.copy2(PERSONA_FILE, backup_path)
 
     old_value = persona.get(field)
-
-    # Для reflections — добавляем запись в список, не перезаписываем
-    if field == "reflections":
-        if not isinstance(persona.get("reflections"), list):
-            persona["reflections"] = []
-        entry = {
-            "date": datetime.now().strftime("%Y-%m-%d"),
-            "text": str(value),
-        }
-        persona["reflections"].append(entry)
-        new_value = entry
-    else:
-        persona[field] = value
-        new_value = value
+    persona[field] = value
+    new_value = value
 
     try:
         with open(PERSONA_FILE, "w", encoding="utf-8") as f:
@@ -98,6 +92,41 @@ def write_persona(field: str, value) -> dict:
         "field": field,
         "backup": backup_path,
         "note": "Изменение вступит в силу при следующем сообщении (персона перечитывается).",
+    }
+
+
+def _append_reflection(text) -> dict:
+    """Добавляет рефлексию в memory/reflections.json (git-untracked)."""
+    os.makedirs("memory", exist_ok=True)
+    entry = {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "text": str(text),
+    }
+    # Читаем существующий список (или создаём)
+    reflections = []
+    if os.path.exists(REFLECTIONS_FILE):
+        try:
+            with open(REFLECTIONS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                reflections = data
+        except Exception:
+            pass
+
+    reflections.append(entry)
+    try:
+        with open(REFLECTIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(reflections, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return {"ok": False, "error": f"Ошибка записи рефлексии: {e}"}
+
+    _log_persona_change("reflections", None, entry, REFLECTIONS_FILE)
+    _notify_persona_change("reflections", entry)
+    return {
+        "ok":   True,
+        "field": "reflections",
+        "file":  REFLECTIONS_FILE,
+        "note":  "Рефлексия сохранена. Видна в следующем сообщении.",
     }
 
 
