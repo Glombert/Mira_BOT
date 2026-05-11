@@ -32,6 +32,9 @@ logger = logging.getLogger("Ouroborus")
 # Scope: drive.file — приложение видит только файлы которые само создало
 SCOPES = ['https://www.googleapis.com/auth/drive.file']
 
+# Redirect URI: на VPS — веб-колбэк, локально — localhost
+REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8080")
+
 # Папка для токенов
 GDRIVE_TOKENS_DIR = os.path.join("memory", "gdrive")
 
@@ -98,13 +101,15 @@ def is_authorized(user_id: str) -> bool:
 # OAuth 2.0 Flow
 # ---------------------------------------------------------------------------
 
-def get_auth_url() -> str | None:
+def get_auth_url(state: str | None = None) -> str | None:
     """
     Генерирует URL для авторизации Google.
 
     Пользователь открывает ссылку, даёт разрешение, Google редиректит
-    на localhost:8080 с code=... в URL. Пользователь копирует код
-    и отправляет боту командой /google_auth <код>.
+    на REDIRECT_URI (VPS колбэк или localhost) с code=... и state=... в URL.
+
+    Если state передан — Google вернёт его обратно при редиректе.
+    В state кодируется user_id для авто-обмена кода на веб-колбэке.
     """
     if not is_configured():
         return None
@@ -113,12 +118,15 @@ def get_auth_url() -> str | None:
         flow = Flow.from_client_secrets_file(
             _credentials_path(),
             scopes=SCOPES,
-            redirect_uri='http://localhost:8080',
+            redirect_uri=REDIRECT_URI,
         )
-        url, _ = flow.authorization_url(
-            access_type='offline',
-            prompt='consent',
-        )
+        kwargs = {
+            'access_type': 'offline',
+            'prompt': 'consent',
+        }
+        if state:
+            kwargs['state'] = state
+        url, _ = flow.authorization_url(**kwargs)
         return url
     except Exception as e:
         logger.error(f"gdrive: ошибка генерации auth_url: {e}")
@@ -139,7 +147,7 @@ def exchange_code(user_id: str, code: str) -> dict:
         flow = Flow.from_client_secrets_file(
             _credentials_path(),
             scopes=SCOPES,
-            redirect_uri='http://localhost:8080',
+            redirect_uri=REDIRECT_URI,
         )
         flow.fetch_token(code=code)
 
@@ -166,6 +174,15 @@ def exchange_code(user_id: str, code: str) -> dict:
     except Exception as e:
         logger.error(f"gdrive: ошибка обмена кода для {user_id}: {e}")
         return {"ok": False, "error": str(e)[:300]}
+
+
+def parse_oauth_state(state: str) -> str | None:
+    """
+    Извлекает user_id из OAuth state параметра.
+    Формат: tg_{id} или web_tg_{id}.
+    """
+    if state and (state.startswith("tg_") or state.startswith("web_tg_")):
+        return state
 
 
 def _get_user_email(access_token: str) -> str | None:
