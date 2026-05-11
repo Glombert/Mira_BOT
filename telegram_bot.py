@@ -1301,6 +1301,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     tg_id   = update.effective_user.id
     user_id = _user_id(tg_id)
+
+    if not _is_approved(user_id):
+        await _reply(update, "Обмен файлами доступен только одобренным пользователям.")
+        return
+
     doc     = update.message.document
     fname   = doc.file_name or f"file_{doc.file_id}"
 
@@ -1332,8 +1337,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     tg_id   = update.effective_user.id
     user_id = _user_id(tg_id)
 
-    profile_data = load_user_profile(user_id)
-    if profile_data and profile_data.get("status") == "blocked":
+    if not _is_approved(user_id):
+        await _reply(update, "Отправка фото доступна только одобренным пользователям.")
         return
 
     logger.info(f"handle_photo: пользователь {user_id}, размер фото={len(update.message.photo)}")
@@ -1486,7 +1491,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     }
 
     try:
-        if task_type in _EXECUTOR_FOR and alpha:
+        # Конклав только для одобренных — гости общаются напрямую с alpha
+        if task_type in _EXECUTOR_FOR and alpha and _is_approved(user_id):
             executor = _EXECUTOR_FOR[task_type]
             # Стартовое сообщение убрано — первый прогресс от Конклава его заменяет
             loop    = asyncio.get_running_loop()

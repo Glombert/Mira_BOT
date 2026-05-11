@@ -1,7 +1,7 @@
 {
   "profile_name": "guest",
   "description": "Гостевой профиль — только разговор, 10 сообщений, ждёт одобрения",
-  "allowed_tools": [],
+  "allowed_tools": ["read_file", "list_files", "web_search"],
   "max_history": 10,
   "max_tool_rounds": 1,
   "confirm_before_overwrite": true,
