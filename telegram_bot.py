@@ -1045,12 +1045,16 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     doc     = update.message.document
     fname   = doc.file_name or f"file_{doc.file_id}"
 
+    logger.info(f"handle_document: пользователь {user_id}, файл={fname}, размер={doc.file_size}")
+
     inbox = os.path.join(WORKSPACE_DIR, user_id, "inbox")
     os.makedirs(inbox, exist_ok=True)
     dest = os.path.join(inbox, fname)
 
     tg_file = await context.bot.get_file(doc.file_id)
     await tg_file.download_to_drive(dest)
+
+    logger.info(f"handle_document: файл {fname} сохранён для {user_id}")
 
     await _reply(update,
         f"📥 Файл сохранён: `inbox/{fname}`\n\nМогу прочитать, проанализировать или обработать — скажи что нужно.",
@@ -1066,6 +1070,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     profile_data = load_user_profile(user_id)
     if profile_data and profile_data.get("status") == "blocked":
         return
+
+    logger.info(f"handle_photo: пользователь {user_id}, размер фото={len(update.message.photo)}")
 
     # Скачиваем фото в наилучшем качестве
     photo   = update.message.photo[-1]
@@ -1089,6 +1095,22 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await _reply(update,"Провайдеры не настроены.")
         return
 
+    # Проверяем, поддерживает ли модель vision
+    model_chain = alpha.model_chain
+    supports_vision = any(
+        "claude" in entry.get("model", "").lower() or
+        "gemini" in entry.get("model", "").lower() or
+        "gpt-4" in entry.get("model", "").lower()
+        for entry in model_chain
+    )
+    if not supports_vision:
+        logger.warning(f"handle_photo: модель не поддерживает vision, model_chain={model_chain}")
+        await _reply(update,
+            "Сейчас не могу посмотреть фото — модель с поддержкой изображений недоступна. "
+            "Попробуй позже или опиши словами что на снимке."
+        )
+        return
+
     msgs.append({"role": "user", "content": content})
     system   = [m for m in msgs if m["role"] == "system"]
     the_rest = [m for m in msgs if m["role"] != "system"]
@@ -1110,6 +1132,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             return {**m, "content": placeholder}
 
         _save_session(user_id, [_strip_images(m) for m in msgs])
+        logger.info(f"handle_photo: успешно обработано для {user_id}")
 
     except Exception as e:
         logger.error(f"Ошибка при обработке фото: {e}", exc_info=True)
@@ -1132,6 +1155,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = _user_id(tg_id)
     text    = update.message.text or ""
 
+    logger.info(f"handle_message: пользователь {user_id}, длина сообщения={len(text)}")
+
     # Онбординг
     if context.user_data.get("onboarding"):
         await _handle_onboarding(update, context, tg_id, user_id, text)
@@ -1140,6 +1165,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Проверка статуса
     profile_data = load_user_profile(user_id)
     if profile_data and profile_data.get("status") == "blocked":
+        logger.warning(f"handle_message: заблокированный пользователь {user_id} пытается отправить сообщение")
         await _reply(update,"Доступ закрыт.")
         return
 
@@ -1149,6 +1175,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         profile_data["guest_message_count"] = count
         save_user_profile(user_id, profile_data)
         if count > 10:
+            logger.info(f"handle_message: гость {user_id} исчерпал лимит сообщений")
             await _reply(update,"Лимит сообщений исчерпан. Ожидай одобрения.")
             return
         elif count >= 8:

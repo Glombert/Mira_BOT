@@ -795,7 +795,16 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
     user_id подставляем сами — модель его не знает и не передаёт.
     """
     logger.info(f"Tool call: {tool_name}({tool_args})")
- 
+
+    # Проверяем, что инструмент существует в TOOL_SCHEMAS
+    tool_exists = any(
+        s["function"]["name"] == tool_name
+        for s in TOOL_SCHEMAS
+    )
+    if not tool_exists:
+        logger.warning(f"Tool call: неизвестный инструмент '{tool_name}'")
+        return json.dumps({"ok": False, "error": f"Неизвестный инструмент: {tool_name}"})
+
     try:
         if tool_name == "list_files":
             subdir = tool_args.get("subdir", "")
@@ -1472,6 +1481,7 @@ def evolve(task: str) -> None:
             print(f"[-] Не удалось применить diff: {result}")
             print("[-] Изменения не применены.")
             logger.error(f"Evolve: ошибка применения diff — {result}")
+            increment_evolution(success=False)
             return
         new_code = result
 

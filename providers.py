@@ -264,6 +264,9 @@ def call(model_chain: list[dict], messages: list, **kwargs) -> object:
     default_temperature = kwargs.pop("temperature", 0.7)
     last_error: Exception | None = None
 
+    # Логируем начало вызова
+    logger.debug(f"providers.call: начало, model_chain={model_chain}, messages_count={len(messages)}")
+
     for i, entry in enumerate(model_chain):
         provider_name = entry.get("provider", "")
         model         = entry.get("model", "")
@@ -276,7 +279,10 @@ def call(model_chain: list[dict], messages: list, **kwargs) -> object:
                     logger.warning("providers.call: anthropic клиент не инициализирован, пропускаю.")
                     continue
                 max_tokens = kwargs.get("max_tokens", 4096)
-                return _call_anthropic_native(model, messages, temperature, max_tokens)
+                logger.info(f"providers.call: вызываю anthropic/{model} (temperature={temperature})")
+                result = _call_anthropic_native(model, messages, temperature, max_tokens)
+                logger.info(f"providers.call: anthropic/{model} успешно, длина ответа={len(result.choices[0].message.content)}")
+                return result
 
             else:
                 # OpenAI-совместимый провайдер
@@ -285,18 +291,22 @@ def call(model_chain: list[dict], messages: list, **kwargs) -> object:
                     logger.warning(f"providers.call: '{provider_name}' не настроен, пропускаю.")
                     continue
                 cached_messages = _apply_prompt_caching(messages, provider_name, model)
-                return client.chat.completions.create(
+                logger.info(f"providers.call: вызываю {provider_name}/{model} (temperature={temperature})")
+                result = client.chat.completions.create(
                     model=model,
                     messages=cached_messages,
                     temperature=temperature,
                     **kwargs,
                 )
+                logger.info(f"providers.call: {provider_name}/{model} успешно, длина ответа={len(result.choices[0].message.content)}")
+                return result
 
         except Exception as e:
             last_error = e
             err_str = str(e).lower()
 
             if any(k in err_str for k in _NON_RETRIABLE):
+                logger.error(f"providers.call: невосстановимая ошибка {provider_name}/{model}: {e}")
                 raise
 
             if i + 1 < len(model_chain):

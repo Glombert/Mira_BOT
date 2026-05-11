@@ -224,6 +224,9 @@ class Conclave:
         # Обычные модели — вызываем с tools
         tools_chain  = [e for e in full_chain if not e.get("native_search")]
 
+        # Определяем максимальное количество раундов инструментов
+        max_tool_rounds = self.profile.max_tool_rounds if self.profile else 30
+
         # --- Сначала пробуем native-search модели ---
         if native_chain:
             try:
@@ -245,7 +248,7 @@ class Conclave:
 
         tool_cfg = {**config, "model_chain": tools_chain}
 
-        for _ in range(15):  # лимит раундов инструментов
+        for _ in range(max_tool_rounds):
             response = _providers.call(
                 tool_cfg["model_chain"],
                 messages,
@@ -280,8 +283,7 @@ class Conclave:
                 tool_name = tc.function.name
                 tool_args = json.loads(tc.function.arguments)
 
-                print(f"  [{config['name']}] → {tool_name}({tool_args})")
-                logger.info(f"Conclave tool: {tool_name}({tool_args})")
+                logger.info(f"Conclave tool: [{config.get('name', 'unknown')}] → {tool_name}({tool_args})")
 
                 result = self.execute_tool_fn(tool_name, tool_args, self.user_id)
 
@@ -291,6 +293,7 @@ class Conclave:
                     "content": result,
                 })
 
+        logger.warning(f"Conclave: превышен лимит вызовов инструментов ({max_tool_rounds}) для {config.get('name', 'unknown')}")
         return "[Превышен лимит вызовов инструментов]"
 
     def run_with_qa(self, task: str, executor_name: str = "coder") -> str:
