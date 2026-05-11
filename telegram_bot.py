@@ -397,7 +397,8 @@ async def cmd_google_login(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         "1. Открой ссылку ниже\n"
         "2. Войди в Google-аккаунт и разреши доступ\n"
         "3. Увидишь страницу «✅ Готово!» — всё, Drive привязан\n\n"
-        "Ничего копировать не нужно.\n\n"
+        "Если страница не открылась (ошибка «Сервер не найден») — "
+        "скопируй адрес из строки браузера и отправь: `/google_auth <адрес>`\n\n"
         f"[Открыть страницу авторизации Google]({url})",
         parse_mode="Markdown",
     )
@@ -415,14 +416,30 @@ async def cmd_google_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await _reply(update, "Google Drive не настроен на сервере.")
         return
 
-    # Извлекаем код из команды: /google_auth 4/0AanRRr...
+    # Извлекаем код из команды.
+    # Можно прислать просто код: /google_auth 4/0AanRRr...
+    # Или полный URL из адресной строки после редиректа
     text = update.message.text or ""
     parts = text.split(maxsplit=1)
-    code = parts[1].strip() if len(parts) > 1 else ""
+    raw = parts[1].strip() if len(parts) > 1 else ""
 
-    if not code:
-        await _reply(update, "Отправь код после команды: `/google_auth 4/0AanRRr...`")
+    if not raw:
+        await _reply(update, "Отправь код или URL после команды: `/google_auth <код>`")
         return
+
+    # Если прислали URL — извлекаем code из query-параметров
+    if raw.startswith("http"):
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(raw)
+        params = parse_qs(parsed.query)
+        codes = params.get("code", [])
+        if codes:
+            code = codes[0]
+        else:
+            await _reply(update, "Не нашёл `code` в URL. Скопируй адрес полностью из строки браузера.")
+            return
+    else:
+        code = raw
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
     result = exchange_code(user_id, code)
