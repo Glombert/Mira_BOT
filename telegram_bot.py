@@ -69,6 +69,17 @@ import memory_crypto
 memory_crypto.init()
 import memory_manager
 from tools import semantic_memory
+from tools.gdrive_tools import (
+    is_configured as gdrive_configured,
+    is_authorized as gdrive_authorized,
+    get_auth_url,
+    exchange_code,
+    gdrive_list,
+    gdrive_read,
+    gdrive_write,
+    gdrive_status,
+    auto_upload_to_drive,
+)
 
 from router   import classify
 from conclave import Conclave
@@ -331,6 +342,162 @@ def _help_keyboard(is_owner: bool) -> InlineKeyboardMarkup:
 # ---------------------------------------------------------------------------
 # Обработчики команд
 # ---------------------------------------------------------------------------
+# Google Drive OAuth
+# ---------------------------------------------------------------------------
+
+async def cmd_google_login(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Начинает OAuth-авторизацию Google Drive для пользователя."""
+    user_id = _user_id(update.effective_user.id)
+
+    if not gdrive_configured():
+        await _reply(update, "Google Drive не настроен на сервере. Нужен credentials.json от Google Cloud.")
+        return
+
+    if gdrive_authorized(user_id):
+        gd = gdrive_status(user_id)
+        await _reply(update,
+            f"Google Drive уже привязан: {gd.get('email', 'ok')}\n"
+            f"Команды: /gdrive — список файлов, /gdrive_get <id> — скачать, /google_logout — отвязать."
+        )
+        return
+
+    url = get_auth_url()
+    if not url:
+        await _reply(update, "Не удалось создать ссылку для авторизации.")
+        return
+
+    await _reply(update,
+        "🔐 *Привязка Google Drive*\n\n"
+        "1. Открой ссылку ниже\n"
+        "2. Войди в Google-аккаунт и разреши доступ\n"
+        "3. После редиректа на `localhost:8080` — скопируй `code` из адресной строки\n"
+        "4. Отправь боту: `/google_auth твой_код`\n\n"
+        f"[Открыть страницу авторизации Google]({url})",
+        parse_mode="Markdown",
+    )
+
+
+async def cmd_google_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обменивает authorization code на токены."""
+    user_id = _user_id(update.effective_user.id)
+
+    if not gdrive_configured():
+        await _reply(update, "Google Drive не настроен на сервере.")
+        return
+
+    # Извлекаем код из команды: /google_auth 4/0AanRRr...
+    text = update.message.text or ""
+    parts = text.split(maxsplit=1)
+    code = parts[1].strip() if len(parts) > 1 else ""
+
+    if not code:
+        await _reply(update, "Отправь код после команды: `/google_auth 4/0AanRRr...`")
+        return
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    result = exchange_code(user_id, code)
+
+    if result.get("ok"):
+        await _reply(update,
+            f"✅ Google Drive привязан!\nАккаунт: {result.get('email', 'ok')}\n\n"
+            f"Теперь я могу работать с твоим Drive. Попробуй:\n"
+            f"• Отправь мне файл — он загрузится на Drive\n"
+            f"• /gdrive — посмотреть файлы на Drive\n"
+            f"• /gdrive_get <id> — скачать файл с Drive"
+        )
+    else:
+        await _reply(update,
+            f"❌ Ошибка: {result.get('error', 'неизвестно')}\n\n"
+            f"Возможные причины:\n"
+            f"• Код введён с ошибкой (попробуй скопировать точнее)\n"
+            f"• Код уже использован (одноразовый)\n"
+            f"• Слишком много времени прошло\n\n"
+            f"Попробуй ещё раз: /google_login"
+        )
+
+
+async def cmd_google_logout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Отвязывает Google Drive аккаунт."""
+    user_id = _user_id(update.effective_user.id)
+    from tools.gdrive_tools import _delete_token
+    _delete_token(user_id)
+    await _reply(update, "Google Drive отвязан. Чтобы привязать заново: /google_login")
+
+
+async def cmd_gdrive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показывает список файлов на Google Drive пользователя."""
+    user_id = _user_id(update.effective_user.id)
+
+    if not gdrive_authorized(user_id):
+        await _reply(update, "Сначала привяжи Google Drive: /google_login")
+        return
+
+    # Извлекаем путь из команды: /gdrive или /gdrive Папка
+    text = update.message.text or ""
+    parts = text.split(maxsplit=1)
+    folder = parts[1].strip() if len(parts) > 1 else "root"
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    result = gdrive_list(user_id, folder)
+
+    if not result.get("ok"):
+        await _reply(update, f"❌ {result.get('error')}")
+        return
+
+    files = result.get("files", [])
+    if not files:
+        await _reply(update, f"Папка пуста: {folder}")
+        return
+
+    lines = [f"📁 *{folder}* ({len(files)}):"]
+    for f in files[:30]:
+        icon = "📁" if f["type"] == "folder" else "📄"
+        size = f" • {f['size']}" if f.get("size") else ""
+        lines.append(f"{icon} `{f['name']}`{size}")
+        lines.append(f"  id: `{f['id']}`")
+    if len(files) > 30:
+        lines.append(f"… и ещё {len(files) - 30}")
+
+    await _reply(update, "\n".join(lines), parse_mode="Markdown")
+
+
+async def cmd_gdrive_get(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Скачивает файл с Google Drive и отправляет в чат."""
+    user_id = _user_id(update.effective_user.id)
+
+    if not gdrive_authorized(user_id):
+        await _reply(update, "Сначала привяжи Google Drive: /google_login")
+        return
+
+    text = update.message.text or ""
+    parts = text.split(maxsplit=1)
+    file_id = parts[1].strip() if len(parts) > 1 else ""
+
+    if not file_id:
+        await _reply(update, "Укажи ID файла: `/gdrive_get <id>`\nID можно найти через /gdrive.")
+        return
+
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    result = gdrive_read(user_id, file_id)
+
+    if not result.get("ok"):
+        await _reply(update, f"❌ {result.get('error')}")
+        return
+
+    # Отправляем файл пользователю
+    output_path = os.path.join(WORKSPACE_DIR, user_id, "output", result["file"])
+    if os.path.isfile(output_path):
+        await context.bot.send_document(
+            chat_id=update.effective_chat.id,
+            document=open(output_path, "rb"),
+            caption=f"📥 {result['file']} ({result['size']} bytes)",
+        )
+    else:
+        await _reply(update, f"✅ Файл скачан: `output/{result['file']}` ({result['size']} bytes)",
+                     parse_mode="Markdown")
+
+
+# ---------------------------------------------------------------------------
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     tg_id   = update.effective_user.id
@@ -452,6 +619,11 @@ async def cmd_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         lines.append(f"Роль: {about['role']}")
     if about.get("communication_style"):
         lines.append(f"Стиль: {about['communication_style']}")
+    gd = gdrive_status(user_id)
+    if gd.get("authorized"):
+        lines.append(f"📎 Google Drive: {gd.get('email', 'привязан')}")
+    elif gdrive_configured():
+        lines.append("📎 Google Drive: не привязан. /google_login")
     await _reply(update,"\n".join(lines), parse_mode="Markdown")
 
 
@@ -1057,6 +1229,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     logger.info(f"handle_document: файл {fname} сохранён для {user_id}")
 
+    # Авто-загрузка на Google Drive (если пользователь авторизован)
+    if gdrive_authorized(user_id):
+        auto_upload_to_drive(user_id, f"inbox/{fname}")
+
     await _reply(update,
         f"📥 Файл сохранён: `inbox/{fname}`\n\nМогу прочитать, проанализировать или обработать — скажи что нужно.",
         parse_mode="Markdown",
@@ -1411,6 +1587,11 @@ def main() -> None:
     app.add_handler(CommandHandler("start",    cmd_start))
     app.add_handler(CommandHandler("help",     cmd_help))
     app.add_handler(CommandHandler("whoami",   cmd_whoami))
+    app.add_handler(CommandHandler("google_login",  cmd_google_login))
+    app.add_handler(CommandHandler("google_auth",   cmd_google_auth))
+    app.add_handler(CommandHandler("google_logout", cmd_google_logout))
+    app.add_handler(CommandHandler("gdrive",        cmd_gdrive))
+    app.add_handler(CommandHandler("gdrive_get",    cmd_gdrive_get))
     app.add_handler(CommandHandler("files",    cmd_files))
     app.add_handler(CommandHandler("clear",    cmd_clear))
     app.add_handler(CommandHandler("forget",   cmd_forget))

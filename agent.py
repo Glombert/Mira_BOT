@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search, list_self, read_self, write_persona, write_agent_config, git_log
 from tools import semantic_memory as _semantic_memory
+from tools.gdrive_tools import gdrive_list, gdrive_read, gdrive_write, is_authorized as _gdrive_authorized, auto_upload_to_drive as _gdrive_auto_upload
 import memory_manager as _memory_manager
 import memory_crypto
 from tools.git_tools   import sync_with_git, ensure_dev_branch, release_to_main
@@ -818,10 +819,76 @@ TOOL_SCHEMAS = [
                 "required": ["query"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "gdrive_list",
+            "description": (
+                "Показывает список файлов в Google Drive этого пользователя. "
+                "Аргумент path — имя папки или 'root' для корня. "
+                "Возвращает список с id, name, type (folder/file), size, modified."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Путь к папке на Google Drive. 'root' для корня."
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "gdrive_read",
+            "description": (
+                "Скачивает файл с Google Drive пользователя в workspace/output/. "
+                "Аргумент file_path — ID файла или имя файла. "
+                "Файл сохраняется в output/ и становится доступен для чтения и отправки."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "ID файла Google Drive или имя файла в корне."
+                    }
+                },
+                "required": ["file_path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "gdrive_write",
+            "description": (
+                "Загружает файл из workspace пользователя на Google Drive. "
+                "Аргументы: workspace_path (путь к файлу, например 'output/отчёт.xlsx'), "
+                "drive_folder — ID папки или 'root'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "workspace_path": {
+                        "type": "string",
+                        "description": "Путь к файлу в workspace (например, 'output/отчёт.xlsx')."
+                    },
+                    "drive_folder": {
+                        "type": "string",
+                        "description": "ID папки на Drive или 'root'. По умолчанию 'root'."
+                    }
+                },
+                "required": ["workspace_path"]
+            }
+        }
     }
 ]
- 
- 
+
 def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
     """
     Диспетчер инструментов.
@@ -943,6 +1010,18 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
         elif tool_name == "write_agent_config":
             result = write_agent_config(tool_args["name"], tool_args["config"])
 
+        elif tool_name == "gdrive_list":
+            result = gdrive_list(user_id, tool_args.get("path", "root"))
+
+        elif tool_name == "gdrive_read":
+            result = gdrive_read(user_id, tool_args["file_path"])
+
+        elif tool_name == "gdrive_write":
+            result = gdrive_write(
+                user_id,
+                tool_args["workspace_path"],
+                tool_args.get("drive_folder", "root"),
+            )
         else:
             result = {"ok": False, "error": f"Неизвестный инструмент: {tool_name}"}
  

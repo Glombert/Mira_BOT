@@ -8,3 +8,4 @@ from tools.excel_tools   import excel_read, excel_write
 from tools.search_tools  import web_search
 from tools.self_tools       import list_self, read_self, git_log
 from tools.self_write_tools import write_persona, write_agent_config
+from tools.gdrive_tools import gdrive_list, gdrive_read, gdrive_write, is_authorized, auto_upload_to_drive, gdrive_status
