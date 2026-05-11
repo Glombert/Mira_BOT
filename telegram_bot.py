@@ -156,8 +156,12 @@ def _is_approved(user_id: str) -> bool:
 
 
 def _profile_for(tg_id: int) -> Profile:
-    """Owner → dev-профиль, остальные → default."""
-    return Profile("dev" if _is_owner(tg_id) else "default")
+    """Owner → dev, одобренные → default, гости → guest."""
+    if _is_owner(tg_id):
+        return Profile("dev")
+    if _is_approved(_user_id(tg_id)):
+        return Profile("default")
+    return Profile("guest")
 
 
 def _system_prompt_for(user_id: str) -> str:
@@ -217,10 +221,16 @@ def _save_session(user_id: str, msgs: list) -> None:
         logger.warning(f"Не удалось сохранить сессию {user_id}: {e}")
 
 
+def _alpha_agent_name(user_id: str) -> str:
+    """Гости → alpha_guest (Gemini Flash), одобренные → alpha (Claude/DeepSeek)."""
+    return "alpha_guest" if not _is_approved(user_id) else "alpha"
+
+
 def _make_alpha(tg_id: int, user_id: str) -> Agent | None:
     try:
         p = _profile_for(tg_id)
-        return Agent.from_config_file("alpha", p, user_id, _system_prompt_for(user_id))
+        name = _alpha_agent_name(user_id)
+        return Agent.from_config_file(name, p, user_id, _system_prompt_for(user_id))
     except Exception as e:
         logger.error(f"Ошибка создания alpha: {e}")
         return None
@@ -592,8 +602,20 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
         else:
             await _reply(update,
-                "Привет! Я Мира. Мой владелец должен одобрить твой доступ — я ему уже написала. "
-                "Пока ты можешь написать до 10 сообщений. Жди подтверждения."
+                "👋 Привет! Я Мира — персональный AI-помощник.\n\n"
+                "Твой доступ пока *гостевой*. Я уже написала владельцу — "
+                "он подтвердит твою заявку.\n\n"
+                "🔹 *Сейчас тебе доступно:*\n"
+                "• 10 пробных сообщений\n"
+                "• Разговор, поиск в интернете, чтение файлов\n\n"
+                "🔸 *После одобрения откроется:*\n"
+                "• Неограниченное общение\n"
+                "• Более умная модель (Claude/DeepSeek вместо Flash)\n"
+                "• Работа с Excel, запуск Python-кода\n"
+                "• Google Drive — хранение и обмен файлами\n"
+                "• Сохранение истории и персонализация\n\n"
+                "Жди подтверждения!",
+                parse_mode="Markdown",
             )
             notify_new_user(user_id, tg_name, "telegram")
     else:
