@@ -387,7 +387,7 @@ async def cmd_google_login(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         )
         return
 
-    url = get_auth_url()
+    url = get_auth_url(state=user_id)
     if not url:
         await _reply(update, "Не удалось создать ссылку для авторизации.")
         return
@@ -396,8 +396,8 @@ async def cmd_google_login(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         "🔐 *Привязка Google Drive*\n\n"
         "1. Открой ссылку ниже\n"
         "2. Войди в Google-аккаунт и разреши доступ\n"
-        "3. После редиректа на `localhost:8080` — скопируй `code` из адресной строки\n"
-        "4. Отправь боту: `/google_auth твой_код`\n\n"
+        "3. Увидишь страницу «✅ Готово!» — всё, Drive привязан\n\n"
+        "Ничего копировать не нужно.\n\n"
         f"[Открыть страницу авторизации Google]({url})",
         parse_mode="Markdown",
     )

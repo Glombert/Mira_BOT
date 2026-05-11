@@ -204,6 +204,88 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/oauth/google/callback")
+async def oauth_google_callback(code: str = "", state: str = "", error: str = ""):
+    """
+    Принимает редирект от Google OAuth, автоматически обменивает код,
+    показывает результат. Пользователю не нужно копировать код вручную.
+    """
+    from tools.gdrive_tools import parse_oauth_state, exchange_code
+
+    if error:
+        logger.warning(f"OAuth callback: Google вернул ошибку: {error}")
+        return HTMLResponse(_OAUTH_HTML.format(
+            status="❌ Ошибка",
+            message=f"Google отказал в доступе: {error}",
+            detail="Попробуй ещё раз: /google_login в боте.",
+        ))
+
+    user_id = parse_oauth_state(state)
+    if not user_id:
+        logger.warning(f"OAuth callback: невалидный state={state}")
+        return HTMLResponse(_OAUTH_HTML.format(
+            status="❌ Ошибка",
+            message="Невалидный state-параметр.",
+            detail="Попробуй заново: /google_login в боте.",
+        ))
+
+    if not code:
+        return HTMLResponse(_OAUTH_HTML.format(
+            status="❌ Ошибка",
+            message="Нет кода авторизации.",
+            detail="Попробуй заново: /google_login в боте.",
+        ))
+
+    result = exchange_code(user_id, code)
+
+    if result.get("ok"):
+        logger.info(f"OAuth callback: успешная авторизация user_id={user_id}")
+        return HTMLResponse(_OAUTH_HTML.format(
+            status="✅ Готово!",
+            message=f"Google Drive привязан: {result.get('email', 'ok')}",
+            detail="Можешь закрыть эту страницу и вернуться в Telegram.",
+        ))
+
+    logger.warning(f"OAuth callback: ошибка обмена для {user_id}: {result.get('error')}")
+    return HTMLResponse(_OAUTH_HTML.format(
+        status="❌ Ошибка",
+        message=result.get('error', 'Неизвестная ошибка при обмене кода.'),
+        detail="Попробуй ещё раз: /google_login в боте.",
+    ))
+
+
+_OAUTH_HTML = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mira · Google Drive</title>
+<style>
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    display: flex; justify-content: center; align-items: center;
+    min-height: 100vh; margin: 0; background: #0f172a; color: #e2e8f0;
+  }}
+  .card {{
+    background: #1e293b; border-radius: 12px; padding: 40px;
+    max-width: 420px; text-align: center; box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  }}
+  h1 {{ font-size: 48px; margin: 0 0 16px; }}
+  h2 {{ font-size: 20px; font-weight: 600; margin: 0 0 8px; }}
+  p {{ font-size: 14px; color: #94a3b8; margin: 0 0 24px; }}
+  .hint {{ font-size: 12px; color: #64748b; }}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>{status}</h1>
+  <h2>{message}</h2>
+  <p>{detail}</p>
+  <span class="hint">Mira · Telegram Bot</span>
+</div>
+</body>
+</html>"""
+
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...), session: str = ""):
     """Загружает файл в workspace/inbox пользователя."""
