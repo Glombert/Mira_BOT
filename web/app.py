@@ -38,6 +38,7 @@ _providers.init()
 import memory_crypto
 memory_crypto.init()
 import memory_manager
+from tools import semantic_memory
 
 from agent import (
     Agent, Profile, SYSTEM_PROMPT, TOOL_SCHEMAS, execute_tool,
@@ -331,6 +332,10 @@ async def chat(websocket: WebSocket, session: str = ""):
                     if os.path.exists(path):
                         os.remove(path)
                     _save_session(user_id, [{"role": "system", "content": _system_prompt_for(user_id)}])
+                    try:
+                        semantic_memory.delete_user(user_id)
+                    except Exception as e:
+                        logger.warning(f"semantic_memory delete: {e}")
                     await websocket.send_json({"type": "system", "content": "Профиль и история сброшены."})
 
                 continue
@@ -348,10 +353,21 @@ async def chat(websocket: WebSocket, session: str = ""):
             the_rest = [m for m in msgs if m["role"] != "system"]
             msgs     = system + the_rest[-MAX_HISTORY:]
 
+            # Семантический поиск — augment только для LLM, не сохраняем
+            augment = ""
+            try:
+                matches = semantic_memory.search(user_id, text, top_k=4)
+                augment = semantic_memory.format_for_prompt(matches)
+            except Exception as e:
+                logger.warning(f"semantic_memory search: {e}")
+            llm_msgs = list(msgs)
+            if augment and llm_msgs and llm_msgs[0].get("role") == "system":
+                llm_msgs[0] = {**llm_msgs[0], "content": llm_msgs[0]["content"] + "\n\n" + augment}
+
             await websocket.send_json({"type": "thinking"})
 
             try:
-                answer = await asyncio.to_thread(alpha.run, msgs)
+                answer = await asyncio.to_thread(alpha.run, llm_msgs)
             except Exception as e:
                 logger.error(f"alpha.run: {e}", exc_info=True)
                 await websocket.send_json({"type": "error", "content": "Что-то пошло не так. Попробуй ещё раз."})
@@ -361,7 +377,15 @@ async def chat(websocket: WebSocket, session: str = ""):
             _save_session(user_id, msgs)
 
             snap = list(msgs)
+            user_text  = text
+            bot_answer = answer
             def _bg():
+                try:
+                    semantic_memory.index_message(user_id, "user", user_text)
+                    if bot_answer:
+                        semantic_memory.index_message(user_id, "assistant", bot_answer)
+                except Exception as e:
+                    logger.warning(f"semantic_memory index: {e}")
                 updated = memory_manager.maybe_summarize(user_id, snap, alpha.model_chain, load_user_profile, save_user_profile)
                 if updated is not snap:
                     _save_session(user_id, updated)

@@ -13,6 +13,7 @@ from logging.handlers import TimedRotatingFileHandler
 from dotenv import load_dotenv
 from openai import OpenAI
 from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search, list_self, read_self, write_persona, git_log
+from tools import semantic_memory as _semantic_memory
 import memory_manager as _memory_manager
 import memory_crypto
 from tools.git_tools   import sync_with_git, ensure_dev_branch, release_to_main
@@ -658,6 +659,32 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "recall",
+            "description": (
+                "Семантический поиск по прошлым разговорам с этим пользователем. "
+                "Используй когда нужно вспомнить детали старых обсуждений: 'помнишь "
+                "когда мы говорили про X', 'что мы решили насчёт Y'. Ищет по смыслу, "
+                "не по точным словам. Возвращает топ-N релевантных фрагментов."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Что искать. Сформулируй своими словами тему/вопрос."
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Сколько результатов вернуть (по умолчанию 5, максимум 10)"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "git_log",
             "description": (
                 "Возвращает последние коммиты проекта — хеш, дату, сообщение. "
@@ -853,6 +880,11 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
 
         elif tool_name == "git_log":
             result = git_log(tool_args.get("limit", 20))
+
+        elif tool_name == "recall":
+            top_k = min(int(tool_args.get("top_k", 5)), 10)
+            matches = _semantic_memory.search(user_id, tool_args["query"], top_k=top_k)
+            result = {"ok": True, "count": len(matches), "matches": matches}
 
         elif tool_name == "write_persona":
             result = write_persona(tool_args["field"], tool_args.get("value"))
