@@ -161,6 +161,14 @@ def _system_prompt_for(user_id: str) -> str:
     return base
 
 
+def _is_approved(user_id: str) -> bool:
+    """Только owner и regular имеют полный доступ."""
+    data = load_user_profile(user_id)
+    if not data:
+        return False
+    return data.get("status") in ("owner", "regular")
+
+
 def _ensure_profile(user_id: str, tg_name: str = "") -> bool:
     """Создаёт профиль если не существует. Возвращает True если профиль новый."""
     if load_user_profile(user_id):
@@ -347,8 +355,9 @@ async def chat(websocket: WebSocket, session: str = ""):
                 continue
 
             msgs    = _load_session(user_id)
-            profile = Profile("default")
-            alpha   = Agent.from_config_file("alpha", profile, user_id, _system_prompt_for(user_id))
+            profile = Profile("guest" if not _is_approved(user_id) else "default")
+            agent   = "alpha_guest" if not _is_approved(user_id) else "alpha"
+            alpha   = Agent.from_config_file(agent, profile, user_id, _system_prompt_for(user_id))
 
             msgs.append({"role": "user", "content": text})
             system   = [m for m in msgs if m["role"] == "system"]
