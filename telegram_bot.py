@@ -1169,7 +1169,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Augment-блок добавляем только в copy для LLM — в msgs не сохраняем.
     semantic_augment = ""
     try:
-        matches = semantic_memory.search(user_id, text, top_k=4)
+        matches = semantic_memory.search(user_id, text, top_k=3)
         semantic_augment = semantic_memory.format_for_prompt(matches)
     except Exception as e:
         logger.warning(f"semantic_memory search failed: {e}")
