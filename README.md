@@ -165,10 +165,63 @@ cp scripts/nginx.conf.example /etc/nginx/sites-available/mira
 ```
 
 **8. Настрой бэкап памяти:**
+
+`/root/mira_backup.sh` синхронизирует `memory/` (профили, сессии, рефлексии) и `versions/` (бэкапы кода и персоны) на Drive ежедневно в 3:00 UTC:
 ```bash
-# Ежедневно в 3:00 UTC
-echo "0 3 * * * rclone sync /root/mira_agent/memory gdrive:Mira/memory" | crontab -
+cat > /root/mira_backup.sh << 'EOF'
+#!/bin/bash
+LOG=/root/mira_backup.log
+echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) backup ===" >> $LOG
+rclone sync /root/mira_agent/memory   gdrive:Mira/memory   --log-file=$LOG
+rclone sync /root/mira_agent/versions gdrive:Mira/versions --log-file=$LOG
+EOF
+chmod +x /root/mira_backup.sh
+echo "0 3 * * * /root/mira_backup.sh" | crontab -
 ```
+
+**9. Зашифруй `.env` на Drive** (без него зашифрованная память бесполезна):
+```bash
+# Придумай и сохрани пароль в менеджере паролей — он понадобится для восстановления
+BACKUP_PASSPHRASE='ТВОЙ_ПАРОЛЬ' /root/mira_agent/scripts/backup_env.sh
+```
+
+Перезапускай после любых правок `.env` — например смены ключей API.
+
+---
+
+## Disaster Recovery
+
+Полный перенос Миры на новый сервер.
+
+**Что нужно сохранить** (за пределами сервера):
+- Парольная фраза от `backup_env.sh` — в менеджере паролей или на бумаге
+- Доступ к Google Drive аккаунту (там зашифрованная память, .env и бэкапы кода)
+
+**Восстановление:**
+
+```bash
+# 1. Поставь зависимости и rclone, настрой Drive remote 'gdrive:'
+apt install -y python3.12 python3.12-venv rclone gpg firejail
+rclone config   # настрой gdrive: интерактивно
+
+# 2. Клонируй код
+git clone https://github.com/Glombert/Mira_BOT.git /root/mira_agent
+cd /root/mira_agent
+python3 -m venv venv && venv/bin/pip install -r requirements.txt
+
+# 3. Восстанови зашифрованный .env
+BACKUP_PASSPHRASE='ТВОЙ_ПАРОЛЬ' ./scripts/restore_env.sh
+
+# 4. Восстанови память и историю изменений
+rclone copy gdrive:Mira/memory   ./memory
+rclone copy gdrive:Mira/versions ./versions
+
+# 5. Запусти systemd-сервисы (см. шаги 4 и 6 раздела "Развёртывание")
+systemctl daemon-reload
+systemctl enable --now mira-bot mira-web
+```
+
+После этого Мира на новом сервере знает всех пользователей, помнит прошлые разговоры, сохранила свои рефлексии и видит свою историю эволюции.
 
 ---
 
