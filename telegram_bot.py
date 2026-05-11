@@ -147,6 +147,14 @@ def _is_owner(tg_id: int) -> bool:
     return OWNER_TG_ID and tg_id == OWNER_TG_ID
 
 
+def _is_approved(user_id: str) -> bool:
+    """Только owner и regular имеют доступ к расширенным функциям (Drive, etc)."""
+    data = load_user_profile(user_id)
+    if not data:
+        return False
+    return data.get("status") in ("owner", "regular")
+
+
 def _profile_for(tg_id: int) -> Profile:
     """Owner → dev-профиль, остальные → default."""
     return Profile("dev" if _is_owner(tg_id) else "default")
@@ -350,15 +358,22 @@ async def cmd_google_login(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     """Начинает OAuth-авторизацию Google Drive для пользователя."""
     user_id = _user_id(update.effective_user.id)
 
+    if not _is_approved(user_id):
+        await _reply(update, "Google Drive доступен только одобренным пользователям.")
+        return
+
     if not gdrive_configured():
         await _reply(update, "Google Drive не настроен на сервере. Нужен credentials.json от Google Cloud.")
         return
 
     if gdrive_authorized(user_id):
         gd = gdrive_status(user_id)
+        pd = load_user_profile(user_id)
+        auto = "вкл" if (pd and pd.get("preferences", {}).get("gdrive_auto_upload")) else "выкл"
         await _reply(update,
             f"Google Drive уже привязан: {gd.get('email', 'ok')}\n"
-            f"Команды: /gdrive — список файлов, /gdrive_get <id> — скачать, /google_logout — отвязать."
+            f"Авто-загрузка: {auto} (/gdrive_toggle)\n"
+            f"/gdrive — список файлов, /gdrive_get <id> — скачать, /google_logout — отвязать."
         )
         return
 
@@ -382,6 +397,10 @@ async def cmd_google_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """Обменивает authorization code на токены."""
     user_id = _user_id(update.effective_user.id)
 
+    if not _is_approved(user_id):
+        await _reply(update, "Google Drive доступен только одобренным пользователям.")
+        return
+
     if not gdrive_configured():
         await _reply(update, "Google Drive не настроен на сервере.")
         return
@@ -401,10 +420,10 @@ async def cmd_google_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if result.get("ok"):
         await _reply(update,
             f"✅ Google Drive привязан!\nАккаунт: {result.get('email', 'ok')}\n\n"
-            f"Теперь я могу работать с твоим Drive. Попробуй:\n"
-            f"• Отправь мне файл — он загрузится на Drive\n"
+            f"Команды:\n"
             f"• /gdrive — посмотреть файлы на Drive\n"
-            f"• /gdrive_get <id> — скачать файл с Drive"
+            f"• /gdrive_get <id> — скачать файл с Drive\n"
+            f"• /gdrive_toggle — вкл/выкл авто-загрузку входящих файлов на Drive"
         )
     else:
         await _reply(update,
@@ -420,6 +439,11 @@ async def cmd_google_auth(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def cmd_google_logout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Отвязывает Google Drive аккаунт."""
     user_id = _user_id(update.effective_user.id)
+
+    if not _is_approved(user_id):
+        await _reply(update, "Google Drive доступен только одобренным пользователям.")
+        return
+
     from tools.gdrive_tools import _delete_token
     _delete_token(user_id)
     await _reply(update, "Google Drive отвязан. Чтобы привязать заново: /google_login")
@@ -428,6 +452,10 @@ async def cmd_google_logout(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def cmd_gdrive(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Показывает список файлов на Google Drive пользователя."""
     user_id = _user_id(update.effective_user.id)
+
+    if not _is_approved(user_id):
+        await _reply(update, "Google Drive доступен только одобренным пользователям.")
+        return
 
     if not gdrive_authorized(user_id):
         await _reply(update, "Сначала привяжи Google Drive: /google_login")
@@ -466,6 +494,10 @@ async def cmd_gdrive_get(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Скачивает файл с Google Drive и отправляет в чат."""
     user_id = _user_id(update.effective_user.id)
 
+    if not _is_approved(user_id):
+        await _reply(update, "Google Drive доступен только одобренным пользователям.")
+        return
+
     if not gdrive_authorized(user_id):
         await _reply(update, "Сначала привяжи Google Drive: /google_login")
         return
@@ -495,6 +527,35 @@ async def cmd_gdrive_get(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
     else:
         await _reply(update, f"✅ Файл скачан: `output/{result['file']}` ({result['size']} bytes)",
+                     parse_mode="Markdown")
+
+
+async def cmd_gdrive_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Включает/выключает авто-загрузку входящих файлов на Google Drive."""
+    user_id = _user_id(update.effective_user.id)
+
+    if not _is_approved(user_id):
+        await _reply(update, "Google Drive доступен только одобренным пользователям.")
+        return
+
+    if not gdrive_authorized(user_id):
+        await _reply(update, "Сначала привяжи Google Drive: /google_login")
+        return
+
+    profile_data = load_user_profile(user_id)
+    prefs = profile_data.get("preferences", {}) if profile_data else {}
+    current = prefs.get("gdrive_auto_upload", False)
+    new_val = not current
+    prefs["gdrive_auto_upload"] = new_val
+    if profile_data:
+        profile_data["preferences"] = prefs
+        save_user_profile(user_id, profile_data)
+
+    if new_val:
+        await _reply(update, "✅ Авто-загрузка на Google Drive *включена*.\nВсе входящие файлы будут дублироваться на твой Drive.",
+                     parse_mode="Markdown")
+    else:
+        await _reply(update, "❌ Авто-загрузка на Google Drive *выключена*.\nФайлы остаются только в Telegram. Включить: /gdrive_toggle",
                      parse_mode="Markdown")
 
 
@@ -620,11 +681,13 @@ async def cmd_whoami(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         lines.append(f"Роль: {about['role']}")
     if about.get("communication_style"):
         lines.append(f"Стиль: {about['communication_style']}")
-    gd = gdrive_status(user_id)
-    if gd.get("authorized"):
-        lines.append(f"📎 Google Drive: {gd.get('email', 'привязан')}")
-    elif gdrive_configured():
-        lines.append("📎 Google Drive: не привязан. /google_login")
+    if _is_approved(user_id):
+        gd = gdrive_status(user_id)
+        if gd.get("authorized"):
+            auto = " • авто-загрузка вкл" if data.get("preferences", {}).get("gdrive_auto_upload") else ""
+            lines.append(f"📎 Google Drive: {gd.get('email', 'привязан')}{auto}")
+        elif gdrive_configured():
+            lines.append("📎 Google Drive: не привязан. /google_login")
     await _reply(update,"\n".join(lines), parse_mode="Markdown")
 
 
@@ -1230,9 +1293,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     logger.info(f"handle_document: файл {fname} сохранён для {user_id}")
 
-    # Авто-загрузка на Google Drive (если пользователь авторизован)
-    if gdrive_authorized(user_id):
-        auto_upload_to_drive(user_id, f"inbox/{fname}")
+    # Авто-загрузка на Google Drive (только для одобренных + авторизованных)
+    if _is_approved(user_id) and gdrive_authorized(user_id):
+        profile_data = load_user_profile(user_id)
+        if profile_data and profile_data.get("preferences", {}).get("gdrive_auto_upload"):
+            auto_upload_to_drive(user_id, f"inbox/{fname}")
 
     await _reply(update,
         f"📥 Файл сохранён: `inbox/{fname}`\n\nМогу прочитать, проанализировать или обработать — скажи что нужно.",
@@ -1593,6 +1658,7 @@ def main() -> None:
     app.add_handler(CommandHandler("google_logout", cmd_google_logout))
     app.add_handler(CommandHandler("gdrive",        cmd_gdrive))
     app.add_handler(CommandHandler("gdrive_get",    cmd_gdrive_get))
+    app.add_handler(CommandHandler("gdrive_toggle", cmd_gdrive_toggle))
     app.add_handler(CommandHandler("files",    cmd_files))
     app.add_handler(CommandHandler("clear",    cmd_clear))
     app.add_handler(CommandHandler("forget",   cmd_forget))
