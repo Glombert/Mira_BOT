@@ -352,6 +352,26 @@ _PERSONA_FALLBACK = (
     "Ты любопытна, говоришь от себя, не прячешься за 'как ИИ я не могу'."
 )
 
+def load_reflections() -> list:
+    """Читает reflections из memory/reflections.json (не отслеживается git).
+    Fallback: если файла нет — пробует поле в persona.json (обратная совместимость)."""
+    path = os.path.join("memory", "reflections.json")
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, list) else []
+        except Exception as e:
+            logger.warning(f"Не удалось прочитать {path}: {e}")
+            return []
+    # Fallback на старое расположение
+    try:
+        with open(PERSONA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f).get("reflections", []) or []
+    except Exception:
+        return []
+
+
 def load_persona() -> str:
     """Загружает персону из persona.json и собирает системный промпт."""
     try:
@@ -367,7 +387,7 @@ def load_persona() -> str:
 
         # Последние reflections (до 5) — Мира видит свои недавние наблюдения
         reflections_block = ""
-        reflections = p.get("reflections", [])
+        reflections = load_reflections()
         if reflections:
             recent = reflections[-5:]
             lines = "\n".join(f"— [{r['date']}] {r['text']}" for r in recent)
