@@ -60,9 +60,12 @@ def _save_profile(user_id: str, data: dict) -> bool:
     path = os.path.join(MEMORY_DIR, f"{user_id}.json")
     data["updated_at"] = datetime.now().strftime("%Y-%m-%d")
     try:
-        if _crypto and _crypto.is_enabled():
+        # memory_crypto.save_json потокобезопасна и работает
+        # как с шифрованием так и без (прозрачный fallback на plain JSON)
+        if _crypto:
             _crypto.save_json(path, data)
         else:
+            # Редкий случай: memory_crypto не импортирован
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         return True

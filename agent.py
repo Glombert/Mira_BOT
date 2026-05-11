@@ -3,6 +3,7 @@ import os
 import ast
 import sys
 import json
+import time
 import shutil
 import argparse
 import subprocess
@@ -12,7 +13,7 @@ from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from dotenv import load_dotenv
 from openai import OpenAI
-from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search, list_self, read_self, write_persona, git_log
+from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search, list_self, read_self, write_persona, write_agent_config, git_log
 from tools import semantic_memory as _semantic_memory
 import memory_manager as _memory_manager
 import memory_crypto
@@ -756,6 +757,46 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "write_agent_config",
+            "description": (
+                "Создаёт или обновляет конфиг агента в agents/{name}.json. "
+                "Используй чтобы создавать новых специалистов для Конклава: "
+                "художников, аналитиков, исследователей. "
+                "Принимает имя агента и полный JSON-конфиг с полями: "
+                "role, system_prompt, model_chain, allowed_tools, max_tokens. "
+                "При обновлении существующего агента создаётся бэкап."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Короткое имя агента латиницей (станет именем файла). Пример: 'artist'"
+                    },
+                    "config": {
+                        "type": "object",
+                        "description": (
+                            "JSON-конфиг агента. Обязательные поля: role (executor|specialist|critic|planner), "
+                            "system_prompt (инструкция), model_chain (список провайдеров). "
+                            "Опциональные: allowed_tools (список инструментов), max_tokens (по умолчанию 2048)"
+                        ),
+                        "properties": {
+                            "role":           {"type": "string"},
+                            "system_prompt":  {"type": "string"},
+                            "model_chain":    {"type": "array"},
+                            "allowed_tools":  {"type": "array", "items": {"type": "string"}},
+                            "max_tokens":     {"type": "integer"}
+                        },
+                        "required": ["role", "system_prompt", "model_chain"]
+                    }
+                },
+                "required": ["name", "config"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "web_search",
             "description": (
                 "Ищет актуальную информацию в интернете (DuckDuckGo). "
@@ -794,8 +835,18 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
  
     user_id подставляем сами — модель его не знает и не передаёт.
     """
-    logger.info(f"Tool call: {tool_name}({tool_args})")
- 
+    t0 = time.time()
+    logger.info(f"Tool call: {tool_name}({json.dumps(tool_args, ensure_ascii=False)})")
+
+    # Проверяем, что инструмент существует в TOOL_SCHEMAS
+    tool_exists = any(
+        s["function"]["name"] == tool_name
+        for s in TOOL_SCHEMAS
+    )
+    if not tool_exists:
+        logger.warning(f"Tool call: неизвестный инструмент '{tool_name}'")
+        return json.dumps({"ok": False, "error": f"Неизвестный инструмент: {tool_name}"})
+
     try:
         if tool_name == "list_files":
             subdir = tool_args.get("subdir", "")
@@ -889,6 +940,9 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
         elif tool_name == "write_persona":
             result = write_persona(tool_args["field"], tool_args.get("value"))
 
+        elif tool_name == "write_agent_config":
+            result = write_agent_config(tool_args["name"], tool_args["config"])
+
         else:
             result = {"ok": False, "error": f"Неизвестный инструмент: {tool_name}"}
  
@@ -896,7 +950,8 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
         result = {"ok": False, "error": f"Ошибка выполнения {tool_name}: {e}"}
         logger.error(f"Tool error ({tool_name}): {e}", exc_info=True)
  
-    logger.info(f"Tool result ({tool_name}): ok={result.get('ok')}")
+    dt = time.time() - t0
+    logger.info(f"Tool result ({tool_name}): ok={result.get('ok')} ({dt:.2f}s)")
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -1004,7 +1059,8 @@ class Agent:
         """
         if max_tool_rounds is None:
             max_tool_rounds = self.profile.max_tool_rounds
-        for _ in range(max_tool_rounds):
+        t_start = time.time()
+        for round_num in range(max_tool_rounds):
             response = _providers.call(
                 self.model_chain,
                 messages,
@@ -1017,8 +1073,9 @@ class Agent:
  
             # Модель вернула текст — готово
             if not msg.tool_calls:
-                messages.append({"role": "assistant", "content": msg.content})
-                return msg.content
+                text = msg.content or ""  # защита от None (некоторые модели возвращают null)
+                messages.append({"role": "assistant", "content": text})
+                return text
  
             # Модель хочет вызвать инструменты.
             # Конвертируем в dict — ChatCompletionMessage не поддерживает m["role"],
@@ -1053,8 +1110,9 @@ class Agent:
                 })
  
         # Превышен лимит раундов — что-то пошло не так
+        dt = time.time() - t_start
         fallback = f"[{self.name}: превышен лимит инструментов — что-то пошло не так.]"
-        logger.warning(f"Agent {self.name}: превышен лимит {max_tool_rounds} раундов.")
+        logger.warning(f"Agent {self.name}: превышен лимит {max_tool_rounds} раундов ({dt:.1f}s).")
         return fallback
  
 
@@ -1472,6 +1530,7 @@ def evolve(task: str) -> None:
             print(f"[-] Не удалось применить diff: {result}")
             print("[-] Изменения не применены.")
             logger.error(f"Evolve: ошибка применения diff — {result}")
+            increment_evolution(success=False)
             return
         new_code = result
 
@@ -1970,14 +2029,20 @@ if __name__ == "__main__":
 
         # Классифицируем задачу — дёшево, один вызов
         conclave.should_stop = False  # сбрасываем флаг перед новым запросом
+        _EXECUTOR_FOR = {
+            "search":  "scout",
+            "code":    "coder",
+            "complex": "coder",
+        }
+
         task_type = classify(user_input, alpha.model_chain if alpha else [])
 
         try:
-            if task_type in ("complex", "code") and alpha:
+            if task_type in _EXECUTOR_FOR and alpha:
                 # Передаём в Конклав: executor → editor → critic
-                executor = "coder" if task_type == "code" else "coder"
+                executor = _EXECUTOR_FOR[task_type]
                 print(f"\n[Роутер → {task_type.upper()}] Передаю специалистам...")
-                logger.info(f"Conclave activated: task_type={task_type}")
+                logger.info(f"Conclave activated: task_type={task_type}, executor={executor}")
 
                 raw = conclave.run_with_qa(user_input, executor)
 

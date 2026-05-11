@@ -1,7 +1,7 @@
 # Mira_BOT — Архитектура системы
 
-> Версия: 1.1
-> Статус: проектирование
+> Версия: 1.3
+> Статус: production (развёрнуто на mira-bot.duckdns.org)
 
 ---
 
@@ -20,16 +20,19 @@
 │                АЛЬФА                │
 │  • ведёт диалог                     │
 │  • держит контекст и память         │
-│  • решает: сам или Конклав          │
+│  • классифицирует задачи            │
+│  • решает: сама или Конклав         │
 │  • может создавать новых агентов    │
 └──────────────┬──────────────────────┘
                │  только при сложных задачах
-       ┌───────┼────────┬──────────┐
-       ▼       ▼        ▼          ▼
-   [Excel]  [Coder]  [Planner]  [Critic]
-               │
-          [Новый агент]  ← Альфа создала сама
-               │
+       ┌───────┼──────────┬──────────┐
+       ▼       ▼          ▼          ▼
+   [Coder]  [Scout]   [Planner]  [Editor]
+       │                    │
+   [Critic]           [Reviewer]
+       │
+  [Excel Specialist]
+       │
        └───────┴── результат → Альфа → пользователь
 ```
 
@@ -43,11 +46,14 @@
 agents/
   _template.json          ← базовый шаблон, от него наследуют все
   alpha.json              ← Альфа
-  excel_specialist.json   ← работа с таблицами
   coder.json              ← написание и проверка кода
   planner.json            ← декомпозиция сложных задач
-  critic.json             ← проверка результатов
-  [новый].json            ← создаётся Альфой при необходимости
+  editor.json             ← редактура
+  critic.json             ← контроль качества (другой провайдер для свежего взгляда)
+  reviewer.json           ← финальная проверка
+  scout.json              ← веб-поиск (Perplexity + DuckDuckGo)
+  excel_specialist.json   ← работа с таблицами
+  [новый].json            ← создаётся Альфой через write_agent_config
 ```
 
 ### Формат агента (_template.json)
@@ -56,11 +62,12 @@ agents/
 {
   "name": "Agent Name",
   "role": "executor",
-  "model": "deepseek-v3-flash",
   "system_prompt": "Ты специалист по...",
+  "model_chain": [
+    { "provider": "openrouter", "model": "anthropic/claude-sonnet-4.6", "temperature": 0.3 }
+  ],
   "allowed_tools": [],
-  "temperature": 0.3,
-  "max_tokens": 1000,
+  "max_tokens": 2048,
   "created_by": "human",
   "created_at": "2026-05-01",
   "version": 1
@@ -79,55 +86,54 @@ agents/
 
 ---
 
-## Логика роутинга (как Альфа решает)
+## Логика роутинга
 
 ### Классификация запроса
 
-Перед ответом Альфа классифицирует запрос — дёшево и быстро:
+Перед ответом Альфа классифицирует запрос — дёшево и быстро (temperature=0, max_tokens=5):
 
 ```
-запрос → классификатор
+запрос → router.classify()
               │
-   ┌──────────┼──────────┬─────────────┐
-   ▼          ▼          ▼             ▼
-"беседа"   "файлы"    "код"         "сложное"
-   │          │          │             │
-Альфа      Excel      Coder      Planner →
-отвечает  Specialist  отвечает   несколько
- сама       (1 вызов)  (1 вызов)  агентов
-(1 вызов)
+   ┌──────────┼──────────┬─────────────┬──────────┐
+   ▼          ▼          ▼             ▼          ▼
+"chat"    "files"     "code"       "search"   "complex"
+   │          │          │             │          │
+Альфа      Альфа      Coder         Scout     Planner →
+отвечает  с файловым  выполняет     ищет в    несколько
+ сама     инструментом (1 вызов)    интернете  агентов
+(1 вызов)                           (1 вызов)
 ```
 
 **Правило бюджета:**
 - Простой запрос (беседа, вопрос) → **1 вызов API**
-- Задача с файлами → **1–2 вызова** (Альфа + специалист)
-- Сложная задача с критикой → **3 вызова** (Planner + Executor + Critic)
-- Критика только для важных результатов (счета мамы — важные, ответ на вопрос — нет)
+- Задача с файлами → **1–2 вызова** (Альфа + read_file/write_file)
+- Поиск в интернете → **2–3 вызова** (Альфа → классификация → Scout)
+- Сложная задача с критикой → **3+ вызовов** (Executor + Editor + Critic)
+- Критика только для важных результатов
 
-### Код роутинга (концепт)
+### Роутинг в коде
+
+Классификатор один — `router.classify()`. Результат определяет путь:
 
 ```python
-class Alpha(Agent):
-    def route(self, user_message: str, context: dict) -> str:
-        task_type = self.classify(user_message)  # 1 дешёвый вызов
+_EXECUTOR_FOR = {
+    "search":  "scout",
+    "code":    "coder",
+    "complex": "coder",
+}
 
-        if task_type == "chat":
-            return self.reply(user_message, context)
+task_type = classify(text, alpha.model_chain)
 
-        elif task_type == "excel":
-            specialist = Conclave.get("excel_specialist")
-            result = specialist.run(user_message, context)
-            return self.summarize_for_user(result)
-
-        elif task_type == "complex":
-            plan = Conclave.get("planner").run(user_message)
-            result = Conclave.get("executor").run(plan)
-            verdict = Conclave.get("critic").run(result)
-            if verdict.ok:
-                return self.summarize_for_user(result)
-            else:
-                return self.handle_failure(verdict)
+if task_type in _EXECUTOR_FOR:
+    # Запуск через Конклав: executor → editor → critic
+    conclave.run_with_qa(text, executor_name)
+else:
+    # Альфа отвечает сама
+    alpha.run(messages)
 ```
+
+Эта логика едина для CLI, Telegram и веб-интерфейса.
 
 ---
 
@@ -135,8 +141,7 @@ class Alpha(Agent):
 
 ### Telegram как основной слой авторизации
 
-Telegram `user_id` — уникальный и неизменный идентификатор. Не меняется даже если пользователь
-сменил имя или username. Надёжнее любого пароля.
+Telegram `user_id` — уникальный и неизменный идентификатор. Не меняется даже если пользователь сменил имя или username. Надёжнее любого пароля.
 
 ```
 Пользователь пишет боту @MiraBot
@@ -154,10 +159,10 @@ Telegram `user_id` — уникальный и неизменный иденти
 | Интерфейс | Как определяем пользователя |
 |---|---|
 | Telegram Bot | `user_id` из сообщения — автоматически |
-| Web UI | Telegram Login Widget → тот же `user_id` |
+| Web UI | Telegram Login Widget → `web_tg_{tg_id}` |
 | CLI | `--user andrey` аргумент (только для разработки) |
 
-Один `user_id` — одна память — везде одинаковый опыт.
+Один `user_id` — одна память — везде одинаковый опыт. Веб-пользователи получают префикс `web_tg_`, но используют ту же `memory/` что и Telegram.
 
 ---
 
@@ -179,7 +184,7 @@ User:  Коротко
 ```
 
 После разговора — один API-вызов для структурирования профиля.
-Мира сама решает что важно запомнить, не пишет ответы дословно.
+Мира сама решает что важно запомнить.
 
 ---
 
@@ -190,17 +195,19 @@ User:  Коротко
 ```
 memory/
 │
-├── tg_123456789.json     ← профиль пользователя (по Telegram user_id)
-├── tg_987654321.json     ← профиль мамы
-│
+├── {user_id}.json          ← профиль пользователя (зашифрован, Fernet)
 ├── sessions/
-│   ├── tg_123456789.json ← история диалога (горячая память)
-│   └── tg_987654321.json ← история диалога мамы
+│   └── {user_id}.json      ← история диалога (зашифрована)
 │
-├── decisions.log         ← лог всех действий всех пользователей
+├── reflections.json        ← рефлексии Миры (отдельно от persona.json)
 │
-└── knowledge/
-    └── excel_templates.json  ← что агент знает о конкретных файлах
+├── chroma/                 ← векторная база ChromaDB
+│   └── onnx/               ← эмбеддинги MiniLM-L6-v2 (ONNX, ~80MB)
+│
+├── evolution_counter.json  ← счётчик успешных/неудачных эволюций
+├── decisions.log           ← лог переключений провайдеров и решений
+│
+└── templates/              ← шаблоны задач пользователей
 ```
 
 ### Профиль пользователя (формат)
@@ -209,10 +216,10 @@ memory/
 {
   "id": "tg_123456789",
   "name": "Андрей",
-  "telegram_id": 123456789,
+  "status": "regular",
   "created_at": "2026-05-04",
-  "last_seen": "2026-05-04",
-  "sessions_count": 1,
+  "last_seen": "2026-05-11",
+  "sessions_count": 42,
 
   "about": {
     "role": "разработчик",
@@ -221,114 +228,198 @@ memory/
   },
 
   "preferences": {
-    "language": "ru",
-    "confirm_before_overwrite": true
+    "language": "ru"
   },
 
   "domain": {},
 
-  "notes": [
-    "Хорошо понимает архитектуру, не нужно объяснять очевидное"
-  ],
+  "conversation_summary": "Структурированное резюме прошлых разговоров...",
 
-  "updated_at": "2026-05-04"
+  "updated_at": "2026-05-11"
 }
 ```
 
-Поле `domain` заполняется со временем — для мамы там появятся тарифы,
-шаблоны Excel, количество квартир.
-
-### Два уровня памяти
+### Три уровня памяти
 
 ```
 ┌─────────────────────────────────────────────┐
 │  ГОРЯЧАЯ ПАМЯТЬ (текущая сессия)            │
-│  • последние N сообщений                    │
+│  • последние 40 сообщений                   │
 │  • передаётся в каждый API-вызов            │
 │  • файл: memory/sessions/{user_id}.json     │
+│  • дополняется семантическим поиском        │
+└─────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────┐
+│  СЕМАНТИЧЕСКАЯ ПАМЯТЬ (ChromaDB)            │
+│  • каждая реплика индексируется             │
+│  • поиск по смыслу перед ответом            │
+│  • инструмент recall(query) для явного поиска│
+│  • файлы: memory/chroma/                    │
 └─────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────┐
 │  ХОЛОДНАЯ ПАМЯТЬ (долгосрочная)             │
 │  • профиль пользователя                     │
-│  • частые задачи и предпочтения             │
-│  • история решений                          │
+│  • conversation_summary (автосуммаризация)  │
+│  • шаблоны повторяющихся задач              │
+│  • история решений (decisions.log)          │
 │  • файл: memory/{user_id}.json              │
-│           memory/decisions.log              │
-│  • опционально: ChromaDB для семантики      │
 └─────────────────────────────────────────────┘
 ```
 
 ### Обновление памяти в процессе работы
 
-Мира сама обновляет профиль если узнаёт что-то важное:
-
-```
-Мама: у нас тариф вырос до 5 рублей
-Мира: [обновляет domain.tariff в tg_987654321.json]
-      Запомнила. Новый тариф — 5 рублей.
-```
-
-### Команды управления памятью
-
-| Команда | Действие |
-|---|---|
-| `/whoami` | Показать что Мира знает о пользователе |
-| `/forget` | Сбросить профиль, начать знакомство заново |
-| `/history` | Последние N записей из decisions.log |
+Мира сама обновляет профиль если узнаёт что-то важное. После каждого ответа в фоне запускаются:
+- `semantic_memory.index_message()` — индексация в ChromaDB
+- `memory_manager.maybe_summarize()` — сжатие старых сообщений в резюме
+- `memory_manager.update_user_profile()` — обновление about/domain в профиле
 
 ---
 
-## Саморасширение Конклава
+## Конклав — многоагентная оркестрация
 
-Альфа может создать нового агента если задача не покрывается существующими:
+### Цикл качества (run_with_qa)
 
-```python
-def spawn_agent(self, task_description: str) -> Agent:
-    config = self.generate_agent_config(task_description)
-    Agent.validate_config(config)
-    Agent.save(config)
-    return Agent.from_config(config)
+```
+Executor (Coder/Scout/Planner)
+    │
+    ▼
+Editor (улучшает текст/код)
+    │
+    ▼
+Critic (оценка 0–10)
+    │
+    ├─ ≥7 → принимаем
+    ├─ <7 и стагнация ≤2 → ещё итерация
+    └─ стагнация ≥2 или MAX_ITER=3 → лучший результат
 ```
 
-**Ограничения:**
-- Новый агент получает только инструменты из whitelist
-- Создание логируется в `decisions.log`
-- Альфа не может создать агента с ролью `alpha`
+### Защиты от зацикливания
+
+1. Максимум 3 итерации (MAX_ITER)
+2. Critic ставит оценку 0–10; ≥7 (PASS_SCORE) — принимаем
+3. Стагнация: оценка не растёт 2 итерации подряд — стоп
+4. Heartbeat: `💭` сообщения после каждой итерации
+5. Killswitch: флаг `should_stop` для `/stop` и KeyboardInterrupt
+
+### Интеграция с веб-интерфейсом
+
+Конклав работает и в web/app.py через тот же `Conclave.run_with_qa()`. Веб-сокет получает прогресс через `type: "thinking"` сообщения.
 
 ---
 
-## Инструменты (Tools)
+## Инструменты (15 tools)
 
 | Инструмент | Описание | Кто имеет доступ |
 |---|---|---|
+| `list_files` | Список файлов в workspace | все |
 | `read_file` | Прочитать файл из workspace | все |
 | `write_file` | Записать файл в workspace | executor, alpha |
-| `list_files` | Список файлов в workspace | все |
-| `excel_read` | Прочитать Excel-таблицу | excel_specialist |
+| `run_python` | Выполнить Python-код (firejail) | coder |
+| `excel_read` | Прочитать Excel-таблицу | excel_specialist, alpha |
 | `excel_write` | Записать/заполнить Excel | excel_specialist |
-| `run_python` | Выполнить Python-код | coder, executor |
-| `web_search` | Поиск в интернете | alpha, planner |
-| `git_commit` | Коммит и пуш | alpha (dev профиль) |
-| `pip_install` | Установить пакет | alpha (с подтверждением) |
-| `spawn_agent` | Создать нового агента | alpha |
+| `save_template` | Сохранить шаблон задачи | alpha |
+| `list_templates` | Список сохранённых шаблонов | alpha |
+| `list_self` | Список файлов проекта | alpha |
+| `recall` | Семантический поиск по истории | alpha |
+| `git_log` | История git-коммитов | alpha |
+| `read_self` | Прочитать файл проекта | alpha |
+| `write_persona` | Обновить персону Миры | alpha |
+| `write_agent_config` | Создать конфиг нового агента | alpha |
+| `web_search` | Поиск в интернете (DuckDuckGo) | scout, alpha |
 
 **Безопасность:**
 - Все пути ограничены `workspace/{user_id}/`
 - Деструктивные операции требуют явного подтверждения
-- `run_python` исполняется в подпроцессе с таймаутом 30 сек
+- `run_python` исполняется в firejail с `--net=none`
+- Права проверяются дважды: конфиг агента + профиль пользователя (`profile.can_use()`)
+
+---
+
+## Саморасширение (write_agent_config)
+
+Альфа может создать нового агента если задача не покрывается существующими:
+
+```python
+def write_agent_config(name: str, config: dict) -> str:
+    # Валидация: обязательные поля (role, system_prompt, model_chain)
+    # Защита: нельзя перезаписать alpha или _template
+    # Бэкап: .bak перед перезаписью существующего
+    # Лог: запись в decisions.log
+    # Уведомление: владельцу в Telegram
+```
+
+**Ограничения:**
+- Запрещено перезаписывать `alpha.json` и `_template.json`
+- Новый агент получает только инструменты из своего `allowed_tools`
+- Роль `alpha` не может быть назначена новому агенту
 
 ---
 
 ## Интерфейсы
 
-| Интерфейс | Для кого | Авторизация |
-|---|---|---|
-| Telegram Bot | все пользователи | user_id автоматически |
-| Web UI | все пользователи | Telegram Login Widget |
-| CLI | только разработчик | `--user` аргумент |
+| Интерфейс | Для кого | Авторизация | Статус |
+|---|---|---|---|
+| Telegram Bot | все пользователи | user_id автоматически | production |
+| Web UI | все пользователи | Telegram Login Widget | production |
+| CLI | только разработчик | `--user` аргумент | dev |
 
 Все интерфейсы — обёртки над одним ядром. Ядро не знает об интерфейсе.
+Веб-интерфейс поддерживает полный функционал Конклава, загрузку/скачивание файлов, команды `/whoami`, `/files`, `/clear`, `/forget`.
+
+---
+
+## Провайдеры и резервирование
+
+### Три уровня провайдеров
+
+1. **OpenRouter** — основной (200+ моделей, один счёт)
+2. **DeepSeek direct** — резерв 1 (дешёвый, надёжный)
+3. **Anthropic direct** — резерв 2 (нативный SDK, текстовый fallback)
+
+### Model chain в каждом агенте
+
+```json
+{
+  "model_chain": [
+    { "provider": "openrouter", "model": "anthropic/claude-sonnet-4.6", "temperature": 0.7 },
+    { "provider": "openrouter", "model": "deepseek/deepseek-chat",      "temperature": 0.7 },
+    { "provider": "anthropic",  "model": "claude-sonnet-4.6",            "temperature": 0.7 }
+  ]
+}
+```
+
+При сбое — переход к следующему. Каждое переключение пишется в `decisions.log` и уведомляет владельца в Telegram.
+
+### Prompt caching
+
+Для Anthropic-моделей через OpenRouter системное сообщение автоматически оборачивается в блочный формат с `cache_control: {"type": "ephemeral"}` — экономия токенов.
+
+---
+
+## Шифрование
+
+### Память (Fernet)
+
+- `memory/{user_id}.json` и `memory/sessions/{user_id}.json` — прозрачное шифрование Fernet
+- Ключ: `MEMORY_ENCRYPTION_KEY` в `.env`
+- `memory_crypto.py` — обёртка с thread-safe записью (per-file `threading.Lock`)
+- `decisions.log` — не шифруется (технический лог, без личных данных)
+
+### .env на Drive (GPG)
+
+- `scripts/backup_env.sh` — шифрует `.env` через GPG и кладёт на Drive
+- `scripts/restore_env.sh` — обратный путь при disaster recovery
+
+### Thread safety
+
+Все операции записи защищены per-file `threading.Lock`:
+```python
+with _get_lock(path):
+    _write(path, data)
+```
+Фоновые задачи (суммаризация, обновление профиля, индексация ChromaDB) не могут повредить данные основной сессии.
 
 ---
 
@@ -336,13 +427,19 @@ def spawn_agent(self, task_description: str) -> Agent:
 
 | Компонент | Технология | Почему |
 |---|---|---|
-| Язык | Python 3.11+ | уже используется |
-| LLM | Любой OpenAI-совместимый | DeepSeek, Groq, OpenAI — по конфигу |
-| Excel | openpyxl | работает на Linux и Windows, без Office |
-| Web backend | FastAPI | минимальный, быстрый, async |
-| Telegram | python-telegram-bot | простой и надёжный |
-| Память | JSON → SQLite → ChromaDB | растём по мере необходимости |
-| Деплой | systemd + Nginx | стандарт для VPS |
+| Язык | Python 3.12+ | современный, async |
+| LLM | OpenRouter + Anthropic SDK + OpenAI SDK | гибкость и fallback |
+| Telegram | python-telegram-bot 22+ | async, надёжный |
+| Web backend | FastAPI + WebSocket | минимальный, async |
+| Web frontend | Vanilla JS + Telegram Login Widget | без фреймворков |
+| Excel | openpyxl | работает без Office |
+| Изоляция кода | firejail `--net=none` | безопасный sandbox |
+| Поиск | DuckDuckGo (ddgs) + Perplexity Sonar | без API-ключей + с цитатами |
+| ChromaDB | ONNX MiniLM-L6-v2 эмбеддинги | без внешних API |
+| Шифрование | Fernet (cryptography) + GPG | стандарт индустрии |
+| Google Drive | rclone sync | бэкап памяти и .env |
+| Деплой | systemd (2 сервиса) + GitHub Actions | авто-деплой из main |
+| VPS | Ubuntu 24.04, mira-bot.duckdns.org | ~3-5$/мес |
 
 ---
 
@@ -363,7 +460,11 @@ def spawn_agent(self, task_description: str) -> Agent:
 | Идея | Почему нет |
 |---|---|
 | Своя система авторизации | Telegram даёт user_id бесплатно и надёжно |
-| Ollama на слабом железе | Медленно, нестабильно, внешние API дешевле |
 | Каждый агент как отдельный процесс | Один класс + разные конфиги = проще и дешевле |
-| Своя векторная БД с нуля | ChromaDB уже решает задачу |
-| React/Vue фронтенд | Один HTML-файл покрывает все нужды мамы |
+| Своя векторная БД с нуля | ChromaDB решает задачу |
+| React/Vue фронтенд | Vanilla JS + WebSocket покрывает нужды |
+| Очереди задач (Celery, Redis) | Один процесс с `concurrent.futures` для нашего масштаба |
+| Микросервисы | Один процесс, понятная структура |
+| Postgres / MySQL | JSON → SQLite → Postgres. Мы в JSON + ChromaDB |
+| Своё мобильное приложение | Telegram + веб покрывают |
+| Бюджет токенов в коде | Раздражает при перенастройке, оставлено на усмотрение API |

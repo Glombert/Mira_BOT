@@ -1,8 +1,24 @@
 # Mira_BOT — План разработки
 
-> Версия: 3.11
-> Последнее обновление: 2026-05-11
+> Версия: 3.12
+> Последнее обновление: 2026-05-12
 > Архитектура: см. ARCHITECTURE.md
+
+---
+
+## Что изменилось в v3.12
+
+Большой багфикс + саморасширение + аудит безопасности:
+
+- **`write_agent_config` — новый инструмент.** Мира может создавать конфиги новых агентов в `agents/`. Валидация обязательных полей (role, system_prompt, model_chain), защита от перезаписи `alpha.json` и `_template.json`, бэкап перед перезаписью, лог в `decisions.log`, уведомление владельцу в Telegram. 15-й инструмент в TOOL_SCHEMAS.
+- **Поиск в CLI починен.** Роутер в `agent.py` не отправлял задачи с меткой `search` в Конклав — только `code` и `complex`. Добавлен `search` в `_EXECUTOR_FOR`, маршрутизация теперь едина для CLI, Telegram и веба.
+- **Конклав в веб-интерфейсе.** `web/app.py` теперь использует `router.classify()` и `Conclave.run_with_qa()` — сложные задачи, поиск и код идут через специалистов, а не напрямую через Альфу.
+- **Thread-safe память.** `memory_crypto.py` — per-file `threading.Lock`. Фоновые задачи (суммаризация, обновление профиля, индексация ChromaDB) больше не могут перезаписать данные основной сессии. `access_tools.py` использует thread-safe `save_json`.
+- **Логирование провайдеров улучшено.** `providers.call()` логирует timing каждого вызова, номер в цепочке (i+1/N), длину ответа, наличие tool_calls. Исправлен `len(None)` при пустом ответе модели.
+- **Conclave логирование.** `run_with_qa` логирует общее время и число итераций. Прогресс-фразы вариативные через `random.choice`.
+- **Веб-поиск улучшен.** `tools/search_tools.py` — timing запросов, обрезанные query в логах, улучшенные сообщения об ошибках.
+- **Веб-интерфейс: две системы.** `mira-bot.service` (Telegram) + `mira-web.service` (FastAPI :8000) через Nginx на `mira-bot.duckdns.org`.
+- **Обновлена документация.** README.md, ARCHITECTURE.md, PRINCIPLES.md актуализированы: 15 инструментов, текущий стек, thread-safety, реальная архитектура.
 
 ---
 
@@ -678,20 +694,20 @@ mira_bot/
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  MIRA v1.1  —  production + web UI
+  MIRA v1.3  —  production на VPS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-[x] ЭТАП 0   — Фундамент
-[x] ЭТАП 1   — Agent: tools, providers, fallback
-[x] ЭТАП 2   — Конклав: 7 специалистов, роутер, QA-цикл
-[x] ЭТАП 3   — Excel
-[x] ЭТАП 4   — Telegram Bot + UX: поиск, vision, 💭 прогресс
-[x] ЭТАП 5   — VPS: systemd, CI/CD, бэкап, мониторинг
-[x] ЭТАП 6   — Самосознание: list_self, read_self, write_persona
-[x] ЭТАП 7   — Приватность: Fernet-шифрование памяти
-[x] ЭТАП 8   — Долгая память: суммаризация, профиль, шаблоны, Google Drive sync
-[x] ЭТАП 9   — Веб-интерфейс: FastAPI, WebSocket, Telegram Login, файлы, дизайн
-              Осталось: Google Drive OAuth, Этап 9.3
+[x] ЭТАП 0   — Фундамент (PRINCIPLES, ветки, облако, доступ)
+[x] ЭТАП 1   — Agent: 15 tools, providers, fallback, prompt caching
+[x] ЭТАП 2   — Конклав: 8 специалистов, роутер, QA-цикл, killswitch
+[x] ЭТАП 3   — Excel: read/write, excel_specialist
+[x] ЭТАП 4   — Telegram Bot: сообщения, кнопки, файлы, 💭 прогресс
+[x] ЭТАП 5   — VPS: systemd (mira-bot + mira-web), CI/CD, бэкап, firejail
+[x] ЭТАП 6   — Самосознание: list_self, read_self, write_persona, git_log, recall
+[x] ЭТАП 7   — Приватность: Fernet-шифрование, thread-safe запись
+[x] ЭТАП 8   — Долгая память: суммаризация, ChromaDB, профили, шаблоны
+[x] ЭТАП 9   — Веб-интерфейс: FastAPI + WebSocket, Telegram Login, Конклав в вебе
+              Осталось: Google Drive OAuth (личные аккаунты пользователей)
 
 [ ] ЭТАП 9.3 — Google Drive OAuth (каждый пользователь свой аккаунт)  ← СЛЕДУЮЩИЙ
 [ ] ЭТАП 10  — Тесты
