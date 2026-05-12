@@ -79,6 +79,10 @@ from tools.gdrive_tools import (
     gdrive_write,
     gdrive_status,
     auto_upload_to_drive,
+    gcal_list,
+    gcal_quick_add,
+    gsheet_read,
+    gsheet_create,
 )
 
 from router   import classify
@@ -314,6 +318,8 @@ BASIC_COMMANDS = [
     BotCommand("whoami", "Мой профиль"),
     BotCommand("files",  "Мои файлы"),
     BotCommand("gdrive", "Мои файлы на Google Drive"),
+    BotCommand("gcal",   "Мой календарь"),
+    BotCommand("gsheet", "Читать Google Таблицу"),
     BotCommand("clear",  "Очистить историю"),
     BotCommand("forget", "Сбросить профиль"),
     BotCommand("stop",   "Остановить Конклав"),
@@ -585,6 +591,104 @@ async def cmd_gdrive_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     else:
         await _reply(update, "❌ Авто-загрузка на Google Drive *выключена*.\nФайлы остаются только в Telegram. Включить: /gdrive_toggle",
                      parse_mode="Markdown")
+
+
+async def cmd_gcal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показывает ближайшие события календаря."""
+    user_id = _user_id(update.effective_user.id)
+    if not _is_approved(user_id):
+        return
+    max_r = 10
+    args = (update.message.text or "").split()
+    if len(args) > 1:
+        try:
+            max_r = max(1, min(int(args[1]), 50))
+        except ValueError:
+            pass
+    result = gcal_list(user_id, max_results=max_r)
+    if not result.get("ok"):
+        await _reply(update, f"❌ {result.get('error')}")
+        return
+    events = result.get("events", [])
+    if not events:
+        await _reply(update, "Календарь пуст — событий не найдено.")
+        return
+    lines = [f"Ближайшие события ({len(events)}):"]
+    for e in events:
+        start = e.get("start", "")[:16].replace("T", " ")
+        lines.append(f"  {start} — {e.get('summary', '')}")
+    await _reply(update, "\n".join(lines))
+
+
+async def cmd_gcal_create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Создаёт событие через Quick Add: /gcal_create Встреча с Колей завтра в 15:00"""
+    user_id = _user_id(update.effective_user.id)
+    if not _is_approved(user_id):
+        return
+    text = (update.message.text or "").strip()
+    prefix = "/gcal_create"
+    if text.startswith(prefix):
+        text = text[len(prefix):].strip()
+    if not text:
+        await _reply(update, "Напиши: /gcal_create Встреча с Колей завтра в 15:00")
+        return
+    result = gcal_quick_add(user_id, text)
+    if not result.get("ok"):
+        await _reply(update, f"❌ {result.get('error')}")
+        return
+    await _reply(update, f"Событие создано: {result.get('summary')}")
+
+
+async def cmd_gsheet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Читает Google Sheet: /gsheet <id> [диапазон]"""
+    user_id = _user_id(update.effective_user.id)
+    if not _is_approved(user_id):
+        return
+    args = (update.message.text or "").split()
+    if len(args) < 2:
+        await _reply(update, "Укажи ID таблицы: /gsheet <id> [диапазон]")
+        return
+    sid = args[1]
+    rng = args[2] if len(args) > 2 else "A1:Z100"
+    result = gsheet_read(user_id, sid, rng)
+    if not result.get("ok"):
+        await _reply(update, f"❌ {result.get('error')}")
+        return
+    values = result.get("values", [])
+    if not values:
+        await _reply(update, "Таблица пуста в этом диапазоне.")
+        return
+    lines = [f"Таблица {sid} ({result.get('rows')} строк):"]
+    for row in values[:20]:
+        lines.append(" | ".join(str(c)[:40] for c in row))
+    if len(values) > 20:
+        lines.append(f"... и ещё {len(values) - 20} строк")
+    await _reply(update, "\n".join(lines))
+
+
+async def cmd_gsheet_create(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Создаёт новую Google Таблицу: /gsheet_create Название"""
+    user_id = _user_id(update.effective_user.id)
+    if not _is_approved(user_id):
+        return
+    text = (update.message.text or "").strip()
+    prefix = "/gsheet_create"
+    if text.startswith(prefix):
+        title = text[len(prefix):].strip()
+    else:
+        title = "Новая таблица"
+    if not title:
+        title = "Новая таблица"
+    result = gsheet_create(user_id, title)
+    if not result.get("ok"):
+        await _reply(update, f"❌ {result.get('error')}")
+        return
+    await _reply(update,
+        f"Таблица создана: {result.get('title')}\n"
+        f"ID: `{result.get('spreadsheet_id')}`\n"
+        f"{result.get('url')}",
+        parse_mode="Markdown",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1810,6 +1914,10 @@ def main() -> None:
     app.add_handler(CommandHandler("gdrive",        cmd_gdrive))
     app.add_handler(CommandHandler("gdrive_get",    cmd_gdrive_get))
     app.add_handler(CommandHandler("gdrive_toggle", cmd_gdrive_toggle))
+    app.add_handler(CommandHandler("gcal",           cmd_gcal))
+    app.add_handler(CommandHandler("gcal_create",     cmd_gcal_create))
+    app.add_handler(CommandHandler("gsheet",          cmd_gsheet))
+    app.add_handler(CommandHandler("gsheet_create",   cmd_gsheet_create))
     app.add_handler(CommandHandler("files",    cmd_files))
     app.add_handler(CommandHandler("clear",    cmd_clear))
     app.add_handler(CommandHandler("forget",   cmd_forget))

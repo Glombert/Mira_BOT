@@ -30,8 +30,12 @@ from pathlib import Path
 
 logger = logging.getLogger("Ouroborus")
 
-# Scope: drive.file — приложение видит только файлы которые само создало
-SCOPES = ['https://www.googleapis.com/auth/drive.file']
+# Scopes: Drive (file-level), Calendar (events), Sheets (full access)
+SCOPES = [
+    'https://www.googleapis.com/auth/drive.file',
+    'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/spreadsheets',
+]
 
 # Redirect URI: на VPS — веб-колбэк, локально — localhost
 REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8080")
@@ -529,3 +533,338 @@ def gdrive_status(user_id: str) -> dict:
         "authorized": True,
         "email": token.get("email", "неизвестно"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Google Calendar
+# ---------------------------------------------------------------------------
+
+def _get_calendar_service(user_id: str):
+    """
+    Создаёт авторизованный клиент Google Calendar API (v3).
+    Возвращает (service, error_string) — как _get_drive_service.
+    """
+    if not is_configured():
+        return None, "credentials.json не найден"
+
+    token = _load_token(user_id)
+    if not token or not token.get("refresh_token"):
+        return None, "Не авторизован. Отправь /google_login"
+
+    try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+        from googleapiclient.discovery import build
+
+        creds = Credentials(
+            token=token.get("access_token"),
+            refresh_token=token["refresh_token"],
+            token_uri=token.get("token_uri", "https://oauth2.googleapis.com/token"),
+            client_id=token.get("client_id"),
+            scopes=token.get("scopes", SCOPES),
+        )
+
+        if not creds.valid:
+            try:
+                creds.refresh(Request())
+                token["access_token"] = creds.token
+                _save_token(user_id, token)
+            except Exception as e:
+                logger.warning(f"gcal: не удалось обновить токен {user_id}: {e}")
+                return None, "Токен протух. Отправь /google_login заново."
+
+        service = build('calendar', 'v3', credentials=creds)
+        return service, None
+
+    except Exception as e:
+        logger.error(f"gcal: ошибка создания клиента для {user_id}: {e}")
+        return None, str(e)[:300]
+
+
+def gcal_list(user_id: str, max_results: int = 10, time_min: str | None = None) -> dict:
+    """
+    Показывает ближайшие события из основного календаря пользователя.
+
+    Аргументы:
+        max_results — сколько событий показать (по умолчанию 10)
+        time_min    — с какой даты в ISO-формате (по умолчанию — сейчас)
+    """
+    service, err = _get_calendar_service(user_id)
+    if err:
+        return {"ok": False, "error": err}
+
+    try:
+        from datetime import datetime, timezone
+        if not time_min:
+            time_min = datetime.now(timezone.utc).isoformat()
+
+        events_result = service.events().list(
+            calendarId='primary',
+            timeMin=time_min,
+            maxResults=min(max(1, int(max_results)), 50),
+            singleEvents=True,
+            orderBy='startTime',
+        ).execute()
+
+        events = events_result.get('items', [])
+        formatted = []
+        for e in events:
+            start = e.get('start', {})
+            end   = e.get('end', {})
+            formatted.append({
+                "id":      e.get('id'),
+                "summary": e.get('summary', '(без названия)'),
+                "start":   start.get('dateTime') or start.get('date', ''),
+                "end":     end.get('dateTime') or end.get('date', ''),
+                "location": e.get('location', ''),
+                "description": (e.get('description', '') or '')[:300],
+            })
+
+        return {"ok": True, "events": formatted}
+
+    except Exception as e:
+        err_str = str(e).lower()
+        if 'insufficient' in err_str or 'scope' in err_str:
+            return {"ok": False, "error": "Недостаточно прав. Обнови авторизацию: /google_login"}
+        logger.error(f"gcal_list error: {e}")
+        return {"ok": False, "error": f"Ошибка чтения календаря: {e}"}
+
+
+def gcal_create(user_id: str, summary: str, start_time: str,
+                end_time: str = "", description: str = "") -> dict:
+    """
+    Создаёт событие в календаре пользователя.
+
+    Аргументы:
+        summary     — название события
+        start_time  — начало в ISO-формате ("2026-05-15T14:00:00")
+        end_time    — конец (если не указан — +1 час от начала)
+        description — описание события
+    """
+    service, err = _get_calendar_service(user_id)
+    if err:
+        return {"ok": False, "error": err}
+
+    try:
+        from datetime import datetime, timedelta, timezone
+
+        # Парсим start_time
+        try:
+            start_dt = datetime.fromisoformat(start_time)
+        except ValueError:
+            return {"ok": False, "error": f"Неверный формат даты: {start_time}. Используй ISO: 2026-05-15T14:00:00"}
+
+        if end_time:
+            try:
+                end_dt = datetime.fromisoformat(end_time)
+            except ValueError:
+                end_dt = start_dt + timedelta(hours=1)
+        else:
+            end_dt = start_dt + timedelta(hours=1)
+
+        event = {
+            'summary': summary,
+            'start': {'dateTime': start_dt.isoformat(), 'timeZone': 'Europe/Moscow'},
+            'end':   {'dateTime': end_dt.isoformat(),   'timeZone': 'Europe/Moscow'},
+        }
+        if description:
+            event['description'] = description[:2000]
+
+        created = service.events().insert(calendarId='primary', body=event).execute()
+
+        return {
+            "ok": True,
+            "event_id": created.get('id'),
+            "summary": summary,
+            "link": created.get('htmlLink', ''),
+        }
+
+    except Exception as e:
+        err_str = str(e).lower()
+        if 'insufficient' in err_str or 'scope' in err_str:
+            return {"ok": False, "error": "Недостаточно прав. Обнови авторизацию: /google_login"}
+        logger.error(f"gcal_create error: {e}")
+        return {"ok": False, "error": f"Ошибка создания события: {e}"}
+
+
+def gcal_quick_add(user_id: str, text: str) -> dict:
+    """
+    Создаёт событие из естественной фразы через Google Calendar Quick Add.
+
+    Примеры:
+        "Встреча с Колей завтра в 15:00"
+        "Кофе с Аней в субботу в 10 утра на Покровке"
+    """
+    service, err = _get_calendar_service(user_id)
+    if err:
+        return {"ok": False, "error": err}
+
+    try:
+        created = service.events().quickAdd(calendarId='primary', text=text).execute()
+
+        return {
+            "ok": True,
+            "event_id": created.get('id'),
+            "summary": created.get('summary', text),
+            "link": created.get('htmlLink', ''),
+        }
+
+    except Exception as e:
+        err_str = str(e).lower()
+        if 'insufficient' in err_str or 'scope' in err_str:
+            return {"ok": False, "error": "Недостаточно прав. Обнови авторизацию: /google_login"}
+        logger.error(f"gcal_quick_add error: {e}")
+        return {"ok": False, "error": f"Не удалось создать событие: {e}"}
+
+
+# ---------------------------------------------------------------------------
+# Google Sheets
+# ---------------------------------------------------------------------------
+
+def _get_sheets_service(user_id: str):
+    """
+    Создаёт авторизованный клиент Google Sheets API (v4).
+    Возвращает (service, error_string).
+    """
+    if not is_configured():
+        return None, "credentials.json не найден"
+
+    token = _load_token(user_id)
+    if not token or not token.get("refresh_token"):
+        return None, "Не авторизован. Отправь /google_login"
+
+    try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+        from googleapiclient.discovery import build
+
+        creds = Credentials(
+            token=token.get("access_token"),
+            refresh_token=token["refresh_token"],
+            token_uri=token.get("token_uri", "https://oauth2.googleapis.com/token"),
+            client_id=token.get("client_id"),
+            scopes=token.get("scopes", SCOPES),
+        )
+
+        if not creds.valid:
+            try:
+                creds.refresh(Request())
+                token["access_token"] = creds.token
+                _save_token(user_id, token)
+            except Exception as e:
+                logger.warning(f"gsheet: не удалось обновить токен {user_id}: {e}")
+                return None, "Токен протух. Отправь /google_login заново."
+
+        service = build('sheets', 'v4', credentials=creds)
+        return service, None
+
+    except Exception as e:
+        logger.error(f"gsheet: ошибка создания клиента для {user_id}: {e}")
+        return None, str(e)[:300]
+
+
+def gsheet_read(user_id: str, spreadsheet_id: str,
+                sheet_range: str = "A1:Z100") -> dict:
+    """
+    Читает данные из Google Sheets пользователя.
+
+    Аргументы:
+        spreadsheet_id — ID таблицы (из URL: docs.google.com/spreadsheets/d/{ID}/edit)
+        sheet_range    — диапазон в A1-нотации (например "Лист1!A1:D20" или "A1:Z100")
+    """
+    service, err = _get_sheets_service(user_id)
+    if err:
+        return {"ok": False, "error": err}
+
+    try:
+        result = service.spreadsheets().values().get(
+            spreadsheetId=spreadsheet_id,
+            range=sheet_range,
+        ).execute()
+
+        values = result.get('values', [])
+        return {
+            "ok": True,
+            "spreadsheet_id": spreadsheet_id,
+            "range": sheet_range,
+            "rows": len(values),
+            "values": values,
+        }
+
+    except Exception as e:
+        err_str = str(e).lower()
+        if 'insufficient' in err_str or 'scope' in err_str:
+            return {"ok": False, "error": "Недостаточно прав. Обнови авторизацию: /google_login"}
+        if 'not found' in err_str:
+            return {"ok": False, "error": f"Таблица не найдена. Проверь ID: {spreadsheet_id}"}
+        logger.error(f"gsheet_read error: {e}")
+        return {"ok": False, "error": f"Ошибка чтения таблицы: {e}"}
+
+
+def gsheet_write(user_id: str, spreadsheet_id: str, sheet_range: str,
+                 values: list) -> dict:
+    """
+    Записывает данные в Google Sheets пользователя.
+
+    Аргументы:
+        spreadsheet_id — ID таблицы
+        sheet_range    — диапазон (например "Лист1!A1")
+        values         — список списков со значениями (например [["Имя", "Возраст"], ["Аня", "25"]])
+    """
+    service, err = _get_sheets_service(user_id)
+    if err:
+        return {"ok": False, "error": err}
+
+    try:
+        body = {'values': values}
+        result = service.spreadsheets().values().update(
+            spreadsheetId=spreadsheet_id,
+            range=sheet_range,
+            valueInputOption='USER_ENTERED',
+            body=body,
+        ).execute()
+
+        return {
+            "ok": True,
+            "spreadsheet_id": spreadsheet_id,
+            "range": result.get('updatedRange', sheet_range),
+            "updated_cells": result.get('updatedCells', 0),
+        }
+
+    except Exception as e:
+        err_str = str(e).lower()
+        if 'insufficient' in err_str or 'scope' in err_str:
+            return {"ok": False, "error": "Недостаточно прав. Обнови авторизацию: /google_login"}
+        logger.error(f"gsheet_write error: {e}")
+        return {"ok": False, "error": f"Ошибка записи в таблицу: {e}"}
+
+
+def gsheet_create(user_id: str, title: str) -> dict:
+    """
+    Создаёт новую Google Sheets таблицу на Drive пользователя.
+
+    Аргументы:
+        title — название новой таблицы
+    """
+    service, err = _get_sheets_service(user_id)
+    if err:
+        return {"ok": False, "error": err}
+
+    try:
+        spreadsheet = service.spreadsheets().create(body={
+            'properties': {'title': title},
+        }).execute()
+
+        return {
+            "ok": True,
+            "spreadsheet_id": spreadsheet.get('spreadsheetId'),
+            "title": title,
+            "url": spreadsheet.get('spreadsheetUrl', ''),
+        }
+
+    except Exception as e:
+        err_str = str(e).lower()
+        if 'insufficient' in err_str or 'scope' in err_str:
+            return {"ok": False, "error": "Недостаточно прав. Обнови авторизацию: /google_login"}
+        logger.error(f"gsheet_create error: {e}")
+        return {"ok": False, "error": f"Ошибка создания таблицы: {e}"}
