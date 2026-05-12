@@ -331,6 +331,7 @@ OWNER_COMMANDS = BASIC_COMMANDS + [
     BotCommand("kidmode",         "Детский режим: /kidmode <user_id> on|off"),
     BotCommand("restart",         "Перезапустить бота"),
     BotCommand("evolution_count", "Статистика эволюций"),
+    BotCommand("stats",           "Метрики использования LLM"),
 ]
 
 
@@ -1010,6 +1011,54 @@ async def cmd_evolution_count(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 
+async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показывает метрики использования LLM (только owner)."""
+    if not _is_owner(update.effective_user.id):
+        return
+    from tools.metrics_tools import metrics_read as _mr
+    days = 1
+    args = (update.message.text or "").split()
+    if len(args) > 1:
+        try:
+            days = max(1, min(int(args[1]), 90))
+        except ValueError:
+            pass
+    m = _mr(days)
+    if not m.get("ok"):
+        await _reply(update, f"Ошибка чтения метрик: {m.get('error')}")
+        return
+    if m["total_calls"] == 0:
+        await _reply(update, f"Нет данных метрик за {days} дн.")
+        return
+
+    def _fmt_tok(n: int) -> str:
+        if n >= 1_000_000: return f"{n/1_000_000:.1f}M"
+        if n >= 1_000:     return f"{n/1_000:.0f}K"
+        return str(n)
+
+    lines = [f"Метрики за {days} дн.:\n"]
+    lines.append(f"Вызовов: {m['total_calls']}")
+    lines.append(f"Токенов: {_fmt_tok(m['total_tokens'])} (prompt: {_fmt_tok(m['prompt_tokens'])}, completion: {_fmt_tok(m['completion_tokens'])})")
+    lines.append(f"Оценка стоимости: ${m['cost_est']:.4f}\n")
+
+    # По моделям
+    by_m = sorted(m.get("by_model", {}).items(), key=lambda x: x[1]["cost_est"], reverse=True)
+    if by_m:
+        lines.append("По моделям:")
+        for model, d in by_m[:6]:
+            lines.append(f"  {model}: {d['calls']} вызовов, {_fmt_tok(d['prompt_tokens']+d['completion_tokens'])} токенов, ${d['cost_est']:.4f}")
+
+    # По пользователям
+    by_u = sorted(m.get("by_user", {}).items(), key=lambda x: x[1]["cost_est"], reverse=True)
+    if by_u:
+        lines.append("\nПо пользователям:")
+        for uid, d in by_u[:10]:
+            short = uid.replace("tg_", "")[:12]
+            lines.append(f"  {short}: {d['calls']} вызовов, ${d['cost_est']:.4f}")
+
+    await _reply(update, "\n".join(lines))
+
+
 def _user_card_keyboard(uid: str, status: str, child_mode: bool) -> InlineKeyboardMarkup:
     """Кнопки карточки пользователя — текущий статус не показывается."""
     btns = []
@@ -1095,6 +1144,18 @@ async def cmd_kidmode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 # ---------------------------------------------------------------------------
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        await _handle_callback(update, context)
+    except Exception as e:
+        logger.error(f"handle_callback: необработанная ошибка: {e}", exc_info=True)
+        notify_owner(f"Ошибка в handle_callback: {e}")
+        try:
+            await update.callback_query.edit_message_text("Что-то пошло не так. Попробуй снова.")
+        except Exception:
+            pass
+
+
+async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
     data    = query.data
@@ -1316,6 +1377,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 # ---------------------------------------------------------------------------
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        await _handle_document(update, context)
+    except Exception as e:
+        logger.error(f"handle_document: необработанная ошибка: {e}", exc_info=True)
+        notify_owner(f"Ошибка в handle_document: {e}")
+        try:
+            await _reply(update, "Что-то пошло не так при обработке файла. Попробуй ещё раз.")
+        except Exception:
+            pass
+
+
+async def _handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     tg_id   = update.effective_user.id
     user_id = _user_id(tg_id)
 
@@ -1538,7 +1611,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 {"role": "user",      "content": presentation},
             ]
             answer = _providers.call(
-                alpha.model_chain, alpha_msgs, temperature=0.7
+                alpha.model_chain, alpha_msgs, temperature=0.7,
+                user_id=user_id, agent_name=alpha.name,
             ).choices[0].message.content
             msgs.append({"role": "assistant", "content": answer})
         elif alpha:
@@ -1660,6 +1734,28 @@ async def _handle_onboarding(update, context, tg_id, user_id, text):
 
 async def post_init(app: Application) -> None:
     """Устанавливает меню команд при старте бота и чистит просроченных гостей."""
+    import threading, time as _time
+
+    # Heartbeat: фоновый поток пишет метку каждые 30 секунд
+    _heartbeat_path = os.path.join(MEMORY_DIR, ".heartbeat")
+
+    def _heartbeat_loop() -> None:
+        while True:
+            try:
+                with open(_heartbeat_path, "w") as f:
+                    f.write(str(_time.time()))
+            except Exception:
+                pass
+            _time.sleep(30)
+
+    threading.Thread(target=_heartbeat_loop, daemon=True).start()
+
+    # Стартовое уведомление владельцу
+    try:
+        notify_owner("Мира запущена на VPS")
+    except Exception as e:
+        logger.warning(f"Не удалось отправить стартовое уведомление: {e}")
+
     # Базовые команды для всех
     await app.bot.set_my_commands(BASIC_COMMANDS, scope=BotCommandScopeDefault())
     # Расширенные для владельца
@@ -1683,6 +1779,15 @@ async def post_init(app: Application) -> None:
     logger.info("Бот запущен. Команды установлены.")
 
 
+async def _global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Ловит необработанные исключения из всех handlers, уведомляет владельца."""
+    import traceback
+    tb = "".join(traceback.format_exception(None, context.error, context.error.__traceback__))
+    logger.error(f"Глобальная ошибка бота: {context.error}\n{tb}")
+    notify_owner(f"Глобальная ошибка бота: {context.error}"[:500])
+    # systemd перезапустит бота при краше polling loop
+
+
 def main() -> None:
     if not TOKEN:
         raise ValueError("TELEGRAM_BOT_TOKEN не задан в .env")
@@ -1693,6 +1798,7 @@ def main() -> None:
         .post_init(post_init)
         .build()
     )
+    app.add_error_handler(_global_error_handler)
 
     # Команды
     app.add_handler(CommandHandler("start",    cmd_start))
@@ -1719,6 +1825,7 @@ def main() -> None:
     app.add_handler(CommandHandler("users",           cmd_users))
     app.add_handler(CommandHandler("blacklist",       cmd_blacklist_view))
     app.add_handler(CommandHandler("evolution_count", cmd_evolution_count))
+    app.add_handler(CommandHandler("stats",          cmd_stats))
     app.add_handler(CommandHandler("approve",         cmd_approve))
     app.add_handler(CommandHandler("block",           cmd_block))
     app.add_handler(CommandHandler("unblock",         cmd_unblock))

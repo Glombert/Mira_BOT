@@ -201,7 +201,17 @@ async def index():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    # Проверяем heartbeat Telegram-бота (обновляется каждые 30 секунд)
+    heartbeat_path = os.path.join(MEMORY_DIR, ".heartbeat")
+    bot_alive = False
+    try:
+        if os.path.exists(heartbeat_path):
+            with open(heartbeat_path) as f:
+                ts = float(f.read().strip())
+            bot_alive = (time.time() - ts) < 120  # свежее 2 минут
+    except Exception:
+        pass
+    return {"status": "ok", "bot_alive": bot_alive}
 
 
 @app.get("/oauth/google/callback")
