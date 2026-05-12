@@ -16,6 +16,8 @@ from openai import OpenAI
 from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search, list_self, read_self, write_persona, write_agent_config, git_log
 from tools import semantic_memory as _semantic_memory
 from tools.gdrive_tools import gdrive_list, gdrive_read, gdrive_write, is_authorized as _gdrive_authorized, auto_upload_to_drive as _gdrive_auto_upload
+from tools.gdrive_tools import gcal_list, gcal_create, gcal_quick_add
+from tools.gdrive_tools import gsheet_read, gsheet_write, gsheet_create
 from tools.metrics_tools import metrics_read
 import memory_manager as _memory_manager
 import memory_crypto
@@ -909,6 +911,165 @@ TOOL_SCHEMAS = [
                 "required": []
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "gcal_list",
+            "description": (
+                "Показывает ближайшие события из Google Calendar пользователя. "
+                "Аргументы: max_results (сколько событий, по умолчанию 10), "
+                "time_min (с какой даты в ISO-формате, по умолчанию — сейчас)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Сколько событий показать (1-50, по умолчанию 10)."
+                    },
+                    "time_min": {
+                        "type": "string",
+                        "description": "Дата в ISO-формате с которой искать (например 2026-05-15T00:00:00)."
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "gcal_create",
+            "description": (
+                "Создаёт событие в Google Calendar пользователя. "
+                "Аргументы: summary (название), start_time (начало в ISO: '2026-05-15T14:00:00'), "
+                "end_time (конец, опционально — +1 час), description (описание)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": "Название события."
+                    },
+                    "start_time": {
+                        "type": "string",
+                        "description": "Начало в ISO-формате: '2026-05-15T14:00:00'."
+                    },
+                    "end_time": {
+                        "type": "string",
+                        "description": "Конец в ISO-формате. Если не указан — +1 час."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Описание события."
+                    }
+                },
+                "required": ["summary", "start_time"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "gcal_quick_add",
+            "description": (
+                "Создаёт событие в Google Calendar из фразы на естественном языке. "
+                "Примеры: 'Встреча с Колей завтра в 15:00', "
+                "'Кофе с Аней в субботу в 10 утра'. "
+                "Удобно когда пользователь говорит в свободной форме."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "Фраза описывающая событие (например 'Завтра в 15 встреча с клиентом')."
+                    }
+                },
+                "required": ["text"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "gsheet_read",
+            "description": (
+                "Читает данные из Google Sheets пользователя. "
+                "Аргументы: spreadsheet_id (ID таблицы из URL), "
+                "sheet_range (диапазон в A1-нотации: 'Лист1!A1:D20' или 'A1:Z100')."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "spreadsheet_id": {
+                        "type": "string",
+                        "description": "ID таблицы из URL (docs.google.com/spreadsheets/d/{ID}/)."
+                    },
+                    "sheet_range": {
+                        "type": "string",
+                        "description": "Диапазон: 'Лист1!A1:D20' или 'A1:Z100'. По умолчанию 'A1:Z100'."
+                    }
+                },
+                "required": ["spreadsheet_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "gsheet_write",
+            "description": (
+                "Записывает данные в Google Sheets пользователя. "
+                "Аргументы: spreadsheet_id (ID таблицы), sheet_range (диапазон), "
+                "values (список списков: [['Имя','Возраст'],['Аня','25']])."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "spreadsheet_id": {
+                        "type": "string",
+                        "description": "ID таблицы."
+                    },
+                    "sheet_range": {
+                        "type": "string",
+                        "description": "Диапазон для записи: 'Лист1!A1'."
+                    },
+                    "values": {
+                        "type": "array",
+                        "description": "Список строк, каждая строка — список ячеек.",
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "string"}
+                        }
+                    }
+                },
+                "required": ["spreadsheet_id", "sheet_range", "values"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "gsheet_create",
+            "description": (
+                "Создаёт новую Google Sheets таблицу на Drive пользователя. "
+                "Аргумент: title (название новой таблицы). "
+                "Возвращает ID и URL созданной таблицы."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Название новой таблицы."
+                    }
+                },
+                "required": ["title"]
+            }
+        }
     }
 ]
 
@@ -1047,6 +1208,25 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
             )
         elif tool_name == "metrics_read":
             result = metrics_read(tool_args.get("days", 1))
+        elif tool_name == "gcal_list":
+            result = gcal_list(user_id, tool_args.get("max_results", 10),
+                               tool_args.get("time_min"))
+        elif tool_name == "gcal_create":
+            result = gcal_create(user_id, tool_args["summary"],
+                                 tool_args["start_time"],
+                                 tool_args.get("end_time", ""),
+                                 tool_args.get("description", ""))
+        elif tool_name == "gcal_quick_add":
+            result = gcal_quick_add(user_id, tool_args["text"])
+        elif tool_name == "gsheet_read":
+            result = gsheet_read(user_id, tool_args["spreadsheet_id"],
+                                 tool_args.get("sheet_range", "A1:Z100"))
+        elif tool_name == "gsheet_write":
+            result = gsheet_write(user_id, tool_args["spreadsheet_id"],
+                                  tool_args["sheet_range"],
+                                  tool_args["values"])
+        elif tool_name == "gsheet_create":
+            result = gsheet_create(user_id, tool_args["title"])
         else:
             result = {"ok": False, "error": f"Неизвестный инструмент: {tool_name}"}
  
