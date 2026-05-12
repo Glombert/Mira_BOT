@@ -630,10 +630,20 @@ def gcal_list(user_id: str, max_results: int = 10, time_min: str | None = None) 
         return {"ok": False, "error": f"Ошибка чтения календаря: {e}"}
 
 
+def _get_calendar_timezone(service) -> str:
+    """Читает часовой пояс основного календаря пользователя. Возвращает 'Europe/Moscow' если не удалось."""
+    try:
+        cal = service.calendars().get(calendarId='primary').execute()
+        return cal.get('timeZone', 'Europe/Moscow')
+    except Exception:
+        return 'Europe/Moscow'
+
+
 def gcal_create(user_id: str, summary: str, start_time: str,
                 end_time: str = "", description: str = "") -> dict:
     """
     Создаёт событие в календаре пользователя.
+    Часовой пояс берётся из настроек Google Calendar пользователя.
 
     Аргументы:
         summary     — название события
@@ -647,6 +657,8 @@ def gcal_create(user_id: str, summary: str, start_time: str,
 
     try:
         from datetime import datetime, timedelta, timezone
+
+        tz = _get_calendar_timezone(service)
 
         # Парсим start_time
         try:
@@ -664,8 +676,8 @@ def gcal_create(user_id: str, summary: str, start_time: str,
 
         event = {
             'summary': summary,
-            'start': {'dateTime': start_dt.isoformat(), 'timeZone': 'Europe/Moscow'},
-            'end':   {'dateTime': end_dt.isoformat(),   'timeZone': 'Europe/Moscow'},
+            'start': {'dateTime': start_dt.isoformat(), 'timeZone': tz},
+            'end':   {'dateTime': end_dt.isoformat(),   'timeZone': tz},
         }
         if description:
             event['description'] = description[:2000]
