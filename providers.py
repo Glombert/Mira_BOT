@@ -22,12 +22,34 @@ PROVIDERS строится из .env:
 import os
 import json
 import time
+import threading
 import logging
 from datetime import datetime
 from openai import OpenAI
 
 logger = logging.getLogger("Ouroborus")
 DECISIONS_LOG = os.path.join("memory", "decisions.log")
+METRICS_DIR = os.path.join("memory", "metrics")
+
+# Цены моделей (USD за 1M токенов): (input_price, output_price)
+# Приблизительные, май 2026. Для расчёта ~стоимости, не точной бухгалтерии.
+MODEL_PRICES: dict[str, tuple[float, float]] = {
+    "anthropic/claude-sonnet-4.6":     (3.00, 15.00),
+    "anthropic/claude-opus-4.7":      (15.00, 75.00),
+    "anthropic/claude-haiku-4.5":     (0.80, 4.00),
+    "deepseek/deepseek-v4-pro":       (0.50, 2.00),
+    "deepseek/deepseek-chat":         (0.14, 0.28),
+    "deepseek/deepseek-v4-flash":     (0.10, 0.20),
+    "google/gemini-flash-1.5":        (0.075, 0.30),
+    "google/gemini-3.1-pro-preview":  (1.25, 5.00),
+    "perplexity/sonar":               (1.00, 5.00),
+    "perplexity/sonar-pro":           (3.00, 15.00),
+    "claude-sonnet-4.6":              (3.00, 15.00),
+    "claude-opus-4.7":               (15.00, 75.00),
+    "claude-haiku-4.5":              (0.80, 4.00),
+    "deepseek-chat":                  (0.14, 0.28),
+    "gemini-flash-1.5":               (0.075, 0.30),
+}
 
 # OpenAI-совместимые провайдеры: name → OpenAI client
 PROVIDERS: dict[str, OpenAI] = {}
@@ -57,6 +79,12 @@ class _AnthropicResponseAdapter:
     Ограничение: tool_calls не адаптируются — прямой Anthropic используется как
     текстовый fallback когда OpenRouter недоступен. Инструменты работают через OpenRouter.
     """
+    class _Usage:
+        def __init__(self, input_tokens: int = 0, output_tokens: int = 0):
+            self.prompt_tokens     = input_tokens
+            self.completion_tokens = output_tokens
+            self.total_tokens      = input_tokens + output_tokens
+
     class _Message:
         def __init__(self, content: str):
             self.content    = content
@@ -72,6 +100,12 @@ class _AnthropicResponseAdapter:
             if hasattr(block, "text"):
                 text += block.text
         self.choices = [self._Choice(text)]
+        # Извлекаем usage если есть (Anthropic SDK возвращает .usage с input_tokens/output_tokens)
+        try:
+            u = anthropic_msg.usage
+            self.usage = self._Usage(u.input_tokens, u.output_tokens)
+        except Exception:
+            self.usage = None
 
 
 # ---------------------------------------------------------------------------
@@ -150,12 +184,44 @@ def _log_switch(from_entry: dict, to_entry: dict, reason: str) -> None:
         logger.warning(f"providers: не удалось записать в decisions.log: {e}")
 
     # Уведомление в Telegram — отправляем в фоне чтобы не задерживать ответ
-    import threading
     threading.Thread(
         target=_notify_switch,
         args=(from_str, to_str, str(reason)[:300]),
         daemon=True,
     ).start()
+
+
+_metrics_lock = threading.Lock()
+
+
+def _log_metrics(user_id: str, agent_name: str, provider: str, model: str,
+                 prompt_tokens: int, completion_tokens: int, latency_ms: float) -> None:
+    """Записывает вызов LLM в memory/metrics/YYYY-MM-DD.jsonl (thread-safe)."""
+    try:
+        today = datetime.now().strftime("%Y-%m-%d")
+        os.makedirs(METRICS_DIR, exist_ok=True)
+        path = os.path.join(METRICS_DIR, f"{today}.jsonl")
+
+        # Оценка стоимости
+        input_price, output_price = MODEL_PRICES.get(model, (0, 0))
+        cost = (prompt_tokens / 1_000_000) * input_price + (completion_tokens / 1_000_000) * output_price
+
+        entry = {
+            "ts": datetime.now().isoformat(),
+            "user_id": user_id or "",
+            "agent": agent_name or "",
+            "provider": provider,
+            "model": model,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "latency_ms": round(latency_ms, 1),
+            "cost_est": round(cost, 6),
+        }
+        with _metrics_lock:
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        logger.warning(f"providers: не удалось записать метрики: {e}")
 
 
 def _notify_switch(from_str: str, to_str: str, reason: str) -> None:
@@ -264,9 +330,17 @@ def call(model_chain: list[dict], messages: list, **kwargs) -> object:
 
     При "anthropic"-провайдере tools игнорируются (только текстовый fallback).
     Возвращает объект с интерфейсом response.choices[0].message.content.
+
+    Необязательные kwargs:
+      - user_id: str — для метрик (кто вызвал)
+      - agent_name: str — для метрик (какой агент)
     """
     if not model_chain:
         raise ValueError("model_chain пуст")
+
+    # Извлекаем метаданные для метрик (не передаём в API)
+    metric_user_id = kwargs.pop("user_id", "")
+    metric_agent   = kwargs.pop("agent_name", "")
 
     default_temperature = kwargs.pop("temperature", 0.7)
     last_error: Exception | None = None
@@ -291,6 +365,10 @@ def call(model_chain: list[dict], messages: list, **kwargs) -> object:
                 result = _call_anthropic_native(model, messages, temperature, max_tokens)
                 dt = time.time() - t_call
                 logger.info(f"providers.call [{i+1}/{len(model_chain)}]: anthropic/{model} OK ({dt:.1f}s, ответ={len(result.choices[0].message.content or '')} символов)")
+                # Метрики
+                if result.usage:
+                    _log_metrics(metric_user_id, metric_agent, provider_name, model,
+                                 result.usage.prompt_tokens, result.usage.completion_tokens, dt * 1000)
                 return result
 
             else:
@@ -310,6 +388,11 @@ def call(model_chain: list[dict], messages: list, **kwargs) -> object:
                 dt = time.time() - t_call
                 has_tools = bool(getattr(result.choices[0].message, 'tool_calls', None))
                 logger.info(f"providers.call [{i+1}/{len(model_chain)}]: {provider_name}/{model} OK ({dt:.1f}s, ответ={len(result.choices[0].message.content or '')} символов, tool_calls={has_tools})")
+                # Метрики
+                if getattr(result, 'usage', None):
+                    u = result.usage
+                    _log_metrics(metric_user_id, metric_agent, provider_name, model,
+                                 u.prompt_tokens or 0, u.completion_tokens or 0, dt * 1000)
                 return result
 
         except Exception as e:

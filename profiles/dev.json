@@ -1,7 +1,7 @@
 {
   "profile_name": "dev",
   "description": "Профиль разработчика — расширенные права",
-  "allowed_tools": ["read_file", "write_file", "list_files", "run_python", "web_search", "excel_read", "excel_write", "list_self", "read_self", "git_log", "recall", "write_persona", "write_agent_config", "save_template", "list_templates", "gdrive_list", "gdrive_read", "gdrive_write"],
+  "allowed_tools": ["read_file", "write_file", "list_files", "run_python", "web_search", "excel_read", "excel_write", "list_self", "read_self", "git_log", "recall", "write_persona", "write_agent_config", "save_template", "list_templates", "gdrive_list", "gdrive_read", "gdrive_write", "metrics_read"],
   "max_history": 40,
   "max_tool_rounds": 30,
   "language": "ru",

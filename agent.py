@@ -16,6 +16,7 @@ from openai import OpenAI
 from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search, list_self, read_self, write_persona, write_agent_config, git_log
 from tools import semantic_memory as _semantic_memory
 from tools.gdrive_tools import gdrive_list, gdrive_read, gdrive_write, is_authorized as _gdrive_authorized, auto_upload_to_drive as _gdrive_auto_upload
+from tools.metrics_tools import metrics_read
 import memory_manager as _memory_manager
 import memory_crypto
 from tools.git_tools   import sync_with_git, ensure_dev_branch, release_to_main
@@ -886,6 +887,28 @@ TOOL_SCHEMAS = [
                 "required": ["workspace_path"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "metrics_read",
+            "description": (
+                "Читает метрики использования LLM за последние N дней. "
+                "Возвращает: число вызовов, токены (prompt + completion), "
+                "оценку стоимости (USD), разбивку по моделям и пользователям. "
+                "Аргумент days — за сколько дней (по умолчанию 1). Максимум 90."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "description": "За сколько дней читать метрики (1-90, по умолчанию 1)."
+                    }
+                },
+                "required": []
+            }
+        }
     }
 ]
 
@@ -1022,6 +1045,8 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
                 tool_args["workspace_path"],
                 tool_args.get("drive_folder", "root"),
             )
+        elif tool_name == "metrics_read":
+            result = metrics_read(tool_args.get("days", 1))
         else:
             result = {"ok": False, "error": f"Неизвестный инструмент: {tool_name}"}
  
@@ -1146,6 +1171,8 @@ class Agent:
                 tools=TOOL_SCHEMAS,
                 tool_choice="auto",
                 max_tokens=self.max_tokens,
+                user_id=self.user_id,
+                agent_name=self.name,
             )
  
             msg = response.choices[0].message
