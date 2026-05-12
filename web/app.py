@@ -60,7 +60,25 @@ from tools.gdrive_tools import (
 from tools.scheduler import schedule_reminder, list_reminders, cancel_reminder
 
 logger = logging.getLogger("MiraWeb")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger.setLevel(logging.INFO)
+
+# Файловый лог с ротацией (как в telegram_bot.py)
+from logging.handlers import TimedRotatingFileHandler
+os.makedirs("logs", exist_ok=True)
+_web_log_handler = TimedRotatingFileHandler(
+    "logs/web.log",
+    when="midnight",
+    interval=1,
+    backupCount=3,
+    encoding="utf-8",
+)
+_web_log_handler.suffix = "%Y-%m-%d"
+_web_log_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+logger.addHandler(_web_log_handler)
+# Дублируем в stdout для systemd/journalctl
+_stdout_handler = logging.StreamHandler()
+_stdout_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+logger.addHandler(_stdout_handler)
 
 BOT_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN", "")
 BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")   # например: MyMiraBot (без @)
@@ -69,6 +87,38 @@ MAX_HISTORY  = 40
 STATIC_DIR   = Path(__file__).parent / "static"
 
 app = FastAPI(title="Mira Web")
+
+# Web heartbeat: фоновый поток пишет метку каждые 30 секунд
+_web_heartbeat_path = os.path.join(MEMORY_DIR, ".heartbeat_web")
+
+def _start_web_heartbeat() -> None:
+    import threading as _th
+    import time as _time
+
+    def _loop() -> None:
+        while True:
+            try:
+                os.makedirs(MEMORY_DIR, exist_ok=True)
+                with open(_web_heartbeat_path, "w") as f:
+                    f.write(str(_time.time()))
+            except Exception:
+                pass
+            _time.sleep(30)
+
+    _th.Thread(target=_loop, daemon=True).start()
+    logger.info("Web heartbeat запущен")
+
+@app.on_event("startup")
+async def startup():
+    _start_web_heartbeat()
+    logger.info("=== Mira Web запущена ===")
+    # Стартовое уведомление владельцу
+    try:
+        from tools.access_tools import notify_owner
+        notify_owner("Web-интерфейс Миры запущен")
+    except Exception as e:
+        logger.warning(f"Не удалось отправить стартовое уведомление: {e}")
+
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -219,19 +269,28 @@ async def index():
     return FileResponse(str(STATIC_DIR / "index.html"))
 
 
-@app.get("/health")
-async def health():
-    # Проверяем heartbeat Telegram-бота (обновляется каждые 30 секунд)
-    heartbeat_path = os.path.join(MEMORY_DIR, ".heartbeat")
-    bot_alive = False
+def _check_heartbeat(filename: str) -> bool:
+    """Проверяет свежесть heartbeat-файла (до 120 сек)."""
+    path = os.path.join(MEMORY_DIR, filename)
     try:
-        if os.path.exists(heartbeat_path):
-            with open(heartbeat_path) as f:
+        if os.path.exists(path):
+            with open(path) as f:
                 ts = float(f.read().strip())
-            bot_alive = (time.time() - ts) < 120  # свежее 2 минут
+            return (time.time() - ts) < 120
     except Exception:
         pass
-    return {"status": "ok", "bot_alive": bot_alive}
+    return False
+
+
+@app.get("/health")
+async def health():
+    bot_alive = _check_heartbeat(".heartbeat")
+    web_alive = _check_heartbeat(".heartbeat_web")
+    return {
+        "status": "ok",
+        "bot_alive": bot_alive,
+        "web_alive": web_alive,
+    }
 
 
 @app.get("/oauth/google/callback")
@@ -397,6 +456,7 @@ async def chat(websocket: WebSocket, session: str = ""):
             # Команды
             if data.get("type") == "command":
                 cmd = data.get("cmd", "")
+                logger.info(f"WS command: {user_id} → {cmd}")
                 if cmd == "clear":
                     _save_session(user_id, [{"role": "system", "content": _system_prompt_for(user_id)}])
                     await websocket.send_json({"type": "system", "content": "История очищена."})
@@ -638,6 +698,8 @@ async def chat(websocket: WebSocket, session: str = ""):
             if not text:
                 continue
 
+            logger.info(f"WS message: {user_id} len={len(text)}")
+
             # Гостевой лимит сообщений
             pdata = load_user_profile(user_id)
             if pdata and pdata.get("status") == "guest":
@@ -645,6 +707,7 @@ async def chat(websocket: WebSocket, session: str = ""):
                 pdata["guest_message_count"] = count
                 save_user_profile(user_id, pdata)
                 if count > 10:
+                    logger.info(f"Guest limit exceeded: {user_id}")
                     await websocket.send_json({"type": "system", "content": "Лимит сообщений исчерпан. Ожидай одобрения."})
                     continue
                 elif count >= 8:
@@ -652,9 +715,11 @@ async def chat(websocket: WebSocket, session: str = ""):
 
             # Проверка статуса: blocked/rejected
             if pdata and pdata.get("status") == "blocked":
+                logger.warning(f"Blocked user attempted message: {user_id}")
                 await websocket.send_json({"type": "system", "content": "Доступ закрыт."})
                 continue
             if pdata and pdata.get("status") == "rejected":
+                logger.info(f"Rejected user attempted message: {user_id}")
                 await websocket.send_json({"type": "system", "content": "Твой запрос на доступ был отклонён."})
                 continue
 
@@ -746,7 +811,12 @@ async def chat(websocket: WebSocket, session: str = ""):
     except WebSocketDisconnect:
         logger.info(f"WS disconnect: {user_id}")
     except Exception as e:
-        logger.error(f"WS error: {e}", exc_info=True)
+        logger.error(f"WS error {user_id}: {e}", exc_info=True)
+        try:
+            from tools.access_tools import notify_owner
+            notify_owner(f"WebSocket error: {e}"[:300])
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
