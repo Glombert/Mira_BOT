@@ -19,6 +19,7 @@ from tools.gdrive_tools import gdrive_list, gdrive_read, gdrive_write, is_author
 from tools.gdrive_tools import gcal_list, gcal_create, gcal_quick_add
 from tools.gdrive_tools import gsheet_read, gsheet_write, gsheet_create
 from tools.metrics_tools import metrics_read
+from tools.scheduler import schedule_reminder, list_reminders, cancel_reminder
 import memory_manager as _memory_manager
 import memory_crypto
 from tools.git_tools   import sync_with_git, ensure_dev_branch, release_to_main
@@ -1070,6 +1071,68 @@ TOOL_SCHEMAS = [
                 "required": ["title"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_reminder",
+            "description": (
+                "Создаёт отложенное напоминание. Мира сама напишет пользователю в Telegram "
+                "в указанное время с указанным сообщением. "
+                "Аргументы: trigger_at (ISO-дата/время: '2026-05-13T05:10:00'), "
+                "message (текст напоминания). "
+                "Используй когда пользователь просит 'напомни мне завтра в 8 утра...'"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "trigger_at": {
+                        "type": "string",
+                        "description": "ISO-дата/время когда отправить напоминание. Пример: '2026-05-13T05:10:00'."
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Текст напоминания который отправить пользователю."
+                    }
+                },
+                "required": ["trigger_at", "message"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_reminders",
+            "description": (
+                "Показывает все активные напоминания пользователя. "
+                "Возвращает список с id, trigger_at, message."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_reminder",
+            "description": (
+                "Отменяет напоминание по ID. "
+                "Аргумент: task_id (id напоминания из list_reminders)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "ID напоминания для отмены."
+                    }
+                },
+                "required": ["task_id"]
+            }
+        }
     }
 ]
 
@@ -1227,6 +1290,12 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
                                   tool_args["values"])
         elif tool_name == "gsheet_create":
             result = gsheet_create(user_id, tool_args["title"])
+        elif tool_name == "schedule_reminder":
+            result = schedule_reminder(user_id, tool_args["trigger_at"], tool_args["message"])
+        elif tool_name == "list_reminders":
+            result = list_reminders(user_id)
+        elif tool_name == "cancel_reminder":
+            result = cancel_reminder(user_id, tool_args["task_id"])
         else:
             result = {"ok": False, "error": f"Неизвестный инструмент: {tool_name}"}
  

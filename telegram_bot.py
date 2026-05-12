@@ -84,6 +84,7 @@ from tools.gdrive_tools import (
     gsheet_read,
     gsheet_create,
 )
+from tools.scheduler import schedule_reminder, list_reminders, cancel_reminder, get_due_tasks, mark_done
 
 from router   import classify
 from conclave import Conclave
@@ -320,6 +321,8 @@ BASIC_COMMANDS = [
     BotCommand("gdrive", "Мои файлы на Google Drive"),
     BotCommand("gcal",   "Мой календарь"),
     BotCommand("gsheet", "Читать Google Таблицу"),
+    BotCommand("remind", "Создать напоминание"),
+    BotCommand("reminders", "Мои напоминания"),
     BotCommand("clear",  "Очистить историю"),
     BotCommand("forget", "Сбросить профиль"),
     BotCommand("stop",   "Остановить Конклав"),
@@ -689,6 +692,88 @@ async def cmd_gsheet_create(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         f"{result.get('url')}",
         parse_mode="Markdown",
     )
+
+
+async def cmd_remind(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Создаёт напоминание: /remind 2026-05-13T05:10 Текст напоминания"""
+    user_id = _user_id(update.effective_user.id)
+    if not _is_approved(user_id):
+        await _reply(update, "Напоминания доступны только одобренным пользователям.")
+        return
+    text = (update.message.text or "").strip()
+    prefix = "/remind"
+    if text.startswith(prefix):
+        text = text[len(prefix):].strip()
+    if not text:
+        await _reply(update, "Напиши: /remind <ISO-дата> <текст>\nПример: /remind 2026-05-13T05:10 Пора на работу!")
+        return
+    parts = text.split(maxsplit=1)
+    if len(parts) < 2:
+        await _reply(update, "Нужны дата/время и текст: /remind 2026-05-13T05:10 Пора на работу!")
+        return
+    trigger_at, message = parts[0].strip(), parts[1].strip()
+    # Позволяем дату без времени: 2026-05-13 → 2026-05-13T09:00:00
+    if "T" not in trigger_at and len(trigger_at) == 10:
+        trigger_at += "T09:00:00"
+    elif "T" not in trigger_at:
+        await _reply(update, "Дата должна быть в ISO-формате: 2026-05-13T05:10 или 2026-05-13")
+        return
+    result = schedule_reminder(user_id, trigger_at, message)
+    if not result.get("ok"):
+        await _reply(update, f"❌ Ошибка: {result.get('error')}")
+        return
+    task = result["task"]
+    await _reply(update,
+        f"✅ Напоминание создано:\n"
+        f"ID: `{task['id']}`\n"
+        f"Когда: {task['trigger_at']}\n"
+        f"Текст: {task['message']}\n\n"
+        f"Отменить: /remind_cancel {task['id']}",
+        parse_mode="Markdown",
+    )
+
+
+async def cmd_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Показывает активные напоминания пользователя."""
+    user_id = _user_id(update.effective_user.id)
+    if not _is_approved(user_id):
+        await _reply(update, "Напоминания доступны только одобренным пользователям.")
+        return
+    result = list_reminders(user_id)
+    if not result.get("ok"):
+        await _reply(update, f"❌ {result.get('error')}")
+        return
+    reminders = result.get("reminders", [])
+    if not reminders:
+        await _reply(update, "Активных напоминаний нет.")
+        return
+    lines = [f"Активные напоминания ({len(reminders)}):"]
+    for r in reminders:
+        lines.append(f"  `{r['id']}` — {r['trigger_at'][:16].replace('T', ' ')} — {r['message'][:60]}")
+    lines.append("\nОтменить: /remind_cancel <id>")
+    await _reply(update, "\n".join(lines), parse_mode="Markdown")
+
+
+async def cmd_remind_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Отменяет напоминание: /remind_cancel <id>"""
+    user_id = _user_id(update.effective_user.id)
+    if not _is_approved(user_id):
+        await _reply(update, "Напоминания доступны только одобренным пользователям.")
+        return
+    text = (update.message.text or "").strip()
+    prefix = "/remind_cancel"
+    if text.startswith(prefix):
+        task_id = text[len(prefix):].strip()
+    else:
+        task_id = ""
+    if not task_id:
+        await _reply(update, "Укажи ID напоминания: /remind_cancel <id>\nID можно найти в /reminders.")
+        return
+    result = cancel_reminder(user_id, task_id)
+    if result.get("ok"):
+        await _reply(update, result["message"])
+    else:
+        await _reply(update, f"❌ {result.get('error')}")
 
 
 # ---------------------------------------------------------------------------
@@ -1854,6 +1939,34 @@ async def post_init(app: Application) -> None:
 
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
 
+    # Scheduler: фоновый поток проверяет отложенные напоминания каждые 30 секунд
+    def _scheduler_loop() -> None:
+        # Даём боту время на инициализацию перед первым запуском
+        _time.sleep(5)
+        while True:
+            try:
+                due = get_due_tasks()
+                for task in due:
+                    try:
+                        raw_uid = task["user_id"].replace("tg_", "")
+                        if raw_uid.isdigit():
+                            chat_id = int(raw_uid)
+                            text = f"⏰ Напоминание:\n{task['message']}"
+                            asyncio.run_coroutine_threadsafe(
+                                app.bot.send_message(chat_id=chat_id, text=text),
+                                asyncio.get_running_loop(),
+                            )
+                            mark_done(task["id"])
+                            logger.info(f"Scheduler: отправлено напоминание {task['id']} → {task['user_id']}")
+                    except Exception as e:
+                        logger.warning(f"Scheduler: ошибка отправки {task['id']}: {e}")
+                        mark_done(task["id"])  # не застреваем на одной задаче
+            except Exception as e:
+                logger.warning(f"Scheduler: ошибка цикла: {e}")
+            _time.sleep(30)
+
+    threading.Thread(target=_scheduler_loop, daemon=True).start()
+
     # Стартовое уведомление владельцу
     try:
         notify_owner("Мира запущена на VPS")
@@ -1918,6 +2031,9 @@ def main() -> None:
     app.add_handler(CommandHandler("gcal_create",     cmd_gcal_create))
     app.add_handler(CommandHandler("gsheet",          cmd_gsheet))
     app.add_handler(CommandHandler("gsheet_create",   cmd_gsheet_create))
+    app.add_handler(CommandHandler("remind",         cmd_remind))
+    app.add_handler(CommandHandler("reminders",      cmd_reminders))
+    app.add_handler(CommandHandler("remind_cancel",  cmd_remind_cancel))
     app.add_handler(CommandHandler("files",    cmd_files))
     app.add_handler(CommandHandler("clear",    cmd_clear))
     app.add_handler(CommandHandler("forget",   cmd_forget))

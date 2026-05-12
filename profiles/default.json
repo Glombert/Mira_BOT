@@ -1,7 +1,7 @@
 {
   "profile_name": "default",
   "description": "Профиль по умолчанию — обычный пользователь",
-  "allowed_tools": ["read_file", "list_files", "web_search", "list_self", "read_self", "git_log", "recall", "save_template", "list_templates", "metrics_read", "gsheet_read"],
+  "allowed_tools": ["read_file", "list_files", "web_search", "list_self", "read_self", "git_log", "recall", "save_template", "list_templates", "metrics_read", "gsheet_read", "schedule_reminder", "list_reminders", "cancel_reminder"],
   "max_history": 40,
   "max_tool_rounds": 30,
   "language": "ru",
