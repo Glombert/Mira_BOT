@@ -1,10 +1,23 @@
 # Mira_BOT — План разработки
 
-> Версия: 3.12
+> Версия: 3.13
 > Последнее обновление: 2026-05-12
 > Архитектура: см. ARCHITECTURE.md
 
 ---
+
+## Что изменилось в v3.13
+
+Google Drive OAuth + модель для гостей:
+
+- **Google Drive OAuth 2.0 для пользователей.** Каждый одобренный пользователь может привязать свой Google-аккаунт через `/google_login`. OAuth через PKCE (без client_secret), токены шифруются Fernet в `memory/gdrive/{user_id}.json`. Веб-колбэк на VPS (`/oauth/google/callback`) для авто-обмена кода — пользователю не нужно копировать код. Резервный вариант: `/google_auth <url>` с парсингом URL.
+- **Инструменты Google Drive.** `gdrive_list(path)`, `gdrive_read(path)`, `gdrive_write(path)` — чтение и запись файлов на личный Drive пользователя. Scope: `drive.file` — приложение видит только свои файлы.
+- **Авто-загрузка на Drive.** Когда авторизованный пользователь отправляет документ, файл автоматически дублируется на Google Drive. Включается опционально через `/gdrive_toggle`.
+- **Гости на Gemini Flash.** Неодобренные пользователи (`guest`) маршрутизируются на модель `google/gemini-flash-1.5` через OpenRouter (температура 0.6, max_tokens 2048) — дешевле в 5–7 раз. Резерв: DeepSeek Chat.
+- **Ужесточение гостевого доступа.** Гости: без обмена файлами, без фото, без Конклава, без Google Drive. Только диалог с базовыми инструментами (`read_file`, `list_files`, `web_search`). Лимит 10 сообщений. История сохраняется и используется после одобрения.
+- **Профиль `alpha_guest`.** Отдельный конфиг агента для гостей в `agents/alpha_guest.json`. `_alpha_agent_name()` выбирает конфиг в зависимости от статуса пользователя.
+- **Двойная система проверки инструментов.** `Agent.can_use()` проверяет пересечение `self.allowed_tools` (конфиг агента) И `profile.can_use(tool_name)` (профиль пользователя). Оба должны разрешать.
+- **Исправлен PKCE в Google OAuth.** `code_verifier` сохраняется на диск (переживает рестарт бота), передаётся в Flow при обмене кода. Одноразовый, TTL 10 минут.
 
 ## Что изменилось в v3.12
 
@@ -181,8 +194,10 @@ Telegram Bot и инструменты для Excel — запущено и пр
 
 - [x] Базовый агент с историей диалога, tool calling, ротируемые логи
 - [x] providers.py: model_chain, fallback-цепочка, prompt caching для Anthropic/OpenRouter
-- [x] Этапы 0.1–0.8 (фундамент, безопасность, ветки, облако, доступ)
-- [x] Этапы 1.1–1.6, 1.8 (Agent класс, file/shell/git/cloud/access tools, /undo, лимиты, инъекции)
+- [x] Все этапы 0–9 завершены (фундамент, Agent, Конклав, Excel, Telegram, VPS, самосознание, шифрование, долгая память, веб-интерфейс)
+- [x] Google Drive OAuth 2.0: личные аккаунты пользователей, PKCE, веб-колбэк
+- [x] Гости на Gemini Flash: дешёвая модель, без файлов, без Конклава
+- [x] 18 инструментов, включая gdrive_list/read/write
 - [x] /evolve через unified diff — работает на файлах любого размера
 - [x] Полный цикл саморедактирования протестирован вживую (diff → принципы → smoke-test → /release → main)
 
@@ -208,7 +223,8 @@ DEEPSEEK_API_KEY=...         # уже есть
 
 | Роль | Основная (OpenRouter) | Резерв 1 (OpenRouter) | Резерв 2 (Direct) |
 |---|---|---|---|
-| **Альфа** (общение) | `anthropic/claude-sonnet-4.6` | `deepseek/deepseek-v4-flash` | Anthropic direct |
+| **Альфа** (общение) | `anthropic/claude-sonnet-4.6` | `deepseek/deepseek-v4-pro` | Anthropic direct |
+| **Альфа-гость** (гости) | `google/gemini-flash-1.5` | `deepseek/deepseek-chat` | — |
 | **Coder** | `anthropic/claude-sonnet-4.6` | `anthropic/claude-opus-4.7` | Anthropic direct |
 | **Critic** | `google/gemini-3.1-pro-preview` | `anthropic/claude-sonnet-4.6` | — |
 | **Scout** | `perplexity/sonar` | `perplexity/sonar-pro` | — |
@@ -221,7 +237,8 @@ DEEPSEEK_API_KEY=...         # уже есть
 - **Claude Sonnet 4.6** — основная рабочая лошадка. По бенчмаркам конкурирует с прошлым Opus, цена ниже. Идеален для Альфы, Coder'а, Planner'а.
 - **Claude Opus 4.7** — для тяжёлой эволюции кода. Включается как резерв 1 для Coder'а — если Sonnet не справился, пробуем Opus.
 - **Claude Haiku 4.5** — самый дешёвый Claude. Для Editor'а как резерв.
-- **DeepSeek V4 Flash** — дешёвый, мощный, отличный для вспомогательных ролей (Editor, Reviewer).
+- **DeepSeek V4 Pro** — флагман DeepSeek, резерв для Альфы. DeepSeek V4 Flash — дешёвый, мощный, для вспомогательных ролей (Editor, Reviewer).
+- **Gemini Flash 1.5** — дешёвая модель Google для гостей. В 5–7 раз дешевле Claude Sonnet. Достаточна для простого диалога.
 - **Gemini 3.1 Pro для critic** — намеренно другая модель и провайдер, чтобы критик не повторял предубеждений Альфы. Это ключевой момент мульти-агентного дизайна.
 - **Perplexity Sonar для scout** — единственный со встроенным поиском и цитатами.
 
@@ -296,10 +313,10 @@ Owner / regular / guest / blocked — поле `status` в профиле.
 |---|---|
 | `owner` | Всё, включая `/evolve`, `/release`, одобрение |
 | `regular` | Полный доступ к своему workspace и Конклаву |
-| `guest` | Только разговор, 10 сообщений, ждёт одобрения |
+| `guest` | Только диалог (Gemini Flash), 10 сообщений, без файлов, ждёт одобрения |
 | `blocked` | Ничего |
 
-Гостевой флоу: знакомство → уведомление владельцу → лимит 10 сообщений → ожидание → авто-удаление через 3 дня. При одобрении история сохраняется. Гостевой профиль (`profiles/guest.json`) — пустой `allowed_tools`.
+Гостевой флоу: знакомство → уведомление владельцу → лимит 10 сообщений → ожидание → авто-удаление через 3 дня. При одобрении история сохраняется. Гостевой профиль (`profiles/guest.json`) — базовые инструменты (`read_file`, `list_files`, `web_search`), лимит 10 сообщений.
 
 ### Структура workspace пользователя
 
@@ -568,13 +585,16 @@ mira_bot/
 - [ ] Let's Encrypt (certbot) — бесплатный SSL.
 - [ ] `proxy_pass http://127.0.0.1:8000`.
 
-#### 9.3 — Google Drive через OAuth 2.0
-- [ ] Google Cloud Project, OAuth credentials, scope `drive.file`.
-- [ ] При первом запросе к Drive — Мира отправляет ссылку для авторизации.
-- [ ] После авторизации — токен хранится в `memory/{user_id}_gdrive_token.json` (зашифрован).
-- [ ] Инструменты: `gdrive_read(path)`, `gdrive_write(path, content)`, `gdrive_list(folder)`.
-- [ ] Пользователь говорит: «посмотри в моём Drive папку /Отчёты» — Мира читает и пишет рядом.
-- [ ] Каждый пользователь авторизует свой аккаунт — честный OAuth, не сервисный аккаунт.
+#### 9.3 — Google Drive через OAuth 2.0 ✓
+- [x] Google Cloud Project, OAuth credentials, scope `drive.file`.
+- [x] При первом запросе к Drive — Мира отправляет ссылку для авторизации (`/google_login`).
+- [x] После авторизации — токен хранится в `memory/gdrive/{user_id}.json` (зашифрован Fernet).
+- [x] Инструменты: `gdrive_read(path)`, `gdrive_write(path, content)`, `gdrive_list(folder)`.
+- [x] Пользователь говорит: «посмотри в моём Drive папку /Отчёты» — Мира читает и пишет рядом.
+- [x] Каждый пользователь авторизует свой аккаунт — честный OAuth (PKCE), не сервисный аккаунт.
+- [x] Веб-колбэк на VPS: `/oauth/google/callback` принимает редирект Google, авто-обмен кода.
+- [x] Авто-загрузка документов на Drive (опционально, `/gdrive_toggle`).
+- [x] Команды: `/google_login`, `/google_auth`, `/google_logout`, `/gdrive`, `/gdrive_get`, `/gdrive_toggle`.
 
 #### 9.4 — Мультичат (опционально)
 - [ ] **Решение:** мульти-чат не нужен при наличии долгой памяти. Один разговор с умной памятью эквивалентен специализированным приложениям.
@@ -694,11 +714,11 @@ mira_bot/
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  MIRA v1.3  —  production на VPS
+  MIRA v1.4  —  production на VPS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 [x] ЭТАП 0   — Фундамент (PRINCIPLES, ветки, облако, доступ)
-[x] ЭТАП 1   — Agent: 15 tools, providers, fallback, prompt caching
+[x] ЭТАП 1   — Agent: 18 tools, providers, fallback, prompt caching
 [x] ЭТАП 2   — Конклав: 8 специалистов, роутер, QA-цикл, killswitch
 [x] ЭТАП 3   — Excel: read/write, excel_specialist
 [x] ЭТАП 4   — Telegram Bot: сообщения, кнопки, файлы, 💭 прогресс
@@ -707,8 +727,8 @@ mira_bot/
 [x] ЭТАП 7   — Приватность: Fernet-шифрование, thread-safe запись
 [x] ЭТАП 8   — Долгая память: суммаризация, ChromaDB, профили, шаблоны
 [x] ЭТАП 9   — Веб-интерфейс: FastAPI + WebSocket, Telegram Login, Конклав в вебе
-              Осталось: Google Drive OAuth (личные аккаунты пользователей)
+              Google Drive OAuth (личные аккаунты пользователей) ✓
+              Гости на Gemini Flash, без файлов, без Конклава ✓
 
-[ ] ЭТАП 9.3 — Google Drive OAuth (каждый пользователь свой аккаунт)  ← СЛЕДУЮЩИЙ
-[ ] ЭТАП 10  — Тесты
+[ ] ЭТАП 10  — Тесты  ← СЛЕДУЮЩИЙ
 ```
