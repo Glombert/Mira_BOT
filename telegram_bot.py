@@ -1940,6 +1940,8 @@ async def post_init(app: Application) -> None:
     threading.Thread(target=_heartbeat_loop, daemon=True).start()
 
     # Scheduler: фоновый поток проверяет отложенные напоминания каждые 30 секунд
+    _scheduler_loop_ref = asyncio.get_running_loop()
+
     def _scheduler_loop() -> None:
         # Даём боту время на инициализацию перед первым запуском
         _time.sleep(5)
@@ -1954,7 +1956,7 @@ async def post_init(app: Application) -> None:
                             text = f"⏰ Напоминание:\n{task['message']}"
                             asyncio.run_coroutine_threadsafe(
                                 app.bot.send_message(chat_id=chat_id, text=text),
-                                asyncio.get_running_loop(),
+                                _scheduler_loop_ref,
                             )
                             mark_done(task["id"])
                             logger.info(f"Scheduler: отправлено напоминание {task['id']} → {task['user_id']}")
