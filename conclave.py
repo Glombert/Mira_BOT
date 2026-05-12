@@ -28,6 +28,7 @@ import json
 import time
 import random
 import logging
+import concurrent.futures
 import providers as _providers
 
 logger = logging.getLogger("Ouroborus")
@@ -297,12 +298,16 @@ class Conclave:
         logger.warning(f"Conclave: превышен лимит вызовов инструментов ({max_tool_rounds}) для {config.get('name', 'unknown')}")
         return "[Превышен лимит вызовов инструментов]"
 
-    def run_with_qa(self, task: str, executor_name: str = "coder") -> str:
+    def run_with_qa(self, task: str, executor_name: str = "coder",
+                    skip_editor: bool = False, parallel_scout: bool = False) -> str:
         """
         Цикл качества: executor → editor → critic (до MAX_ITER раз).
 
         Возвращает лучший результат даже если critic так и не поставил ≥7.
         Лучший = с наибольшей оценкой critic за все итерации.
+
+        skip_editor    — не вызывать Редактора (для простых задач: search, chat)
+        parallel_scout — на первой итерации запустить Разведчика параллельно с исполнителем
         """
         best_result = ""
         best_score  = -1
@@ -321,32 +326,48 @@ class Conclave:
             if iteration == 1:
                 self._progress(_pick("executor_start", executor_name))
 
-            # --- Executor ---
+            # --- Executor (+ параллельный scout на первой итерации) ---
             exec_ctx = (
                 f"Предыдущая версия (улучши её):\n{best_result}"
                 if best_result else ""
             )
-            try:
-                result = self.run(executor_name, task, exec_ctx)
-            except Exception as e:
-                logger.error(f"Conclave: {executor_name} упал ({e})")
-                if best_result:
-                    break
-                return f"[Ошибка: специалист '{executor_name}' недоступен — {e}]"
+
+            if parallel_scout and iteration == 1 and executor_name != "scout":
+                # Запускаем Разведчика и основного исполнителя параллельно
+                self._progress(_pick("executor_start", "scout"))
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                    scout_fut = pool.submit(self.run, "scout", task, "")
+                    exec_fut  = pool.submit(self.run, executor_name, task, exec_ctx)
+                    scout_res = scout_fut.result()
+                    exec_res  = exec_fut.result()
+                result = (
+                    f"Результаты исследования:\n{scout_res}\n\n"
+                    f"Результат выполнения:\n{exec_res}"
+                )
+                logger.info(f"Conclave: parallel scout+{executor_name} завершены")
+            else:
+                try:
+                    result = self.run(executor_name, task, exec_ctx)
+                except Exception as e:
+                    logger.error(f"Conclave: {executor_name} упал ({e})")
+                    if best_result:
+                        break
+                    return f"[Ошибка: специалист '{executor_name}' недоступен — {e}]"
 
             if self.should_stop:
                 self._progress(_pick("stopped"))
                 break
 
-            # --- Editor (молча — слишком внутреннее) ---
-            try:
-                result = self.run(
-                    "editor",
-                    "Улучши текст или код: убери лишнее, повысь ясность, не меняй смысл.",
-                    result,
-                )
-            except Exception as e:
-                logger.warning(f"Conclave: editor упал ({e}), продолжаю без редактуры")
+            # --- Editor (пропускаем для простых задач) ---
+            if not skip_editor:
+                try:
+                    result = self.run(
+                        "editor",
+                        "Улучши текст или код: убери лишнее, повысь ясность, не меняй смысл.",
+                        result,
+                    )
+                except Exception as e:
+                    logger.warning(f"Conclave: editor упал ({e}), продолжаю без редактуры")
 
             if self.should_stop:
                 self._progress(_pick("stopped"))

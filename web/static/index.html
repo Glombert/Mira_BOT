@@ -308,7 +308,21 @@
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
     Сброс профиля
   </button>
+  <span style="color:var(--muted);margin:0 4px">|</span>
+  <button class="cmd-btn" onclick="sendCmd('gdrive_login')" title="Google Drive">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M2 12h2l4-8h8l4 8h2"/><path d="M6 12h12v8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2z"/></svg>
+    Drive
+  </button>
+  <button class="cmd-btn" onclick="sendCmd('gcal')" title="Календарь">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    Календарь
+  </button>
+  <button class="cmd-btn" onclick="sendCmd('reminders')" title="Напоминания">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+    Напоминания
+  </button>
 </div>
+<div id="guest-counter" style="display:none;width:100%;max-width:760px;padding:4px 16px;background:rgba(239,68,68,0.08);border-bottom:1px solid rgba(239,68,68,0.15);text-align:center;font-size:12px;color:#f87171"></div>
 
 <!-- FILES PANEL -->
 <div id="files-panel">
@@ -361,6 +375,10 @@
         dot.className = "online";
         sendBtn.disabled = false;
         if (m.name) document.getElementById("user-name").textContent = m.name;
+      } else if (m.type === "gdrive_auth_url") {
+        hideThinking(); dot.className = "online"; sendBtn.disabled = false;
+        window.open(m.url, "_blank");
+        addMsg("system", "Открываю страницу авторизации Google Drive...\nПосле подтверждения Drive будет привязан автоматически.");
       } else if (m.type === "thinking") {
         showThinking();
       } else if (m.type === "message") {
@@ -424,6 +442,48 @@
     if (cmd === "files") {
       const panel = document.getElementById("files-panel");
       panel.style.display = panel.style.display === "none" ? "block" : "none";
+    }
+    if (cmd.startsWith("gdrive_get ")) {
+      const id = prompt("ID файла с Google Drive:", "");
+      if (!id) return;
+      cmd = "gdrive_get " + id;
+    }
+    if (cmd === "gdrive_list") {
+      const folder = prompt("Папка (Enter = root):", "root");
+      cmd = folder ? "gdrive_list " + folder : "gdrive_list root";
+    }
+    if (cmd.startsWith("gsheet ")) {
+      const sid = prompt("ID таблицы Google Sheets:", "");
+      if (!sid) return;
+      const rng = prompt("Диапазон (Enter = A1:Z100):", "A1:Z100") || "A1:Z100";
+      cmd = "gsheet " + sid + " " + rng;
+    }
+    if (cmd.startsWith("gsheet_create ")) {
+      const title = prompt("Название новой таблицы:", "");
+      if (!title) return;
+      cmd = "gsheet_create " + title;
+    }
+    if (cmd.startsWith("gcal_create ")) {
+      const text = prompt("Опиши событие (например: Встреча с Колей завтра в 15:00):", "");
+      if (!text) return;
+      cmd = "gcal_create " + text;
+    }
+    if (cmd.startsWith("remind ")) {
+      const dt = prompt("Дата/время (ISO: 2026-05-13T05:10):", "");
+      if (!dt) return;
+      const msg = prompt("Текст напоминания:", "");
+      if (!msg) return;
+      cmd = "remind " + dt + " " + msg;
+    }
+    if (cmd.startsWith("remind_cancel ")) {
+      const tid = prompt("ID напоминания для отмены:", "");
+      if (!tid) return;
+      cmd = "remind_cancel " + tid;
+    }
+    if (cmd === "gdrive_login") {
+      showThinking();
+      dot.className = "thinking";
+      sendBtn.disabled = true;
     }
     ws.send(JSON.stringify({type: "command", cmd}));
   }

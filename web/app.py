@@ -46,17 +46,79 @@ from agent import (
     Agent, Profile, SYSTEM_PROMPT, TOOL_SCHEMAS, execute_tool,
     load_user_profile, save_user_profile,
     MEMORY_DIR, WORKSPACE_DIR, MEMORY_SESSIONS_DIR,
+    notify_new_user, time_context,
 )
+from tools.gdrive_tools import (
+    is_configured as gdrive_configured,
+    is_authorized as gdrive_authorized,
+    get_auth_url,
+    gdrive_list, gdrive_read,
+    gdrive_status,
+    gcal_list, gcal_quick_add,
+    gsheet_read, gsheet_create,
+)
+from tools.scheduler import schedule_reminder, list_reminders, cancel_reminder
 
 logger = logging.getLogger("MiraWeb")
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logger.setLevel(logging.INFO)
+
+# Файловый лог с ротацией (как в telegram_bot.py)
+from logging.handlers import TimedRotatingFileHandler
+os.makedirs("logs", exist_ok=True)
+_web_log_handler = TimedRotatingFileHandler(
+    "logs/web.log",
+    when="midnight",
+    interval=1,
+    backupCount=3,
+    encoding="utf-8",
+)
+_web_log_handler.suffix = "%Y-%m-%d"
+_web_log_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+logger.addHandler(_web_log_handler)
+# Дублируем в stdout для systemd/journalctl
+_stdout_handler = logging.StreamHandler()
+_stdout_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+logger.addHandler(_stdout_handler)
 
 BOT_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN", "")
 BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")   # например: MyMiraBot (без @)
-MAX_HISTORY  = 40
+OWNER_TG_ID  = int(os.getenv("OWNER_TELEGRAM_ID", "0"))
+MAX_HISTORY  = 20
 STATIC_DIR   = Path(__file__).parent / "static"
 
 app = FastAPI(title="Mira Web")
+
+# Web heartbeat: фоновый поток пишет метку каждые 30 секунд
+_web_heartbeat_path = os.path.join(MEMORY_DIR, ".heartbeat_web")
+
+def _start_web_heartbeat() -> None:
+    import threading as _th
+    import time as _time
+
+    def _loop() -> None:
+        while True:
+            try:
+                os.makedirs(MEMORY_DIR, exist_ok=True)
+                with open(_web_heartbeat_path, "w") as f:
+                    f.write(str(_time.time()))
+            except Exception:
+                pass
+            _time.sleep(30)
+
+    _th.Thread(target=_loop, daemon=True).start()
+    logger.info("Web heartbeat запущен")
+
+@app.on_event("startup")
+async def startup():
+    _start_web_heartbeat()
+    logger.info("=== Mira Web запущена ===")
+    # Стартовое уведомление владельцу
+    try:
+        from tools.access_tools import notify_owner
+        notify_owner("Web-интерфейс Миры запущен")
+    except Exception as e:
+        logger.warning(f"Не удалось отправить стартовое уведомление: {e}")
+
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -103,16 +165,18 @@ def _verify_session(token: str) -> int | None:
 # ---------------------------------------------------------------------------
 
 def _web_user_id(tg_id: int) -> str:
-    return f"web_tg_{tg_id}"
+    """Web и Telegram делят профиль — user_id одинаковый."""
+    return f"tg_{tg_id}"
 
 
-def _session_path(user_id: str) -> str:
-    return os.path.join(MEMORY_SESSIONS_DIR, f"{user_id}.json")
+def _web_web_session_path(user_id: str) -> str:
+    """Web-сессия отдельная от Telegram: префикс web_."""
+    return os.path.join(MEMORY_SESSIONS_DIR, f"web_{user_id}.json")
 
 
 def _load_session(user_id: str) -> list:
     sys_prompt = _system_prompt_for(user_id)
-    msgs = memory_crypto.load_json(_session_path(user_id))
+    msgs = memory_crypto.load_json(_web_session_path(user_id))
     if isinstance(msgs, list):
         for m in msgs:
             if m.get("role") == "system":
@@ -145,13 +209,13 @@ def _save_session(user_id: str, msgs: list) -> None:
     ]
 
     try:
-        memory_crypto.save_json(_session_path(user_id), saveable)
+        memory_crypto.save_json(_web_session_path(user_id), saveable)
     except Exception as e:
         logger.warning(f"save_session {user_id}: {e}")
 
 
 def _system_prompt_for(user_id: str) -> str:
-    base      = SYSTEM_PROMPT
+    base      = SYSTEM_PROMPT + f"\n\n{time_context()}"
     summary   = memory_manager.get_summary(user_id, load_user_profile)
     templates = memory_manager.get_templates_prompt(user_id)
     if summary:
@@ -173,20 +237,26 @@ def _ensure_profile(user_id: str, tg_name: str = "") -> bool:
     """Создаёт профиль если не существует. Возвращает True если профиль новый."""
     if load_user_profile(user_id):
         return False
+    # Определяем статус: владелец → owner, остальные → guest
+    raw_uid = user_id.replace("tg_", "")
+    is_owner = OWNER_TG_ID and raw_uid.isdigit() and int(raw_uid) == OWNER_TG_ID
     os.makedirs(MEMORY_DIR, exist_ok=True)
     for sub in ("inbox", "output", "temp", ".undo"):
         os.makedirs(os.path.join(WORKSPACE_DIR, user_id, sub), exist_ok=True)
     save_user_profile(user_id, {
         "id":           user_id,
         "name":         tg_name,
-        "status":       "guest",   # новые пользователи ждут одобрения
+        "status":       "owner" if is_owner else "guest",
         "created_at":   datetime.now().strftime("%Y-%m-%d"),
         "last_seen":    datetime.now().strftime("%Y-%m-%d"),
         "sessions_count": 1,
+        "guest_message_count": 0,
         "about":        {},
         "preferences":  {"language": "ru"},
         "domain":       {},
     })
+    if not is_owner:
+        notify_new_user(user_id, tg_name, "web")
     return True
 
 
@@ -199,19 +269,28 @@ async def index():
     return FileResponse(str(STATIC_DIR / "index.html"))
 
 
-@app.get("/health")
-async def health():
-    # Проверяем heartbeat Telegram-бота (обновляется каждые 30 секунд)
-    heartbeat_path = os.path.join(MEMORY_DIR, ".heartbeat")
-    bot_alive = False
+def _check_heartbeat(filename: str) -> bool:
+    """Проверяет свежесть heartbeat-файла (до 120 сек)."""
+    path = os.path.join(MEMORY_DIR, filename)
     try:
-        if os.path.exists(heartbeat_path):
-            with open(heartbeat_path) as f:
+        if os.path.exists(path):
+            with open(path) as f:
                 ts = float(f.read().strip())
-            bot_alive = (time.time() - ts) < 120  # свежее 2 минут
+            return (time.time() - ts) < 120
     except Exception:
         pass
-    return {"status": "ok", "bot_alive": bot_alive}
+    return False
+
+
+@app.get("/health")
+async def health():
+    bot_alive = _check_heartbeat(".heartbeat")
+    web_alive = _check_heartbeat(".heartbeat_web")
+    return {
+        "status": "ok",
+        "bot_alive": bot_alive,
+        "web_alive": web_alive,
+    }
 
 
 @app.get("/oauth/google/callback")
@@ -347,29 +426,8 @@ async def auth_telegram(request: Request):
     user_id = _web_user_id(tg_id)
     is_new  = _ensure_profile(user_id, name)
 
-    if is_new:
-        import threading, json as _j
-        owner_tg = os.getenv("OWNER_TELEGRAM_ID", "")
-        if owner_tg and BOT_TOKEN:
-            msg = f"Новый пользователь через веб!\nИмя: {name}\nID: {user_id}"
-            payload = {
-                "chat_id": owner_tg, "text": msg,
-                "reply_markup": _j.dumps({"inline_keyboard": [[
-                    {"text": "Одобрить ✅", "callback_data": f"u_ap_{user_id}"},
-                    {"text": "Отклонить ❌", "callback_data": f"u_rj_{user_id}"},
-                ]]})
-            }
-            def _sn():
-                try:
-                    import urllib.request, urllib.parse
-                    urllib.request.urlopen(
-                        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                        data=urllib.parse.urlencode(payload).encode(), timeout=8)
-                except Exception: pass
-            threading.Thread(target=_sn, daemon=True).start()
-
     logger.info(f"Telegram auth: {tg_id} ({name}) new={is_new}")
-    return {"ok": True, "session": token, "name": name}
+    return {"ok": True, "session": token, "name": name, "is_new": is_new}
 
 
 @app.websocket("/ws")
@@ -398,6 +456,7 @@ async def chat(websocket: WebSocket, session: str = ""):
             # Команды
             if data.get("type") == "command":
                 cmd = data.get("cmd", "")
+                logger.info(f"WS command: {user_id} → {cmd}")
                 if cmd == "clear":
                     _save_session(user_id, [{"role": "system", "content": _system_prompt_for(user_id)}])
                     await websocket.send_json({"type": "system", "content": "История очищена."})
@@ -411,6 +470,12 @@ async def chat(websocket: WebSocket, session: str = ""):
                     if about.get("project"): lines.append(f"Проект: {about['project']}")
                     summary = p.get("conversation_summary", "")
                     if summary: lines.append(f"\nЧто Мира знает о тебе:\n{summary[:400]}")
+                    if _is_approved(user_id):
+                        gd = gdrive_status(user_id)
+                        if gd.get("authorized"):
+                            lines.append(f"Google Drive: {gd.get('email', 'привязан')}")
+                        elif gdrive_configured():
+                            lines.append("Google Drive: не привязан")
                     await websocket.send_json({"type": "system", "content": "\n".join(lines)})
 
                 elif cmd == "files":
@@ -440,16 +505,237 @@ async def chat(websocket: WebSocket, session: str = ""):
                         logger.warning(f"semantic_memory delete: {e}")
                     await websocket.send_json({"type": "system", "content": "Профиль и история сброшены."})
 
+                # --- Google Drive ---
+                elif cmd == "gdrive_login":
+                    if not _is_approved(user_id):
+                        await websocket.send_json({"type": "system", "content": "Google Drive доступен только одобренным пользователям."})
+                    elif not gdrive_configured():
+                        await websocket.send_json({"type": "system", "content": "Google Drive не настроен на сервере."})
+                    elif gdrive_authorized(user_id):
+                        gd = gdrive_status(user_id)
+                        await websocket.send_json({"type": "system", "content": f"Google Drive уже привязан: {gd.get('email', 'ok')}\n/gdrive — список файлов."})
+                    else:
+                        url = get_auth_url(state=user_id)
+                        if url:
+                            await websocket.send_json({"type": "gdrive_auth_url", "url": url})
+                        else:
+                            await websocket.send_json({"type": "system", "content": "Не удалось создать ссылку для авторизации."})
+
+                elif cmd == "gdrive_status":
+                    if not _is_approved(user_id):
+                        await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    elif not gdrive_authorized(user_id):
+                        await websocket.send_json({"type": "system", "content": "Google Drive не привязан. Нажми «Привязать Drive» чтобы начать."})
+                    else:
+                        gd = gdrive_status(user_id)
+                        await websocket.send_json({"type": "system", "content": f"Google Drive: {gd.get('email', 'привязан')}"})
+
+                elif cmd.startswith("gdrive_list"):
+                    if not _is_approved(user_id):
+                        await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    elif not gdrive_authorized(user_id):
+                        await websocket.send_json({"type": "system", "content": "Сначала привяжи Google Drive."})
+                    else:
+                        folder = cmd[11:].strip() or "root"
+                        result = gdrive_list(user_id, folder)
+                        if result.get("ok"):
+                            files = result.get("files", [])
+                            if not files:
+                                await websocket.send_json({"type": "system", "content": f"Папка пуста: {folder}"})
+                            else:
+                                lines = [f"Google Drive · {folder} ({len(files)})"]
+                                for f in files[:20]:
+                                    icon = "📁" if f["type"] == "folder" else "📄"
+                                    size = f" · {f['size']}" if f.get("size") else ""
+                                    lines.append(f"{icon} {f['name']}{size}")
+                                    lines.append(f"  id: {f['id']}")
+                                await websocket.send_json({"type": "system", "content": "\n".join(lines)})
+                        else:
+                            await websocket.send_json({"type": "system", "content": f"Ошибка: {result.get('error')}"})
+
+                elif cmd.startswith("gdrive_get "):
+                    if not _is_approved(user_id):
+                        await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    elif not gdrive_authorized(user_id):
+                        await websocket.send_json({"type": "system", "content": "Сначала привяжи Google Drive."})
+                    else:
+                        file_id = cmd[10:].strip()
+                        if not file_id:
+                            await websocket.send_json({"type": "system", "content": "Укажи ID файла: gdrive_get <id>"})
+                        else:
+                            result = gdrive_read(user_id, file_id)
+                            if result.get("ok"):
+                                fname = result.get("file", "file")
+                                await websocket.send_json({"type": "system", "content": f"Файл скачан в output/: {fname} ({result.get('size', 0)} bytes)"})
+                            else:
+                                await websocket.send_json({"type": "system", "content": f"Ошибка: {result.get('error')}"})
+
+                # --- Google Calendar ---
+                elif cmd == "gcal" or cmd.startswith("gcal "):
+                    if not _is_approved(user_id):
+                        await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    else:
+                        parts = cmd.split()
+                        n = 10
+                        if len(parts) > 1:
+                            try: n = max(1, min(int(parts[1]), 50))
+                            except ValueError: pass
+                        result = gcal_list(user_id, max_results=n)
+                        if result.get("ok"):
+                            events = result.get("events", [])
+                            if not events:
+                                await websocket.send_json({"type": "system", "content": "Календарь пуст."})
+                            else:
+                                lines = [f"Ближайшие события ({len(events)})"]
+                                for e in events:
+                                    start = e.get("start", "")[:16].replace("T", " ")
+                                    lines.append(f"  {start} — {e.get('summary', '')}")
+                                await websocket.send_json({"type": "system", "content": "\n".join(lines)})
+                        else:
+                            await websocket.send_json({"type": "system", "content": f"Ошибка: {result.get('error')}"})
+
+                elif cmd.startswith("gcal_create "):
+                    if not _is_approved(user_id):
+                        await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    else:
+                        text = cmd[12:].strip()
+                        if not text:
+                            await websocket.send_json({"type": "system", "content": "Напиши: gcal_create Встреча с Колей завтра в 15:00"})
+                        else:
+                            result = gcal_quick_add(user_id, text)
+                            if result.get("ok"):
+                                await websocket.send_json({"type": "system", "content": f"Событие создано: {result.get('summary')}"})
+                            else:
+                                await websocket.send_json({"type": "system", "content": f"Ошибка: {result.get('error')}"})
+
+                # --- Google Sheets ---
+                elif cmd.startswith("gsheet "):
+                    if not _is_approved(user_id):
+                        await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    else:
+                        args = cmd[7:].strip().split()
+                        if not args:
+                            await websocket.send_json({"type": "system", "content": "Укажи ID таблицы: gsheet <id> [диапазон]"})
+                        else:
+                            sid, rng = args[0], args[1] if len(args) > 1 else "A1:Z100"
+                            result = gsheet_read(user_id, sid, rng)
+                            if result.get("ok"):
+                                values = result.get("values", [])
+                                if not values:
+                                    await websocket.send_json({"type": "system", "content": "Таблица пуста."})
+                                else:
+                                    lines = [f"Таблица ({result.get('rows', 0)} строк)"]
+                                    for row in values[:20]:
+                                        lines.append(" | ".join(str(c)[:40] for c in row))
+                                    await websocket.send_json({"type": "system", "content": "\n".join(lines)})
+                            else:
+                                await websocket.send_json({"type": "system", "content": f"Ошибка: {result.get('error')}"})
+
+                elif cmd.startswith("gsheet_create "):
+                    if not _is_approved(user_id):
+                        await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    else:
+                        title = cmd[14:].strip() or "Новая таблица"
+                        result = gsheet_create(user_id, title)
+                        if result.get("ok"):
+                            await websocket.send_json({"type": "system", "content": f"Таблица создана: {result.get('title')}\n{result.get('url')}"})
+                        else:
+                            await websocket.send_json({"type": "system", "content": f"Ошибка: {result.get('error')}"})
+
+                # --- Reminders ---
+                elif cmd.startswith("remind "):
+                    if not _is_approved(user_id):
+                        await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    else:
+                        args = cmd[7:].strip().split(maxsplit=1)
+                        if len(args) < 2:
+                            await websocket.send_json({"type": "system", "content": "Формат: remind <ISO-дата> <текст>\nПример: remind 2026-05-13T05:10 Пора на работу!"})
+                        else:
+                            trigger_at = args[0]
+                            if "T" not in trigger_at and len(trigger_at) == 10:
+                                trigger_at += "T09:00:00"
+                            result = schedule_reminder(user_id, trigger_at, args[1])
+                            if result.get("ok"):
+                                t = result["task"]
+                                await websocket.send_json({"type": "system", "content": f"Напоминание создано!\nID: {t['id']}\nКогда: {t['trigger_at']}\nТекст: {t['message']}"})
+                            else:
+                                await websocket.send_json({"type": "system", "content": f"Ошибка: {result.get('error')}"})
+
+                elif cmd == "reminders":
+                    if not _is_approved(user_id):
+                        await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    else:
+                        result = list_reminders(user_id)
+                        if result.get("ok"):
+                            reminders = result.get("reminders", [])
+                            if not reminders:
+                                await websocket.send_json({"type": "system", "content": "Активных напоминаний нет."})
+                            else:
+                                lines = [f"Напоминания ({len(reminders)})"]
+                                for r in reminders:
+                                    lines.append(f"  {r['id']} — {r['trigger_at'][:16].replace('T', ' ')} — {r['message'][:60]}")
+                                await websocket.send_json({"type": "system", "content": "\n".join(lines)})
+                        else:
+                            await websocket.send_json({"type": "system", "content": f"Ошибка: {result.get('error')}"})
+
+                elif cmd.startswith("remind_cancel "):
+                    if not _is_approved(user_id):
+                        await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    else:
+                        task_id = cmd[14:].strip()
+                        if not task_id:
+                            await websocket.send_json({"type": "system", "content": "Укажи ID: remind_cancel <id>"})
+                        else:
+                            result = cancel_reminder(user_id, task_id)
+                            if result.get("ok"):
+                                await websocket.send_json({"type": "system", "content": result["message"]})
+                            else:
+                                await websocket.send_json({"type": "system", "content": f"Ошибка: {result.get('error')}"})
+
                 continue
 
             text = data.get("content", "").strip()
             if not text:
                 continue
 
+            logger.info(f"WS message: {user_id} len={len(text)}")
+
+            # Гостевой лимит сообщений
+            pdata = load_user_profile(user_id)
+            if pdata and pdata.get("status") == "guest":
+                count = pdata.get("guest_message_count", 0) + 1
+                pdata["guest_message_count"] = count
+                save_user_profile(user_id, pdata)
+                if count > 10:
+                    logger.info(f"Guest limit exceeded: {user_id}")
+                    await websocket.send_json({"type": "system", "content": "Лимит сообщений исчерпан. Ожидай одобрения."})
+                    continue
+                elif count >= 8:
+                    await websocket.send_json({"type": "system", "content": f"(осталось {10 - count} сообщений из 10)"})
+
+            # Проверка статуса: blocked/rejected
+            if pdata and pdata.get("status") == "blocked":
+                logger.warning(f"Blocked user attempted message: {user_id}")
+                await websocket.send_json({"type": "system", "content": "Доступ закрыт."})
+                continue
+            if pdata and pdata.get("status") == "rejected":
+                logger.info(f"Rejected user attempted message: {user_id}")
+                await websocket.send_json({"type": "system", "content": "Твой запрос на доступ был отклонён."})
+                continue
+
             msgs    = _load_session(user_id)
-            profile = Profile("guest" if not _is_approved(user_id) else "default")
-            agent   = "alpha_guest" if not _is_approved(user_id) else "alpha"
-            alpha   = Agent.from_config_file(agent, profile, user_id, _system_prompt_for(user_id))
+            # Профиль: owner → dev, одобрен → default, гость → guest
+            if _is_approved(user_id):
+                pdata2 = load_user_profile(user_id) or {}
+                if pdata2.get("status") == "owner":
+                    profile = Profile("dev")
+                else:
+                    profile = Profile("default")
+                agent = "alpha"
+            else:
+                profile = Profile("guest")
+                agent = "alpha_guest"
+            alpha = Agent.from_config_file(agent, profile, user_id, _system_prompt_for(user_id))
 
             msgs.append({"role": "user", "content": text})
             system   = [m for m in msgs if m["role"] == "system"]
@@ -525,7 +811,12 @@ async def chat(websocket: WebSocket, session: str = ""):
     except WebSocketDisconnect:
         logger.info(f"WS disconnect: {user_id}")
     except Exception as e:
-        logger.error(f"WS error: {e}", exc_info=True)
+        logger.error(f"WS error {user_id}: {e}", exc_info=True)
+        try:
+            from tools.access_tools import notify_owner
+            notify_owner(f"WebSocket error: {e}"[:300])
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

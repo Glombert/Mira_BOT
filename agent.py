@@ -19,6 +19,7 @@ from tools.gdrive_tools import gdrive_list, gdrive_read, gdrive_write, is_author
 from tools.gdrive_tools import gcal_list, gcal_create, gcal_quick_add
 from tools.gdrive_tools import gsheet_read, gsheet_write, gsheet_create
 from tools.metrics_tools import metrics_read
+from tools.scheduler import schedule_reminder, list_reminders, cancel_reminder
 import memory_manager as _memory_manager
 import memory_crypto
 from tools.git_tools   import sync_with_git, ensure_dev_branch, release_to_main
@@ -103,7 +104,16 @@ MEMORY_SESSIONS_DIR = os.path.join("memory", "sessions")  # горячая па�
 WORKSPACE_DIR = "workspace"                # рабочие папки пользователей
 
 # Параметры работы
-MAX_HISTORY   = 40    # сколько последних сообщений держать в контексте
+MAX_HISTORY   = 20    # сколько последних сообщений держать в контексте
+
+def time_context() -> str:
+    """Текущая дата и время для осознания Миры. Обновляется при каждом вызове."""
+    import datetime
+    now = datetime.datetime.now()
+    months = ["января", "февраля", "марта", "апреля", "мая", "июня",
+              "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+    days = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
+    return f"Сегодня {now.day} {months[now.month-1]} {now.year}, {days[now.weekday()]}, {now.hour:02d}:{now.minute:02d}"
                       # (переопределяется профилем пользователя)
 
 # Провайдеры моделей (заполняется из .env автоматически)
@@ -1070,6 +1080,68 @@ TOOL_SCHEMAS = [
                 "required": ["title"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_reminder",
+            "description": (
+                "Создаёт отложенное напоминание. Мира сама напишет пользователю в Telegram "
+                "в указанное время с указанным сообщением. "
+                "Аргументы: trigger_at (ISO-дата/время: '2026-05-13T05:10:00'), "
+                "message (текст напоминания). "
+                "Используй когда пользователь просит 'напомни мне завтра в 8 утра...'"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "trigger_at": {
+                        "type": "string",
+                        "description": "ISO-дата/время когда отправить напоминание. Пример: '2026-05-13T05:10:00'."
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Текст напоминания который отправить пользователю."
+                    }
+                },
+                "required": ["trigger_at", "message"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_reminders",
+            "description": (
+                "Показывает все активные напоминания пользователя. "
+                "Возвращает список с id, trigger_at, message."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_reminder",
+            "description": (
+                "Отменяет напоминание по ID. "
+                "Аргумент: task_id (id напоминания из list_reminders)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "ID напоминания для отмены."
+                    }
+                },
+                "required": ["task_id"]
+            }
+        }
     }
 ]
 
@@ -1227,6 +1299,12 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
                                   tool_args["values"])
         elif tool_name == "gsheet_create":
             result = gsheet_create(user_id, tool_args["title"])
+        elif tool_name == "schedule_reminder":
+            result = schedule_reminder(user_id, tool_args["trigger_at"], tool_args["message"])
+        elif tool_name == "list_reminders":
+            result = list_reminders(user_id)
+        elif tool_name == "cancel_reminder":
+            result = cancel_reminder(user_id, tool_args["task_id"])
         else:
             result = {"ok": False, "error": f"Неизвестный инструмент: {tool_name}"}
  
@@ -2311,14 +2389,21 @@ if __name__ == "__main__":
 
         messages.append({"role": "user", "content": user_input})
         messages = trim_history(messages)
+        # Обновляем дату/время в системном промпте
+        fresh_system = SYSTEM_PROMPT + f"\n\n{time_context()}"
+        for m in messages:
+            if m["role"] == "system":
+                m["content"] = fresh_system
+                break
         logger.info(f"User: {user_input}")
 
         # Классифицируем задачу — дёшево, один вызов
         conclave.should_stop = False  # сбрасываем флаг перед новым запросом
+        # (executor, skip_editor, parallel_scout)
         _EXECUTOR_FOR = {
-            "search":  "scout",
-            "code":    "coder",
-            "complex": "coder",
+            "search":  ("scout", True,  False),  # поиск — без редактора
+            "code":    ("coder", False, False),  # код — полный цикл
+            "complex": ("coder", False, True),   # сложное — scout параллельно
         }
 
         task_type = classify(user_input, alpha.model_chain if alpha else [])
@@ -2326,11 +2411,13 @@ if __name__ == "__main__":
         try:
             if task_type in _EXECUTOR_FOR and alpha:
                 # Передаём в Конклав: executor → editor → critic
-                executor = _EXECUTOR_FOR[task_type]
+                executor, skip_editor, parallel_scout = _EXECUTOR_FOR[task_type]
                 print(f"\n[Роутер → {task_type.upper()}] Передаю специалистам...")
                 logger.info(f"Conclave activated: task_type={task_type}, executor={executor}")
 
-                raw = conclave.run_with_qa(user_input, executor)
+                raw = conclave.run_with_qa(user_input, executor,
+                                           skip_editor=skip_editor,
+                                           parallel_scout=parallel_scout)
 
                 # Альфа оформляет результат своим голосом
                 presentation = (
