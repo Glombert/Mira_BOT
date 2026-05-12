@@ -41,9 +41,35 @@ GDRIVE_TOKENS_DIR = os.path.join("memory", "gdrive")
 
 os.makedirs(GDRIVE_TOKENS_DIR, exist_ok=True)
 
-# Кэш code_verifier'ов PKCE (state → verifier). Живут 10 минут.
-_verifier_cache: dict[str, tuple[str, float]] = {}
-_verifier_lock = threading.Lock()
+
+def _verifier_path(user_id: str) -> str:
+    return os.path.join(GDRIVE_TOKENS_DIR, f".verifier_{user_id}")
+
+
+def _save_verifier(user_id: str, verifier: str) -> None:
+    """Сохраняет PKCE code_verifier на диск (переживает рестарт)."""
+    try:
+        with open(_verifier_path(user_id), "w") as f:
+            json.dump({"verifier": verifier, "at": time.time()}, f)
+    except Exception as e:
+        logger.warning(f"gdrive: не удалось сохранить verifier: {e}")
+
+
+def _load_verifier(user_id: str) -> str | None:
+    """Загружает и удаляет PKCE code_verifier (одноразовый)."""
+    path = _verifier_path(user_id)
+    try:
+        if os.path.exists(path):
+            with open(path) as f:
+                data = json.load(f)
+            os.remove(path)
+            # Проверяем что не старше 10 минут
+            if time.time() - data.get("at", 0) < 600:
+                return data.get("verifier")
+            return None
+    except Exception as e:
+        logger.warning(f"gdrive: ошибка загрузки verifier: {e}")
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -133,10 +159,9 @@ def get_auth_url(state: str | None = None) -> str | None:
             kwargs['state'] = state
         url, _ = flow.authorization_url(**kwargs)
 
-        # Сохраняем code_verifier для PKCE — он понадобится при обмене кода
+        # Сохраняем code_verifier для PKCE на диск (переживает рестарт бота)
         if state:
-            with _verifier_lock:
-                _verifier_cache[state] = (flow.code_verifier, time.time())
+            _save_verifier(state, flow.code_verifier)
         return url
     except Exception as e:
         logger.error(f"gdrive: ошибка генерации auth_url: {e}")
@@ -155,13 +180,8 @@ def exchange_code(user_id: str, code: str) -> dict:
     try:
         from google_auth_oauthlib.flow import Flow
 
-        # Достаём code_verifier из кэша (PKCE)
-        code_verifier = None
-        with _verifier_lock:
-            entry = _verifier_cache.pop(user_id, None)
-            if entry:
-                verifier, _ = entry
-                code_verifier = verifier
+        # Достаём code_verifier с диска (PKCE, переживает рестарт)
+        code_verifier = _load_verifier(user_id)
 
         flow = Flow.from_client_secrets_file(
             _credentials_path(),
