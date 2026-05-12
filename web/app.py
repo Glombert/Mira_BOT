@@ -46,7 +46,7 @@ from agent import (
     Agent, Profile, SYSTEM_PROMPT, TOOL_SCHEMAS, execute_tool,
     load_user_profile, save_user_profile,
     MEMORY_DIR, WORKSPACE_DIR, MEMORY_SESSIONS_DIR,
-    notify_new_user,
+    notify_new_user, time_context,
 )
 from tools.gdrive_tools import (
     is_configured as gdrive_configured,
@@ -83,7 +83,7 @@ logger.addHandler(_stdout_handler)
 BOT_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN", "")
 BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")   # например: MyMiraBot (без @)
 OWNER_TG_ID  = int(os.getenv("OWNER_TELEGRAM_ID", "0"))
-MAX_HISTORY  = 40
+MAX_HISTORY  = 20
 STATIC_DIR   = Path(__file__).parent / "static"
 
 app = FastAPI(title="Mira Web")
@@ -215,7 +215,7 @@ def _save_session(user_id: str, msgs: list) -> None:
 
 
 def _system_prompt_for(user_id: str) -> str:
-    base      = SYSTEM_PROMPT
+    base      = SYSTEM_PROMPT + f"\n\n{time_context()}"
     summary   = memory_manager.get_summary(user_id, load_user_profile)
     templates = memory_manager.get_templates_prompt(user_id)
     if summary:

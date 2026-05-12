@@ -2,7 +2,7 @@
   "profile_name": "dev",
   "description": "Профиль разработчика — расширенные права",
   "allowed_tools": ["read_file", "write_file", "list_files", "run_python", "web_search", "excel_read", "excel_write", "list_self", "read_self", "git_log", "recall", "write_persona", "write_agent_config", "save_template", "list_templates", "gdrive_list", "gdrive_read", "gdrive_write", "metrics_read", "gcal_list", "gcal_create", "gcal_quick_add", "gsheet_read", "gsheet_write", "gsheet_create", "schedule_reminder", "list_reminders", "cancel_reminder"],
-  "max_history": 40,
+  "max_history": 20,
   "max_tool_rounds": 30,
   "language": "ru",
   "confirm_before_overwrite": true,

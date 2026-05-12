@@ -100,7 +100,7 @@ from agent import (
     blacklist, unblacklist, delete_user,
     notify_owner, notify_new_user,
     should_notify_blacklisted, mark_blacklist_notified,
-    get_evolution_stats,
+    get_evolution_stats, time_context,
     MEMORY_DIR, WORKSPACE_DIR, MEMORY_SESSIONS_DIR,
 )
 
@@ -109,7 +109,7 @@ from agent import (
 # ---------------------------------------------------------------------------
 TOKEN        = os.getenv("TELEGRAM_BOT_TOKEN", "")
 OWNER_TG_ID  = int(os.getenv("OWNER_TELEGRAM_ID", "0"))
-MAX_HISTORY  = 40
+MAX_HISTORY  = 20
 MAX_MSG_LEN  = 4000   # Telegram ограничивает сообщения ~4096 символами
 
 os.makedirs("logs", exist_ok=True)
@@ -172,7 +172,7 @@ def _profile_for(tg_id: int) -> Profile:
 def _system_prompt_for(user_id: str) -> str:
     """Возвращает системный промпт с учётом child_mode и накопленного резюме."""
     data = load_user_profile(user_id)
-    base = SYSTEM_PROMPT
+    base = SYSTEM_PROMPT + f"\n\n{time_context()}"
     if data and data.get("child_mode"):
         base += _CHILD_PROMPT_ADDON
 
