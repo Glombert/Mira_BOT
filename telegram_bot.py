@@ -1587,8 +1587,8 @@ async def _handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     doc     = update.message.document
     raw_name = doc.file_name or f"file_{doc.file_id}"
-    # Защита от path traversal: только basename, без NUL/слешей
-    fname = os.path.basename(raw_name).replace("\x00", "").replace("/", "").replace("\\", "")
+    # Защита от path traversal: нормализуем windows-разделители и берём basename
+    fname = os.path.basename(raw_name.replace("\\", "/")).replace("\x00", "")
     if not fname or fname in (".", ".."):
         fname = f"file_{doc.file_id}"
     fname = fname[:255]

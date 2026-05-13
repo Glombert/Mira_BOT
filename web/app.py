@@ -139,33 +139,19 @@ def _verify_telegram(data: dict) -> bool:
     return hmac.compare_digest(computed, received_hash)
 
 
-# Session token = 128-bit HMAC-SHA256 (32 hex), max_age 30 дней.
-SESSION_SIG_LEN = 32
-SESSION_MAX_AGE = 30 * 86400
+from web.security import (
+    SESSION_SIG_LEN, SESSION_MAX_AGE,
+    make_session as _ws_make, verify_session as _ws_verify,
+    safe_filename as _safe_filename, resolve_under as _resolve_under,
+)
 
 
 def _make_session(tg_id: int, name: str) -> str:
-    """Создаёт подписанный session token со временем выдачи."""
-    payload = f"{tg_id}:{name}:{int(time.time())}"
-    sig     = hmac.new(BOT_TOKEN.encode(), payload.encode(), hashlib.sha256).hexdigest()[:SESSION_SIG_LEN]
-    return f"{payload}:{sig}"
+    return _ws_make(BOT_TOKEN, tg_id, name)
 
 
 def _verify_session(token: str) -> int | None:
-    """Возвращает tg_id если токен валиден и не истёк, иначе None."""
-    try:
-        *parts, sig = token.split(":")
-        payload  = ":".join(parts)
-        expected = hmac.new(BOT_TOKEN.encode(), payload.encode(), hashlib.sha256).hexdigest()[:SESSION_SIG_LEN]
-        if not hmac.compare_digest(expected, sig):
-            return None
-        tg_id  = int(parts[0])
-        issued = int(parts[-1])
-        if time.time() - issued > SESSION_MAX_AGE:
-            return None
-        return tg_id
-    except Exception:
-        return None
+    return _ws_verify(BOT_TOKEN, token)
 
 
 # ---------------------------------------------------------------------------
@@ -384,30 +370,6 @@ _OAUTH_HTML = """<!DOCTYPE html>
 </html>"""
 
 UPLOAD_MAX_BYTES = 20 * 1024 * 1024
-
-
-def _safe_filename(raw: str) -> str:
-    """Снимает пути и опасные символы, оставляя только имя файла."""
-    name = os.path.basename(raw or "upload").strip()
-    # Срезаем NUL и управляющие, ограничиваем длину
-    name = name.replace("\x00", "").replace("/", "").replace("\\", "")
-    if not name or name in (".", ".."):
-        name = "upload"
-    return name[:255]
-
-
-def _resolve_under(root: str, *parts: str) -> str | None:
-    """Возвращает realpath, если он строго внутри root; иначе None.
-
-    Защита от path traversal через .. и symlinks.
-    """
-    candidate = os.path.realpath(os.path.join(root, *parts))
-    root_real = os.path.realpath(root)
-    if candidate == root_real:
-        return None
-    if not candidate.startswith(root_real + os.sep):
-        return None
-    return candidate
 
 
 @app.post("/upload")
