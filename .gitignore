@@ -1,5 +1,8 @@
 # Секреты — никогда в git
 .env
+credentials.json
+token.json
+client_secret*.json
 
 # История диалога (личные данные)
 chat_history.json

@@ -303,8 +303,8 @@ def _log_decision(event: str, msg: str) -> None:
     try:
         with open(decisions_log, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"_log_decision: не удалось записать {event}: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -316,8 +316,8 @@ def _load_evo() -> dict:
         try:
             with open(EVOLUTION_FILE, encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"_load_evo: повреждён {EVOLUTION_FILE}: {e}")
     return {"total": 0, "success": 0, "failed": 0}
 
 

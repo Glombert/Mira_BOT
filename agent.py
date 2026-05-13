@@ -14,7 +14,7 @@ from logging.handlers import TimedRotatingFileHandler
 from dotenv import load_dotenv
 from openai import OpenAI
 from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search, list_self, read_self, write_persona, write_agent_config, git_log
-from tools import semantic_memory as _semantic_memory
+from tools import semantic_memory
 from tools.gdrive_tools import gdrive_list, gdrive_read, gdrive_write, is_authorized as _gdrive_authorized, auto_upload_to_drive as _gdrive_auto_upload
 from tools.gdrive_tools import gcal_list, gcal_create, gcal_quick_add
 from tools.gdrive_tools import gsheet_read, gsheet_write, gsheet_create
@@ -1257,7 +1257,7 @@ def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
 
         elif tool_name == "recall":
             top_k = min(int(tool_args.get("top_k", 5)), 10)
-            matches = _semantic_memory.search(user_id, tool_args["query"], top_k=top_k)
+            matches = semantic_memory.search(user_id, tool_args["query"], top_k=top_k)
             result = {"ok": True, "count": len(matches), "matches": matches}
 
         elif tool_name == "write_persona":
@@ -1464,7 +1464,7 @@ class Agent:
                 tool_name = tool_call.function.name
                 tool_args = json.loads(tool_call.function.arguments)
  
-                print(f"\n[{self.name}] → {tool_name}({tool_args})")
+                logger.info(f"[{self.name}] → {tool_name}({tool_args})")
                 result = self.use_tool(tool_name, tool_args)
  
                 messages.append({
@@ -2412,7 +2412,6 @@ if __name__ == "__main__":
             if task_type in _EXECUTOR_FOR and alpha:
                 # Передаём в Конклав: executor → editor → critic
                 executor, skip_editor, parallel_scout = _EXECUTOR_FOR[task_type]
-                print(f"\n[Роутер → {task_type.upper()}] Передаю специалистам...")
                 logger.info(f"Conclave activated: task_type={task_type}, executor={executor}")
 
                 raw = conclave.run_with_qa(user_input, executor,
