@@ -1586,13 +1586,22 @@ async def _handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     doc     = update.message.document
-    fname   = doc.file_name or f"file_{doc.file_id}"
+    raw_name = doc.file_name or f"file_{doc.file_id}"
+    # Защита от path traversal: только basename, без NUL/слешей
+    fname = os.path.basename(raw_name).replace("\x00", "").replace("/", "").replace("\\", "")
+    if not fname or fname in (".", ".."):
+        fname = f"file_{doc.file_id}"
+    fname = fname[:255]
 
     logger.info(f"handle_document: пользователь {user_id}, файл={fname}, размер={doc.file_size}")
 
-    inbox = os.path.join(WORKSPACE_DIR, user_id, "inbox")
+    user_root = os.path.realpath(os.path.join(WORKSPACE_DIR, user_id))
+    inbox = os.path.join(user_root, "inbox")
     os.makedirs(inbox, exist_ok=True)
-    dest = os.path.join(inbox, fname)
+    dest = os.path.realpath(os.path.join(inbox, fname))
+    if not dest.startswith(user_root + os.sep):
+        await _reply(update, "Недопустимое имя файла.")
+        return
 
     tg_file = await context.bot.get_file(doc.file_id)
     await tg_file.download_to_drive(dest)

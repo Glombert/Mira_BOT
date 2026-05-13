@@ -139,22 +139,30 @@ def _verify_telegram(data: dict) -> bool:
     return hmac.compare_digest(computed, received_hash)
 
 
+# Session token = 128-bit HMAC-SHA256 (32 hex), max_age 30 дней.
+SESSION_SIG_LEN = 32
+SESSION_MAX_AGE = 30 * 86400
+
+
 def _make_session(tg_id: int, name: str) -> str:
-    """Создаёт подписанный session token."""
+    """Создаёт подписанный session token со временем выдачи."""
     payload = f"{tg_id}:{name}:{int(time.time())}"
-    sig     = hmac.new(BOT_TOKEN.encode(), payload.encode(), hashlib.sha256).hexdigest()[:24]
+    sig     = hmac.new(BOT_TOKEN.encode(), payload.encode(), hashlib.sha256).hexdigest()[:SESSION_SIG_LEN]
     return f"{payload}:{sig}"
 
 
 def _verify_session(token: str) -> int | None:
-    """Возвращает tg_id если токен валиден, иначе None."""
+    """Возвращает tg_id если токен валиден и не истёк, иначе None."""
     try:
         *parts, sig = token.split(":")
         payload  = ":".join(parts)
-        expected = hmac.new(BOT_TOKEN.encode(), payload.encode(), hashlib.sha256).hexdigest()[:24]
+        expected = hmac.new(BOT_TOKEN.encode(), payload.encode(), hashlib.sha256).hexdigest()[:SESSION_SIG_LEN]
         if not hmac.compare_digest(expected, sig):
             return None
-        tg_id = int(parts[0])
+        tg_id  = int(parts[0])
+        issued = int(parts[-1])
+        if time.time() - issued > SESSION_MAX_AGE:
+            return None
         return tg_id
     except Exception:
         return None
@@ -169,7 +177,7 @@ def _web_user_id(tg_id: int) -> str:
     return f"tg_{tg_id}"
 
 
-def _web_web_session_path(user_id: str) -> str:
+def _web_session_path(user_id: str) -> str:
     """Web-сессия отдельная от Telegram: префикс web_."""
     return os.path.join(MEMORY_SESSIONS_DIR, f"web_{user_id}.json")
 
@@ -375,6 +383,33 @@ _OAUTH_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
+UPLOAD_MAX_BYTES = 20 * 1024 * 1024
+
+
+def _safe_filename(raw: str) -> str:
+    """Снимает пути и опасные символы, оставляя только имя файла."""
+    name = os.path.basename(raw or "upload").strip()
+    # Срезаем NUL и управляющие, ограничиваем длину
+    name = name.replace("\x00", "").replace("/", "").replace("\\", "")
+    if not name or name in (".", ".."):
+        name = "upload"
+    return name[:255]
+
+
+def _resolve_under(root: str, *parts: str) -> str | None:
+    """Возвращает realpath, если он строго внутри root; иначе None.
+
+    Защита от path traversal через .. и symlinks.
+    """
+    candidate = os.path.realpath(os.path.join(root, *parts))
+    root_real = os.path.realpath(root)
+    if candidate == root_real:
+        return None
+    if not candidate.startswith(root_real + os.sep):
+        return None
+    return candidate
+
+
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...), session: str = ""):
     """Загружает файл в workspace/inbox пользователя."""
@@ -382,16 +417,22 @@ async def upload_file(file: UploadFile = File(...), session: str = ""):
     if not tg_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
     user_id = _web_user_id(tg_id)
-    inbox = os.path.join(WORKSPACE_DIR, user_id, "inbox")
+    user_root = os.path.join(WORKSPACE_DIR, user_id)
+    inbox = os.path.join(user_root, "inbox")
     os.makedirs(inbox, exist_ok=True)
-    dest = os.path.join(inbox, file.filename or "upload")
+
+    filename = _safe_filename(file.filename or "upload")
+    dest = _resolve_under(user_root, "inbox", filename)
+    if dest is None:
+        raise HTTPException(status_code=400, detail="Недопустимое имя файла")
+
     content = await file.read()
-    if len(content) > 20 * 1024 * 1024:
+    if len(content) > UPLOAD_MAX_BYTES:
         raise HTTPException(status_code=413, detail="Файл больше 20 МБ")
     with open(dest, "wb") as f:
         f.write(content)
-    logger.info(f"upload: {user_id} → {file.filename} ({len(content)} bytes)")
-    return {"ok": True, "filename": file.filename, "size": len(content)}
+    logger.info(f"upload: {user_id} → {filename} ({len(content)} bytes)")
+    return {"ok": True, "filename": filename, "size": len(content)}
 
 
 @app.get("/files/{file_path:path}")
@@ -401,12 +442,14 @@ async def download_file(file_path: str, session: str = ""):
     if not tg_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
     user_id = _web_user_id(tg_id)
+    user_root = os.path.join(WORKSPACE_DIR, user_id)
+
     parts = file_path.replace("\\", "/").split("/", 1)
     if len(parts) != 2 or parts[0] not in ("output", "inbox"):
         raise HTTPException(status_code=403, detail="Доступ запрещён")
-    full_path = os.path.join(WORKSPACE_DIR, user_id, parts[0], parts[1])
-    full_path = os.path.normpath(full_path)
-    if not full_path.startswith(os.path.join(WORKSPACE_DIR, user_id)):
+
+    full_path = _resolve_under(user_root, parts[0], parts[1])
+    if full_path is None:
         raise HTTPException(status_code=403, detail="Доступ запрещён")
     if not os.path.isfile(full_path):
         raise HTTPException(status_code=404, detail="Файл не найден")

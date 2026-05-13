@@ -51,29 +51,42 @@ def _verifier_path(user_id: str) -> str:
 
 
 def _save_verifier(user_id: str, verifier: str) -> None:
-    """Сохраняет PKCE code_verifier на диск (переживает рестарт)."""
+    """Сохраняет PKCE code_verifier на диск зашифрованным (переживает рестарт)."""
     try:
-        with open(_verifier_path(user_id), "w") as f:
-            json.dump({"verifier": verifier, "at": time.time()}, f)
+        import memory_crypto
+        memory_crypto.save_json(
+            _verifier_path(user_id),
+            {"verifier": verifier, "at": time.time()},
+        )
+        try:
+            os.chmod(_verifier_path(user_id), 0o600)
+        except Exception:
+            pass
     except Exception as e:
         logger.warning(f"gdrive: не удалось сохранить verifier: {e}")
 
 
 def _load_verifier(user_id: str) -> str | None:
-    """Загружает и удаляет PKCE code_verifier (одноразовый)."""
+    """Загружает и удаляет PKCE code_verifier (одноразовый, max 10 минут)."""
     path = _verifier_path(user_id)
+    if not os.path.exists(path):
+        return None
     try:
-        if os.path.exists(path):
-            with open(path) as f:
-                data = json.load(f)
-            os.remove(path)
-            # Проверяем что не старше 10 минут
-            if time.time() - data.get("at", 0) < 600:
-                return data.get("verifier")
+        import memory_crypto
+        data = memory_crypto.load_json(path)
+        os.remove(path)
+        if not isinstance(data, dict):
             return None
+        if time.time() - data.get("at", 0) >= 600:
+            return None
+        return data.get("verifier")
     except Exception as e:
         logger.warning(f"gdrive: ошибка загрузки verifier: {e}")
-    return None
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+        return None
 
 
 # ---------------------------------------------------------------------------
