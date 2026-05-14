@@ -93,6 +93,10 @@ load_dotenv()
 _providers.init()       # инициализируем провайдеров из .env
 memory_crypto.init()    # включаем шифрование памяти если задан ключ
 
+# SQLite-инициализация (создаёт memory/mira.db если нет)
+from tools import db as _db_init
+_db_init.init_db()
+
 # Файлы и папки
 AGENT_FILE    = os.path.abspath(__file__)  # путь к самому себе (не менять)
 HISTORY_FILE  = "chat_history.json"        # история диалога
@@ -198,30 +202,37 @@ def identify_user() -> str:
     return f"cli_{name}"
 
 
+from tools import db as _db
+
+
 def get_user_profile_path(user_id: str) -> str:
-    """Возвращает путь к файлу профиля пользователя."""
+    """Устарело: профили теперь в SQLite. Оставлено для обратной совместимости —
+    некоторые места ожидают путь для существования-проверки. Возвращаем виртуальный
+    путь который никогда не существует, чтобы старая логика безопасно не сработала."""
     return os.path.join(MEMORY_DIR, f"{user_id}.json")
 
 
 def load_user_profile(user_id: str) -> dict | None:
-    """Загружает профиль пользователя. Прозрачно расшифровывает если включено шифрование."""
-    path = get_user_profile_path(user_id)
-    data = memory_crypto.load_json(path)
-    if data is not None and not isinstance(data, dict):
-        return None
-    return data
+    """Загружает профиль из mira.db. Прозрачно расшифровывает если включено шифрование."""
+    return _db.load_user_profile(user_id)
 
 
 def save_user_profile(user_id: str, data: dict) -> None:
-    """Сохраняет профиль пользователя. Прозрачно шифрует если включено шифрование."""
-    os.makedirs(MEMORY_DIR, exist_ok=True)
-    path = get_user_profile_path(user_id)
-    data["updated_at"] = datetime.now().strftime("%Y-%m-%d")
+    """Сохраняет профиль в mira.db."""
     try:
-        memory_crypto.save_json(path, data)
-        logger.info(f"Профиль пользователя сохранён: {path}")
+        _db.save_user_profile(user_id, data)
+        logger.info(f"Профиль пользователя сохранён: {user_id}")
     except Exception as e:
         logger.error(f"Ошибка сохранения профиля {user_id}: {e}")
+
+
+def delete_user_profile(user_id: str) -> bool:
+    """Полностью удаляет профиль из mira.db. Возвращает True если что-то удалили."""
+    try:
+        return _db.delete_user_profile(user_id)
+    except Exception as e:
+        logger.error(f"Ошибка удаления профиля {user_id}: {e}")
+        return False
 
 
 def run_onboarding(model_chain: list[dict], user_id: str) -> dict:
@@ -369,17 +380,13 @@ _PERSONA_FALLBACK = (
 )
 
 def load_reflections() -> list:
-    """Читает reflections из memory/reflections.json (не отслеживается git).
-    Fallback: если файла нет — пробует поле в persona.json (обратная совместимость)."""
-    path = os.path.join("memory", "reflections.json")
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return data if isinstance(data, list) else []
-        except Exception as e:
-            logger.warning(f"Не удалось прочитать {path}: {e}")
-            return []
+    """Читает reflections из mira.db. Fallback на persona.json для обратной совместимости."""
+    try:
+        data = _db.load_reflections()
+        if data:
+            return data
+    except Exception as e:
+        logger.warning(f"load_reflections: ошибка чтения из БД: {e}")
     # Fallback на старое расположение
     try:
         with open(PERSONA_FILE, "r", encoding="utf-8") as f:
@@ -1435,9 +1442,7 @@ if __name__ == "__main__":
         if cmd == "/forget":
             confirm = input("[!] Сбросить профиль и начать знакомство заново? [y/N]: ").strip().lower()
             if confirm == "y":
-                path = get_user_profile_path(current_user_id)
-                if os.path.exists(path):
-                    os.remove(path)
+                delete_user_profile(current_user_id)
                 print("[*] Профиль удалён.")
                 if alpha and _providers.PROVIDERS:
                     user_profile = run_onboarding(alpha.model_chain, current_user_id)

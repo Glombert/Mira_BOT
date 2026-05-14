@@ -1,25 +1,23 @@
 """Тесты для access_tools — CRUD профилей и переходы статусов.
 
-access_tools пишет в относительный MEMORY_DIR="memory". Fixture isolated_cwd
-перенаправляет cwd в tmp_path, чтобы тесты не трогали реальные данные.
+access_tools пишет в SQLite (memory/mira.db). Fixture isolated_cwd создаёт
+изолированную БД в tmp_path для каждого теста.
 """
 
 import json
 import os
 import pytest
 
-from tools import access_tools
+from tools import access_tools, db
 
 pytestmark = pytest.mark.usefixtures("isolated_cwd")
 
 
 def _make_profile(user_id: str, status: str = "regular", name: str = "Test") -> None:
-    os.makedirs("memory", exist_ok=True)
-    with open(f"memory/{user_id}.json", "w", encoding="utf-8") as f:
-        json.dump({
-            "id": user_id, "name": name, "status": status,
-            "created_at": "2026-01-01", "last_seen": "2026-01-01",
-        }, f)
+    db.save_user_profile(user_id, {
+        "id": user_id, "name": name, "status": status,
+        "created_at": "2026-01-01", "last_seen": "2026-01-01",
+    })
 
 
 def test_get_status_existing():
@@ -48,16 +46,13 @@ def test_set_status_missing_user():
 
 
 def test_approve_clears_guest_counters():
-    os.makedirs("memory", exist_ok=True)
-    with open("memory/tg_g.json", "w", encoding="utf-8") as f:
-        json.dump({
-            "id": "tg_g", "status": "guest", "name": "G",
-            "guest_message_count": 5, "rejected_at": "2026-01-01",
-            "created_at": "2026-01-01", "last_seen": "2026-01-01",
-        }, f)
+    db.save_user_profile("tg_g", {
+        "id": "tg_g", "status": "guest", "name": "G",
+        "guest_message_count": 5, "rejected_at": "2026-01-01",
+        "created_at": "2026-01-01", "last_seen": "2026-01-01",
+    })
     assert access_tools.approve("tg_g") is True
-    with open("memory/tg_g.json", encoding="utf-8") as f:
-        data = json.load(f)
+    data = db.load_user_profile("tg_g")
     assert data["status"] == "regular"
     assert "guest_message_count" not in data
     assert "rejected_at" not in data
@@ -71,20 +66,13 @@ def test_blacklist_then_unblacklist():
     assert access_tools.get_status("tg_1") == "rejected"
 
 
-def test_list_users_skips_special_files():
+def test_list_users_returns_only_real_users():
     _make_profile("tg_1", "regular", "Alice")
     _make_profile("tg_2", "guest", "Bob")
-    with open("memory/decisions.log", "w") as f:
-        f.write('{"event": "x"}\n')
-    with open("memory/evolution_counter.json", "w") as f:
-        json.dump({"total": 0}, f)
-
+    # decisions.log и evolution_counter.json не хранятся в БД и не появятся
     users = access_tools.list_users()
     ids = {u["id"] for u in users}
-    assert "tg_1" in ids
-    assert "tg_2" in ids
-    assert "decisions" not in ids
-    assert "evolution_counter" not in ids
+    assert ids == {"tg_1", "tg_2"}
 
 
 def test_delete_user_removes_profile_and_workspace():
@@ -93,7 +81,7 @@ def test_delete_user_removes_profile_and_workspace():
     with open("workspace/tg_doomed/inbox/file.txt", "w") as f:
         f.write("data")
     assert access_tools.delete_user("tg_doomed") is True
-    assert not os.path.exists("memory/tg_doomed.json")
+    assert db.load_user_profile("tg_doomed") is None
     assert not os.path.isdir("workspace/tg_doomed")
 
 

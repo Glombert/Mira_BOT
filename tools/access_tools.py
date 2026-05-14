@@ -41,33 +41,18 @@ EVOLUTION_FILE  = os.path.join(MEMORY_DIR, "evolution_counter.json")
 # ---------------------------------------------------------------------------
 
 def _load_profile(user_id: str) -> dict | None:
-    path = os.path.join(MEMORY_DIR, f"{user_id}.json")
-    if not os.path.exists(path):
-        return None
+    from tools import db
     try:
-        # Используем memory_crypto если доступен и инициализирован
-        if _crypto and _crypto.is_enabled():
-            data = _crypto.load_json(path)
-            return data if isinstance(data, dict) else None
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        return db.load_user_profile(user_id)
     except Exception as e:
         logger.error(f"access_tools: ошибка чтения {user_id}: {e}")
         return None
 
 
 def _save_profile(user_id: str, data: dict) -> bool:
-    path = os.path.join(MEMORY_DIR, f"{user_id}.json")
-    data["updated_at"] = datetime.now().strftime("%Y-%m-%d")
+    from tools import db
     try:
-        # memory_crypto.save_json потокобезопасна и работает
-        # как с шифрованием так и без (прозрачный fallback на plain JSON)
-        if _crypto:
-            _crypto.save_json(path, data)
-        else:
-            # Редкий случай: memory_crypto не импортирован
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+        db.save_user_profile(user_id, data)
         return True
     except Exception as e:
         logger.error(f"access_tools: ошибка записи {user_id}: {e}")
@@ -98,24 +83,19 @@ def set_status(user_id: str, status: str) -> bool:
 
 
 def list_users() -> list[dict]:
-    if not os.path.isdir(MEMORY_DIR):
-        return []
+    from tools import db
     users = []
-    for fname in sorted(os.listdir(MEMORY_DIR)):
-        if not fname.endswith(".json") or fname in ("decisions.log", "evolution_counter.json"):
-            continue
-        user_id = fname[:-5]
-        profile = _load_profile(user_id)
-        if profile:
-            users.append({
-                "id":             user_id,
-                "name":           profile.get("name", "—"),
-                "status":         profile.get("status", "regular"),
-                "last_seen":      profile.get("last_seen", "—"),
-                "sessions_count": profile.get("sessions_count", 0),
-                "guest_msgs":     profile.get("guest_message_count", 0),
-                "child_mode":     profile.get("child_mode", False),
-            })
+    for user_id, profile in db.list_user_profiles():
+        users.append({
+            "id":             user_id,
+            "name":           profile.get("name", "—"),
+            "status":         profile.get("status", "regular"),
+            "last_seen":      profile.get("last_seen", "—"),
+            "sessions_count": profile.get("sessions_count", 0),
+            "guest_msgs":     profile.get("guest_message_count", 0),
+            "child_mode":     profile.get("child_mode", False),
+        })
+    users.sort(key=lambda u: u["id"])
     return users
 
 
@@ -170,18 +150,11 @@ def unblock(user_id: str) -> bool:
 
 
 def delete_user(user_id: str) -> bool:
-    """Полное удаление: профиль + workspace + сессия."""
-    deleted = False
-    # Профиль
-    path = os.path.join(MEMORY_DIR, f"{user_id}.json")
-    if os.path.exists(path):
-        os.remove(path)
-        deleted = True
-    # Сессия
-    sess = os.path.join(MEMORY_DIR, "sessions", f"{user_id}.json")
-    if os.path.exists(sess):
-        os.remove(sess)
-    # Workspace (рекурсивно)
+    """Полное удаление: профиль + сессия + workspace."""
+    from tools import db
+    deleted = db.delete_user_profile(user_id)
+    db.delete_session(user_id)
+    db.delete_session(f"web_{user_id}")  # парная web-сессия
     ws = os.path.join(WORKSPACE_DIR, user_id)
     if os.path.isdir(ws):
         shutil.rmtree(ws, ignore_errors=True)
@@ -220,22 +193,17 @@ def increment_guest_counter(user_id: str, profile: dict) -> tuple[int, int]:
 
 
 def cleanup_expired_guests() -> int:
-    if not os.path.isdir(MEMORY_DIR):
-        return 0
+    from tools import db
     cutoff = datetime.now() - timedelta(days=GUEST_TTL_DAYS)
     deleted = 0
-    for fname in os.listdir(MEMORY_DIR):
-        if not fname.endswith(".json"):
-            continue
-        user_id = fname[:-5]
-        profile = _load_profile(user_id)
-        if not profile or profile.get("status") != "guest":
+    for user_id, profile in db.list_user_profiles():
+        if profile.get("status") != "guest":
             continue
         last_seen_str = profile.get("last_seen", "")
         try:
             last_seen = datetime.strptime(last_seen_str, "%Y-%m-%d")
             if last_seen < cutoff:
-                os.remove(os.path.join(MEMORY_DIR, fname))
+                db.delete_user_profile(user_id)
                 logger.info(f"access: гость {user_id} удалён по TTL.")
                 deleted += 1
         except ValueError:

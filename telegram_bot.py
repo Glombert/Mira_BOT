@@ -188,14 +188,10 @@ def _system_prompt_for(user_id: str) -> str:
     return base
 
 
-def _session_path(user_id: str) -> str:
-    return os.path.join(MEMORY_SESSIONS_DIR, f"{user_id}.json")
-
-
 def _load_session(user_id: str) -> list:
     sys_prompt = _system_prompt_for(user_id)
-    path = _session_path(user_id)
-    msgs = memory_crypto.load_json(path)
+    from tools import db
+    msgs = db.load_session(user_id)
     if isinstance(msgs, list):
         for m in msgs:
             if m["role"] == "system":
@@ -208,7 +204,6 @@ def _load_session(user_id: str) -> list:
 
 
 def _save_session(user_id: str, msgs: list) -> None:
-    os.makedirs(MEMORY_SESSIONS_DIR, exist_ok=True)
     system   = [m for m in msgs if m["role"] == "system"]
     the_rest = [m for m in msgs if m["role"] != "system"]
     trimmed  = system + the_rest[-MAX_HISTORY:]
@@ -222,7 +217,8 @@ def _save_session(user_id: str, msgs: list) -> None:
         and not m.get("tool_calls")
     ]
     try:
-        memory_crypto.save_json(_session_path(user_id), saveable)
+        from tools import db
+        db.save_session(user_id, saveable)
     except Exception as e:
         logger.warning(f"Не удалось сохранить сессию {user_id}: {e}")
 
@@ -944,9 +940,8 @@ async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = _user_id(update.effective_user.id)
-    path = get_user_profile_path(user_id)
-    if os.path.exists(path):
-        os.remove(path)
+    from agent import delete_user_profile
+    delete_user_profile(user_id)
     _save_session(user_id, [{"role": "system", "content": SYSTEM_PROMPT}])
     try:
         semantic_memory.delete_user(user_id)
@@ -1366,9 +1361,8 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         return
 
     if data == "cmd_forget":
-        path = get_user_profile_path(user_id)
-        if os.path.exists(path):
-            os.remove(path)
+        from agent import delete_user_profile
+        delete_user_profile(user_id)
         _save_session(user_id, [{"role": "system", "content": SYSTEM_PROMPT}])
         await query.edit_message_text("Профиль удалён. Напиши /start.")
         return
