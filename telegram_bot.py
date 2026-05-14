@@ -69,6 +69,7 @@ import memory_crypto
 memory_crypto.init()
 import memory_manager
 from tools import semantic_memory
+from tools import rate_limit
 from tools.gdrive_tools import (
     is_configured as gdrive_configured,
     is_authorized as gdrive_authorized,
@@ -1585,6 +1586,13 @@ async def _handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await _reply(update, "Обмен файлами доступен только одобренным пользователям.")
         return
 
+    # Rate limit: 20 файлов / минуту. Мира предупреждает голосом
+    allowed, retry_after = rate_limit.check_and_record(user_id, "upload")
+    if not allowed:
+        logger.info(f"handle_document: rate limit для {user_id} → retry {retry_after}s")
+        await _reply(update, rate_limit.friendly_message("upload", retry_after))
+        return
+
     doc     = update.message.document
     raw_name = doc.file_name or f"file_{doc.file_id}"
     # Защита от path traversal: нормализуем windows-разделители и берём basename
@@ -1718,6 +1726,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Онбординг
     if context.user_data.get("onboarding"):
         await _handle_onboarding(update, context, tg_id, user_id, text)
+        return
+
+    # Rate limit: 60 сообщ/мин (owner без лимитов). Сообщаем как Мира,
+    # а не молча отбрасываем
+    allowed, retry_after = rate_limit.check_and_record(user_id, "message")
+    if not allowed:
+        logger.info(f"handle_message: rate limit для {user_id} → retry {retry_after}s")
+        await _reply(update, rate_limit.friendly_message("message", retry_after))
         return
 
     # Проверка статуса

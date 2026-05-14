@@ -58,6 +58,7 @@ from tools.gdrive_tools import (
     gsheet_read, gsheet_create,
 )
 from tools.scheduler import schedule_reminder, list_reminders, cancel_reminder
+from tools import rate_limit
 
 logger = logging.getLogger("MiraWeb")
 logger.setLevel(logging.INFO)
@@ -379,6 +380,14 @@ async def upload_file(file: UploadFile = File(...), session: str = ""):
     if not tg_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
     user_id = _web_user_id(tg_id)
+
+    # Rate limit: 20 файлов / минуту (owner без лимитов)
+    allowed, retry_after = rate_limit.check_and_record(user_id, "upload")
+    if not allowed:
+        msg = rate_limit.friendly_message("upload", retry_after)
+        logger.info(f"upload rate limit: {user_id} → retry in {retry_after}s")
+        raise HTTPException(status_code=429, detail=msg, headers={"Retry-After": str(retry_after)})
+
     user_root = os.path.join(WORKSPACE_DIR, user_id)
     inbox = os.path.join(user_root, "inbox")
     os.makedirs(inbox, exist_ok=True)
@@ -390,7 +399,10 @@ async def upload_file(file: UploadFile = File(...), session: str = ""):
 
     content = await file.read()
     if len(content) > UPLOAD_MAX_BYTES:
-        raise HTTPException(status_code=413, detail="Файл больше 20 МБ")
+        raise HTTPException(
+            status_code=413,
+            detail=rate_limit.friendly_message("size", 0),
+        )
     with open(dest, "wb") as f:
         f.write(content)
     logger.info(f"upload: {user_id} → {filename} ({len(content)} bytes)")
@@ -704,6 +716,17 @@ async def chat(websocket: WebSocket, session: str = ""):
                 continue
 
             logger.info(f"WS message: {user_id} len={len(text)}")
+
+            # Rate limit: 60 сообщ/мин. При превышении Мира отвечает
+            # дружелюбным сообщением вместо обычной обработки LLM
+            allowed, retry_after = rate_limit.check_and_record(user_id, "message")
+            if not allowed:
+                logger.info(f"message rate limit: {user_id} → retry in {retry_after}s")
+                await websocket.send_json({
+                    "type": "message",
+                    "content": rate_limit.friendly_message("message", retry_after),
+                })
+                continue
 
             # Гостевой лимит сообщений
             pdata = load_user_profile(user_id)
