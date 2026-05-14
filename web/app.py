@@ -164,14 +164,15 @@ def _web_user_id(tg_id: int) -> str:
     return f"tg_{tg_id}"
 
 
-def _web_session_path(user_id: str) -> str:
-    """Web-сессия отдельная от Telegram: префикс web_."""
-    return os.path.join(MEMORY_SESSIONS_DIR, f"web_{user_id}.json")
+def _web_session_key(user_id: str) -> str:
+    """Web-сессии хранятся под отдельным префиксом, чтобы не конфликтовать с tg-сессиями."""
+    return f"web_{user_id}"
 
 
 def _load_session(user_id: str) -> list:
     sys_prompt = _system_prompt_for(user_id)
-    msgs = memory_crypto.load_json(_web_session_path(user_id))
+    from tools import db
+    msgs = db.load_session(_web_session_key(user_id))
     if isinstance(msgs, list):
         for m in msgs:
             if m.get("role") == "system":
@@ -184,7 +185,6 @@ def _load_session(user_id: str) -> list:
 
 
 def _save_session(user_id: str, msgs: list) -> None:
-    os.makedirs(MEMORY_SESSIONS_DIR, exist_ok=True)
     system   = [m for m in msgs if m["role"] == "system"]
     the_rest = [m for m in msgs if m["role"] != "system"]
     trimmed  = system + the_rest[-MAX_HISTORY:]
@@ -204,7 +204,8 @@ def _save_session(user_id: str, msgs: list) -> None:
     ]
 
     try:
-        memory_crypto.save_json(_web_session_path(user_id), saveable)
+        from tools import db
+        db.save_session(_web_session_key(user_id), saveable)
     except Exception as e:
         logger.warning(f"save_session {user_id}: {e}")
 
@@ -511,10 +512,8 @@ async def chat(websocket: WebSocket, session: str = ""):
                     await websocket.send_json({"type": "files", "files": files})
 
                 elif cmd == "forget":
-                    from agent import get_user_profile_path
-                    path = get_user_profile_path(user_id)
-                    if os.path.exists(path):
-                        os.remove(path)
+                    from agent import delete_user_profile
+                    delete_user_profile(user_id)
                     _save_session(user_id, [{"role": "system", "content": _system_prompt_for(user_id)}])
                     try:
                         semantic_memory.delete_user(user_id)

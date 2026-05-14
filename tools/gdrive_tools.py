@@ -106,37 +106,29 @@ def is_configured() -> bool:
 # Хранение токенов
 # ---------------------------------------------------------------------------
 
-def _token_path(user_id: str) -> str:
-    return os.path.join(GDRIVE_TOKENS_DIR, f"{user_id}.json")
-
-
 def _load_token(user_id: str) -> dict | None:
-    """Загружает токены пользователя (расшифровывает если нужно)."""
-    path = _token_path(user_id)
-    if not os.path.exists(path):
-        return None
+    """Загружает токены пользователя из mira.db."""
+    from tools import db
     try:
-        import memory_crypto
-        return memory_crypto.load_json(path)
+        return db.load_gdrive_token(user_id)
     except Exception as e:
         logger.warning(f"gdrive: ошибка загрузки токена {user_id}: {e}")
         return None
 
 
 def _save_token(user_id: str, token_data: dict) -> None:
-    """Сохраняет токены пользователя (шифрует если настроено)."""
-    import memory_crypto
+    """Сохраняет токены пользователя в mira.db."""
+    from tools import db
     try:
-        memory_crypto.save_json(_token_path(user_id), token_data)
+        db.save_gdrive_token(user_id, token_data)
     except Exception as e:
         logger.error(f"gdrive: ошибка сохранения токена {user_id}: {e}")
 
 
 def _delete_token(user_id: str) -> None:
     """Удаляет токены пользователя."""
-    path = _token_path(user_id)
-    if os.path.exists(path):
-        os.remove(path)
+    from tools import db
+    db.delete_gdrive_token(user_id)
 
 
 def is_authorized(user_id: str) -> bool:

@@ -26,8 +26,16 @@ def _env(monkeypatch):
 @pytest.fixture
 def isolated_cwd(monkeypatch, tmp_path):
     """Тесты, работающие с относительными путями (memory/, workspace/),
-    запрашивают этот fixture явно."""
+    запрашивают этот fixture явно. Также пересоздаёт SQLite-БД в tmp_path."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "memory").mkdir()
     (tmp_path / "workspace").mkdir()
+
+    # Сбрасываем кеши db.py чтобы база создалась в tmp_path
+    from tools import db
+    db._close_thread_conn()
+    db_file = str(tmp_path / "memory" / "mira.db")
+    monkeypatch.setattr(db, "DB_PATH", db_file)
+    monkeypatch.setattr(db, "_initialized", False)
+    db.init_db(db_file)
     return tmp_path
