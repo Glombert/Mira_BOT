@@ -460,858 +460,122 @@ def load_principles() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Описания инструментов для API (function calling)
+# Описания инструментов для API (function calling) — данные в tools/tool_schemas.py
 # ---------------------------------------------------------------------------
-TOOL_SCHEMAS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "list_files",
-            "description": (
-                "Показывает список файлов и папок в рабочем пространстве пользователя. "
-                "Используй когда нужно узнать какие файлы есть у пользователя."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "subdir": {
-                        "type": "string",
-                        "description": (
-                            "Подпапка внутри workspace (например 'inbox' или 'output'). "
-                            "Если не указано — показывает корень workspace."
-                        )
-                    }
-                },
-                "required": []
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": (
-                "Читает содержимое текстового файла из workspace пользователя. "
-                "Работает только с текстовыми файлами (не Excel, не картинки). "
-                "Максимальный размер файла — 1 MB."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "relative_path": {
-                        "type": "string",
-                        "description": (
-                            "Путь к файлу относительно workspace пользователя. "
-                            "Например: 'inbox/notes.txt' или 'output/result.py'"
-                        )
-                    }
-                },
-                "required": ["relative_path"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "write_file",
-            "description": (
-                "Записывает текст в файл в workspace пользователя. "
-                "По умолчанию не перезаписывает существующие файлы — "
-                "нужно явно передать overwrite=true если файл уже есть."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "relative_path": {
-                        "type": "string",
-                        "description": (
-                            "Путь к файлу относительно workspace. "
-                            "Папки создаются автоматически. "
-                            "Пример: 'output/result.txt'"
-                        )
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Текст для записи в файл."
-                    },
-                    "overwrite": {
-                        "type": "boolean",
-                        "description": (
-                            "Разрешить перезапись если файл уже существует. "
-                            "По умолчанию false."
-                        )
-                    }
-                },
-                "required": ["relative_path", "content"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "run_python",
-            "description": (
-                "Выполняет Python-код в отдельном процессе и возвращает вывод. "
-                "Используй для вычислений, обработки данных, проверки логики. "
-                "Таймаут: 30 секунд. Рабочая директория: workspace пользователя."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "code": {
-                        "type": "string",
-                        "description": "Python-код для выполнения."
-                    }
-                },
-                "required": ["code"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "excel_read",
-            "description": (
-                "Читает Excel-файл (.xlsx) из workspace пользователя. "
-                "Возвращает заголовки и строки данных. "
-                "Максимум 200 строк за раз."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "relative_path": {
-                        "type": "string",
-                        "description": "Путь к .xlsx файлу относительно workspace. Например: 'inbox/data.xlsx'"
-                    },
-                    "sheet_name": {
-                        "type": "string",
-                        "description": "Имя листа. Если не указано — читается первый лист."
-                    }
-                },
-                "required": ["relative_path"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "excel_write",
-            "description": (
-                "Создаёт Excel-файл (.xlsx) в workspace пользователя. "
-                "Принимает заголовки и строки данных. "
-                "По умолчанию не перезаписывает существующий файл."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "relative_path": {
-                        "type": "string",
-                        "description": "Путь к .xlsx файлу относительно workspace. Например: 'output/report.xlsx'"
-                    },
-                    "headers": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Список заголовков столбцов. Например: ['Имя', 'Возраст', 'Email']"
-                    },
-                    "rows": {
-                        "type": "array",
-                        "items": {"type": "array"},
-                        "description": "Список строк данных. Например: [['Иван', 30, 'ivan@mail.ru'], ['Мария', 25, 'maria@mail.ru']]"
-                    },
-                    "sheet_name": {
-                        "type": "string",
-                        "description": "Имя листа. По умолчанию 'Sheet1'."
-                    },
-                    "overwrite": {
-                        "type": "boolean",
-                        "description": "Разрешить перезапись если файл уже существует. По умолчанию false."
-                    }
-                },
-                "required": ["relative_path", "headers", "rows"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "save_template",
-            "description": (
-                "Сохраняет шаблон повторяющейся задачи пользователя. "
-                "Используй когда пользователь делает одно и то же несколько раз — "
-                "переводы, генерация отчётов, анализ данных. "
-                "Шаблон появится в контексте следующих сессий."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name":        {"type": "string", "description": "Короткое имя шаблона, например 'перевод_текста'"},
-                    "description": {"type": "string", "description": "Что делает этот шаблон"},
-                    "example":     {"type": "string", "description": "Типичный запрос пользователя"},
-                },
-                "required": ["name", "description", "example"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_templates",
-            "description": "Показывает сохранённые шаблоны задач пользователя.",
-            "parameters": {"type": "object", "properties": {}, "required": []}
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_self",
-            "description": (
-                "Показывает структуру собственного проекта: файлы кода, конфиги агентов, "
-                "инструменты, профили. Используй чтобы понять из чего ты состоишь."
-            ),
-            "parameters": {"type": "object", "properties": {}, "required": []}
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "recall",
-            "description": (
-                "Семантический поиск по прошлым разговорам с этим пользователем. "
-                "Используй когда нужно вспомнить детали старых обсуждений: 'помнишь "
-                "когда мы говорили про X', 'что мы решили насчёт Y'. Ищет по смыслу, "
-                "не по точным словам. Возвращает топ-N релевантных фрагментов."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Что искать. Сформулируй своими словами тему/вопрос."
-                    },
-                    "top_k": {
-                        "type": "integer",
-                        "description": "Сколько результатов вернуть (по умолчанию 5, максимум 10)"
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "git_log",
-            "description": (
-                "Возвращает последние коммиты проекта — хеш, дату, сообщение. "
-                "Используй когда нужно увидеть свою историю изменений или вспомнить "
-                "что недавно поменялось в коде."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "limit": {
-                        "type": "integer",
-                        "description": "Сколько последних коммитов вернуть (по умолчанию 20, максимум 100)"
-                    }
-                },
-                "required": []
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_self",
-            "description": (
-                "Читает собственный файл кода или конфига. "
-                "Разрешены: agent.py, conclave.py, router.py, providers.py, telegram_bot.py, "
-                "persona.json, PRINCIPLES.md, requirements.txt, README.md, PLAN.md, "
-                "agents/*.json, tools/*.py, profiles/*.json. "
-                "Запрещены: .env, memory/, workspace/."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Путь к файлу. Примеры: 'agent.py', 'agents/scout.json', 'PRINCIPLES.md'"
-                    }
-                },
-                "required": ["path"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "write_persona",
-            "description": (
-                "Обновляет одно поле собственной персоны (persona.json). "
-                "Используй когда хочешь зафиксировать что-то новое о себе: "
-                "новое понимание, наблюдение, размышление. "
-                "Разрешены поля: curiosity, emotions, self_awareness, reflections. "
-                "Поля name, core, boundaries, formatting — изменить нельзя. "
-                "Перед изменением делается бэкап. Владелец получает уведомление."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "field": {
-                        "type": "string",
-                        "description": "Имя поля: curiosity | emotions | self_awareness | reflections"
-                    },
-                    "value": {
-                        "description": "Новое значение. Для reflections — строка-наблюдение, добавится в список с датой."
-                    }
-                },
-                "required": ["field", "value"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "write_agent_config",
-            "description": (
-                "Создаёт или обновляет конфиг агента в agents/{name}.json. "
-                "Используй чтобы создавать новых специалистов для Конклава: "
-                "художников, аналитиков, исследователей. "
-                "Принимает имя агента и полный JSON-конфиг с полями: "
-                "role, system_prompt, model_chain, allowed_tools, max_tokens. "
-                "При обновлении существующего агента создаётся бэкап."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "type": "string",
-                        "description": "Короткое имя агента латиницей (станет именем файла). Пример: 'artist'"
-                    },
-                    "config": {
-                        "type": "object",
-                        "description": (
-                            "JSON-конфиг агента. Обязательные поля: role (executor|specialist|critic|planner), "
-                            "system_prompt (инструкция), model_chain (список провайдеров). "
-                            "Опциональные: allowed_tools (список инструментов), max_tokens (по умолчанию 2048)"
-                        ),
-                        "properties": {
-                            "role":           {"type": "string"},
-                            "system_prompt":  {"type": "string"},
-                            "model_chain":    {"type": "array"},
-                            "allowed_tools":  {"type": "array", "items": {"type": "string"}},
-                            "max_tokens":     {"type": "integer"}
-                        },
-                        "required": ["role", "system_prompt", "model_chain"]
-                    }
-                },
-                "required": ["name", "config"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "web_search",
-            "description": (
-                "Ищет актуальную информацию в интернете (DuckDuckGo). "
-                "Используй для: текущих цен, новостей, обзоров товаров, сравнения продуктов, "
-                "актуальных фактов. Возвращает список результатов с заголовком, ссылкой и фрагментом."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Поисковый запрос. Пиши конкретно, как в поисковике."
-                    },
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Количество результатов (1–10). По умолчанию 5."
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "gdrive_list",
-            "description": (
-                "Показывает список файлов в Google Drive этого пользователя. "
-                "Аргумент path — имя папки или 'root' для корня. "
-                "Возвращает список с id, name, type (folder/file), size, modified."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Путь к папке на Google Drive. 'root' для корня."
-                    }
-                },
-                "required": []
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "gdrive_read",
-            "description": (
-                "Скачивает файл с Google Drive пользователя в workspace/output/. "
-                "Аргумент file_path — ID файла или имя файла. "
-                "Файл сохраняется в output/ и становится доступен для чтения и отправки."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "ID файла Google Drive или имя файла в корне."
-                    }
-                },
-                "required": ["file_path"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "gdrive_write",
-            "description": (
-                "Загружает файл из workspace пользователя на Google Drive. "
-                "Аргументы: workspace_path (путь к файлу, например 'output/отчёт.xlsx'), "
-                "drive_folder — ID папки или 'root'."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "workspace_path": {
-                        "type": "string",
-                        "description": "Путь к файлу в workspace (например, 'output/отчёт.xlsx')."
-                    },
-                    "drive_folder": {
-                        "type": "string",
-                        "description": "ID папки на Drive или 'root'. По умолчанию 'root'."
-                    }
-                },
-                "required": ["workspace_path"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "metrics_read",
-            "description": (
-                "Читает метрики использования LLM за последние N дней. "
-                "Возвращает: число вызовов, токены (prompt + completion), "
-                "оценку стоимости (USD), разбивку по моделям и пользователям. "
-                "Аргумент days — за сколько дней (по умолчанию 1). Максимум 90."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "days": {
-                        "type": "integer",
-                        "description": "За сколько дней читать метрики (1-90, по умолчанию 1)."
-                    }
-                },
-                "required": []
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "gcal_list",
-            "description": (
-                "Показывает ближайшие события из Google Calendar пользователя. "
-                "Аргументы: max_results (сколько событий, по умолчанию 10), "
-                "time_min (с какой даты в ISO-формате, по умолчанию — сейчас)."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "max_results": {
-                        "type": "integer",
-                        "description": "Сколько событий показать (1-50, по умолчанию 10)."
-                    },
-                    "time_min": {
-                        "type": "string",
-                        "description": "Дата в ISO-формате с которой искать (например 2026-05-15T00:00:00)."
-                    }
-                },
-                "required": []
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "gcal_create",
-            "description": (
-                "Создаёт событие в Google Calendar пользователя. "
-                "Аргументы: summary (название), start_time (начало в ISO: '2026-05-15T14:00:00'), "
-                "end_time (конец, опционально — +1 час), description (описание)."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "summary": {
-                        "type": "string",
-                        "description": "Название события."
-                    },
-                    "start_time": {
-                        "type": "string",
-                        "description": "Начало в ISO-формате: '2026-05-15T14:00:00'."
-                    },
-                    "end_time": {
-                        "type": "string",
-                        "description": "Конец в ISO-формате. Если не указан — +1 час."
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Описание события."
-                    }
-                },
-                "required": ["summary", "start_time"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "gcal_quick_add",
-            "description": (
-                "Создаёт событие в Google Calendar из фразы на естественном языке. "
-                "Примеры: 'Встреча с Колей завтра в 15:00', "
-                "'Кофе с Аней в субботу в 10 утра'. "
-                "Удобно когда пользователь говорит в свободной форме."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "text": {
-                        "type": "string",
-                        "description": "Фраза описывающая событие (например 'Завтра в 15 встреча с клиентом')."
-                    }
-                },
-                "required": ["text"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "gsheet_read",
-            "description": (
-                "Читает данные из Google Sheets пользователя. "
-                "Аргументы: spreadsheet_id (ID таблицы из URL), "
-                "sheet_range (диапазон в A1-нотации: 'Лист1!A1:D20' или 'A1:Z100')."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "spreadsheet_id": {
-                        "type": "string",
-                        "description": "ID таблицы из URL (docs.google.com/spreadsheets/d/{ID}/)."
-                    },
-                    "sheet_range": {
-                        "type": "string",
-                        "description": "Диапазон: 'Лист1!A1:D20' или 'A1:Z100'. По умолчанию 'A1:Z100'."
-                    }
-                },
-                "required": ["spreadsheet_id"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "gsheet_write",
-            "description": (
-                "Записывает данные в Google Sheets пользователя. "
-                "Аргументы: spreadsheet_id (ID таблицы), sheet_range (диапазон), "
-                "values (список списков: [['Имя','Возраст'],['Аня','25']])."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "spreadsheet_id": {
-                        "type": "string",
-                        "description": "ID таблицы."
-                    },
-                    "sheet_range": {
-                        "type": "string",
-                        "description": "Диапазон для записи: 'Лист1!A1'."
-                    },
-                    "values": {
-                        "type": "array",
-                        "description": "Список строк, каждая строка — список ячеек.",
-                        "items": {
-                            "type": "array",
-                            "items": {"type": "string"}
-                        }
-                    }
-                },
-                "required": ["spreadsheet_id", "sheet_range", "values"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "gsheet_create",
-            "description": (
-                "Создаёт новую Google Sheets таблицу на Drive пользователя. "
-                "Аргумент: title (название новой таблицы). "
-                "Возвращает ID и URL созданной таблицы."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Название новой таблицы."
-                    }
-                },
-                "required": ["title"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "schedule_reminder",
-            "description": (
-                "Создаёт отложенное напоминание. Мира сама напишет пользователю в Telegram "
-                "в указанное время с указанным сообщением. "
-                "Аргументы: trigger_at (ISO-дата/время: '2026-05-13T05:10:00'), "
-                "message (текст напоминания). "
-                "Используй когда пользователь просит 'напомни мне завтра в 8 утра...'"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "trigger_at": {
-                        "type": "string",
-                        "description": "ISO-дата/время когда отправить напоминание. Пример: '2026-05-13T05:10:00'."
-                    },
-                    "message": {
-                        "type": "string",
-                        "description": "Текст напоминания который отправить пользователю."
-                    }
-                },
-                "required": ["trigger_at", "message"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_reminders",
-            "description": (
-                "Показывает все активные напоминания пользователя. "
-                "Возвращает список с id, trigger_at, message."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "required": []
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "cancel_reminder",
-            "description": (
-                "Отменяет напоминание по ID. "
-                "Аргумент: task_id (id напоминания из list_reminders)."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "task_id": {
-                        "type": "string",
-                        "description": "ID напоминания для отмены."
-                    }
-                },
-                "required": ["task_id"]
-            }
-        }
-    }
-]
+from tools.tool_schemas import TOOL_SCHEMAS
+
+# ---------------------------------------------------------------------------
+# Реестр инструментов — каждый адаптер: (user_id, args) -> dict
+# Простые враппинги — лямбды, с pre/post-хуками — именованные функции.
+# ---------------------------------------------------------------------------
+def _tool_list_files(user_id: str, args: dict) -> dict:
+    subdir = args.get("subdir", "")
+    if not subdir or subdir == "inbox":
+        sync_inbox_from_drive(user_id)
+    return list_files(user_id, subdir)
+
+
+def _tool_read_file(user_id: str, args: dict) -> dict:
+    path = args["relative_path"]
+    if "inbox" in path:
+        sync_inbox_from_drive(user_id)
+    result = read_file(user_id, path)
+    if result.get("ok") and "content" in result:
+        fname = os.path.basename(path)
+        result["content"] = (
+            f"--- BEGIN USER FILE: {fname} ---\n"
+            f"{result['content']}\n"
+            f"--- END USER FILE ---"
+        )
+    return result
+
+
+def _tool_write_file(user_id: str, args: dict) -> dict:
+    result = write_file(
+        user_id, args["relative_path"], args["content"],
+        overwrite=args.get("overwrite", False),
+    )
+    if result.get("ok") and "output/" in args.get("relative_path", ""):
+        sync_output_to_drive(user_id)
+    return result
+
+
+def _tool_excel_read(user_id: str, args: dict) -> dict:
+    path = args["relative_path"]
+    if "inbox" in path:
+        sync_inbox_from_drive(user_id)
+    return excel_read(user_id, path, sheet_name=args.get("sheet_name"))
+
+
+def _tool_excel_write(user_id: str, args: dict) -> dict:
+    result = excel_write(
+        user_id, args["relative_path"], args["headers"], args["rows"],
+        sheet_name=args.get("sheet_name", "Sheet1"),
+        overwrite=args.get("overwrite", False),
+    )
+    if result.get("ok") and "output/" in args.get("relative_path", ""):
+        sync_output_to_drive(user_id)
+    return result
+
+
+def _tool_recall(user_id: str, args: dict) -> dict:
+    top_k = min(int(args.get("top_k", 5)), 10)
+    matches = semantic_memory.search(user_id, args["query"], top_k=top_k)
+    return {"ok": True, "count": len(matches), "matches": matches}
+
+
+_TOOL_REGISTRY = {
+    "list_files":         _tool_list_files,
+    "read_file":          _tool_read_file,
+    "write_file":         _tool_write_file,
+    "excel_read":         _tool_excel_read,
+    "excel_write":        _tool_excel_write,
+    "recall":             _tool_recall,
+    "run_python":         lambda u, a: run_python(a["code"], u),
+    "web_search":         lambda u, a: web_search(a["query"], max_results=a.get("max_results", 5)),
+    "save_template":      lambda u, a: _memory_manager.save_template(u, a["name"], a["description"], a["example"]),
+    "list_templates":     lambda u, a: _memory_manager.list_templates(u),
+    "list_self":          lambda u, a: list_self(),
+    "read_self":          lambda u, a: read_self(a["path"]),
+    "git_log":            lambda u, a: git_log(a.get("limit", 20)),
+    "write_persona":      lambda u, a: write_persona(a["field"], a.get("value")),
+    "write_agent_config": lambda u, a: write_agent_config(a["name"], a["config"]),
+    "gdrive_list":        lambda u, a: gdrive_list(u, a.get("path", "root")),
+    "gdrive_read":        lambda u, a: gdrive_read(u, a["file_path"]),
+    "gdrive_write":       lambda u, a: gdrive_write(u, a["workspace_path"], a.get("drive_folder", "root")),
+    "metrics_read":       lambda u, a: metrics_read(a.get("days", 1)),
+    "gcal_list":          lambda u, a: gcal_list(u, a.get("max_results", 10), a.get("time_min")),
+    "gcal_create":        lambda u, a: gcal_create(u, a["summary"], a["start_time"], a.get("end_time", ""), a.get("description", "")),
+    "gcal_quick_add":     lambda u, a: gcal_quick_add(u, a["text"]),
+    "gsheet_read":        lambda u, a: gsheet_read(u, a["spreadsheet_id"], a.get("sheet_range", "A1:Z100")),
+    "gsheet_write":       lambda u, a: gsheet_write(u, a["spreadsheet_id"], a["sheet_range"], a["values"]),
+    "gsheet_create":      lambda u, a: gsheet_create(u, a["title"]),
+    "schedule_reminder":  lambda u, a: schedule_reminder(u, a["trigger_at"], a["message"]),
+    "list_reminders":     lambda u, a: list_reminders(u),
+    "cancel_reminder":    lambda u, a: cancel_reminder(u, a["task_id"]),
+}
+
 
 def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
-    """
-    Диспетчер инструментов.
- 
-    Получает от API:
-        tool_name — имя функции которую хочет вызвать модель
-        tool_args — аргументы в виде словаря
- 
-    Возвращает строку — результат выполнения инструмента.
+    """Диспетчер инструментов. Возвращает JSON-строку с результатом.
+
     API требует строку, поэтому dict конвертируем через json.dumps().
- 
     user_id подставляем сами — модель его не знает и не передаёт.
     """
     t0 = time.time()
     logger.info(f"Tool call: {tool_name}({json.dumps(tool_args, ensure_ascii=False)})")
 
-    # Проверяем, что инструмент существует в TOOL_SCHEMAS
-    tool_exists = any(
-        s["function"]["name"] == tool_name
-        for s in TOOL_SCHEMAS
-    )
-    if not tool_exists:
+    handler = _TOOL_REGISTRY.get(tool_name)
+    if handler is None:
         logger.warning(f"Tool call: неизвестный инструмент '{tool_name}'")
         return json.dumps({"ok": False, "error": f"Неизвестный инструмент: {tool_name}"})
 
     try:
-        if tool_name == "list_files":
-            subdir = tool_args.get("subdir", "")
-            # Перед чтением — тянем inbox с Google Drive (фоновая задача)
-            if not subdir or subdir in ("", "inbox"):
-                sync_inbox_from_drive(user_id)
-            result = list_files(user_id, subdir)
-
-        elif tool_name == "read_file":
-            # Перед чтением inbox — тянем с Drive
-            path = tool_args["relative_path"]
-            if path.startswith("inbox/") or "inbox" in path:
-                sync_inbox_from_drive(user_id)
-            result = read_file(user_id, path)
-            if result.get("ok") and "content" in result:
-                fname = os.path.basename(path)
-                result["content"] = (
-                    f"--- BEGIN USER FILE: {fname} ---\n"
-                    f"{result['content']}\n"
-                    f"--- END USER FILE ---"
-                )
-
-        elif tool_name == "write_file":
-            result = write_file(
-                user_id,
-                tool_args["relative_path"],
-                tool_args["content"],
-                overwrite=tool_args.get("overwrite", False)
-            )
-            # После записи в output — сразу синхронизируем на Drive
-            if result.get("ok") and "output/" in tool_args.get("relative_path", ""):
-                sync_output_to_drive(user_id)
-
-        elif tool_name == "run_python":
-            result = run_python(tool_args["code"], user_id)
-
-        elif tool_name == "excel_read":
-            path = tool_args["relative_path"]
-            if path.startswith("inbox/") or "inbox" in path:
-                sync_inbox_from_drive(user_id)
-            result = excel_read(
-                user_id,
-                path,
-                sheet_name=tool_args.get("sheet_name"),
-            )
-
-        elif tool_name == "excel_write":
-            result = excel_write(
-                user_id,
-                tool_args["relative_path"],
-                tool_args["headers"],
-                tool_args["rows"],
-                sheet_name=tool_args.get("sheet_name", "Sheet1"),
-                overwrite=tool_args.get("overwrite", False),
-            )
-            # После записи Excel — синхронизируем output на Drive
-            if result.get("ok") and "output/" in tool_args.get("relative_path", ""):
-                sync_output_to_drive(user_id)
-
-        elif tool_name == "web_search":
-            result = web_search(
-                tool_args["query"],
-                max_results=tool_args.get("max_results", 5),
-            )
-
-        elif tool_name == "save_template":
-            result = _memory_manager.save_template(
-                user_id,
-                tool_args["name"],
-                tool_args["description"],
-                tool_args["example"],
-            )
-
-        elif tool_name == "list_templates":
-            result = _memory_manager.list_templates(user_id)
-
-        elif tool_name == "list_self":
-            result = list_self()
-
-        elif tool_name == "read_self":
-            result = read_self(tool_args["path"])
-
-        elif tool_name == "git_log":
-            result = git_log(tool_args.get("limit", 20))
-
-        elif tool_name == "recall":
-            top_k = min(int(tool_args.get("top_k", 5)), 10)
-            matches = semantic_memory.search(user_id, tool_args["query"], top_k=top_k)
-            result = {"ok": True, "count": len(matches), "matches": matches}
-
-        elif tool_name == "write_persona":
-            result = write_persona(tool_args["field"], tool_args.get("value"))
-
-        elif tool_name == "write_agent_config":
-            result = write_agent_config(tool_args["name"], tool_args["config"])
-
-        elif tool_name == "gdrive_list":
-            result = gdrive_list(user_id, tool_args.get("path", "root"))
-
-        elif tool_name == "gdrive_read":
-            result = gdrive_read(user_id, tool_args["file_path"])
-
-        elif tool_name == "gdrive_write":
-            result = gdrive_write(
-                user_id,
-                tool_args["workspace_path"],
-                tool_args.get("drive_folder", "root"),
-            )
-        elif tool_name == "metrics_read":
-            result = metrics_read(tool_args.get("days", 1))
-        elif tool_name == "gcal_list":
-            result = gcal_list(user_id, tool_args.get("max_results", 10),
-                               tool_args.get("time_min"))
-        elif tool_name == "gcal_create":
-            result = gcal_create(user_id, tool_args["summary"],
-                                 tool_args["start_time"],
-                                 tool_args.get("end_time", ""),
-                                 tool_args.get("description", ""))
-        elif tool_name == "gcal_quick_add":
-            result = gcal_quick_add(user_id, tool_args["text"])
-        elif tool_name == "gsheet_read":
-            result = gsheet_read(user_id, tool_args["spreadsheet_id"],
-                                 tool_args.get("sheet_range", "A1:Z100"))
-        elif tool_name == "gsheet_write":
-            result = gsheet_write(user_id, tool_args["spreadsheet_id"],
-                                  tool_args["sheet_range"],
-                                  tool_args["values"])
-        elif tool_name == "gsheet_create":
-            result = gsheet_create(user_id, tool_args["title"])
-        elif tool_name == "schedule_reminder":
-            result = schedule_reminder(user_id, tool_args["trigger_at"], tool_args["message"])
-        elif tool_name == "list_reminders":
-            result = list_reminders(user_id)
-        elif tool_name == "cancel_reminder":
-            result = cancel_reminder(user_id, tool_args["task_id"])
-        else:
-            result = {"ok": False, "error": f"Неизвестный инструмент: {tool_name}"}
- 
+        result = handler(user_id, tool_args)
     except Exception as e:
         result = {"ok": False, "error": f"Ошибка выполнения {tool_name}: {e}"}
         logger.error(f"Tool error ({tool_name}): {e}", exc_info=True)
- 
+
     dt = time.time() - t0
     logger.info(f"Tool result ({tool_name}): ok={result.get('ok')} ({dt:.2f}s)")
     return json.dumps(result, ensure_ascii=False)
@@ -1747,56 +1011,16 @@ def _apply_unified_diff(original: str, diff_text: str) -> tuple[bool, str]:
     return True, "".join(result)
 
 
-def evolve(task: str) -> None:
-    """
-    Агент предлагает конкретный патч к своему коду под задачу.
-
-    Ключевое отличие от прежней версии: модель возвращает unified diff,
-    а не полный файл. Это решает проблему обрезания при max_tokens —
-    diff на одну строку занимает ~10 токенов вместо ~40 000.
-
-    Порядок действий (защищённый):
-    0. Переключение на ветку mira-dev
-    1. Чтение принципов (PRINCIPLES.md)
-    2. Запрос unified diff через providers.call(alpha.model_chain)
-    3. Показ diff пользователю
-    4. Проверка diff на соответствие принципам
-    5. Подтверждение пользователем
-    6. Применение diff → new_code через _apply_unified_diff()
-    7. Бэкап + validate_code + smoke-test
-    8. Запись — только если всё прошло
-    """
-    model_chain = alpha.model_chain if alpha else []
-    if not model_chain:
-        print("[-] Нет настроенных провайдеров для /evolve.")
-        return
-
-    print(f"\n[Ouroborus] Генерирую патч для задачи: '{task}'...")
-    logger.info(f"Команда /evolve: задача — {task}")
-
-    # --- Шаг 0: Переключаемся на mira-dev ---
-    if not ensure_dev_branch():
-        print("[!] Не удалось переключиться на mira-dev. Продолжаю на текущей ветке.")
-
-    # --- Шаг 1: Загружаем принципы ---
-    principles = load_principles()
-
-    code = read_own_code()
-    if not code:
-        print("[-] Не удалось прочитать код для эволюции.")
-        return
-
+def _evolve_build_prompt(task: str, code: str, principles: str) -> str:
+    """Собирает промт: задача + контекст из первых/последних строк кода + пример diff."""
     code_lines   = code.splitlines()
     total_lines  = len(code_lines)
-    # Контекст: первые 80 строк (импорты, константы) + последние 20
     preview_head = "\n".join(code_lines[:80])
     preview_tail = "\n".join(code_lines[-20:]) if total_lines > 100 else ""
-
     principles_block = (
         f"\nНерушимые принципы (ОБЯЗАН соблюдать):\n{principles}\n"
         if principles else ""
     )
-
     diff_example = (
         "--- agent.py\n+++ agent.py\n"
         "@@ -1,3 +1,4 @@\n"
@@ -1805,8 +1029,7 @@ def evolve(task: str) -> None:
         " import ast\n"
         " import sys\n"
     )
-
-    prompt = (
+    return (
         f"Файл agent.py содержит {total_lines} строк. Задача: {task}\n"
         f"{principles_block}\n"
         f"Первые 80 строк (для контекста нумерации):\n"
@@ -1818,69 +1041,148 @@ def evolve(task: str) -> None:
         f"Пример формата:\n{diff_example}"
     )
 
+
+def _evolve_request_diff(model_chain: list, prompt: str) -> str | None:
+    """Зовёт модель за unified diff. Возвращает чистый diff или None если не diff."""
+    response = _providers.call(
+        model_chain,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": prompt},
+        ],
+        temperature=0.2,
+        max_tokens=2048,
+    )
+    raw_diff = response.choices[0].message.content.strip()
+
+    if raw_diff.startswith("```"):
+        raw_diff = "\n".join(
+            l for l in raw_diff.splitlines() if not l.strip().startswith("```")
+        ).strip()
+
+    if not raw_diff or "@@" not in raw_diff:
+        logger.warning(f"Evolve: модель вернула не-diff: {raw_diff[:200]}")
+        return None
+    return raw_diff
+
+
+def _evolve_show_diff(raw_diff: str, page_size: int = 60) -> None:
+    """Печатает diff пользователю с пагинацией по page_size строк."""
+    diff_lines = raw_diff.splitlines(keepends=True)
+    print("\n--- ПРЕДЛАГАЕМЫЕ ИЗМЕНЕНИЯ ---")
+    if len(diff_lines) > page_size:
+        for i in range(0, len(diff_lines), page_size):
+            print("".join(diff_lines[i:i + page_size]))
+            if i + page_size < len(diff_lines):
+                more = input(
+                    f"[{i + page_size}/{len(diff_lines)} строк] Показать ещё? [Enter/n]: "
+                ).strip().lower()
+                if more == "n":
+                    print(f"... (пропущено {len(diff_lines) - i - page_size} строк)")
+                    break
+    else:
+        print(raw_diff)
+    print("------------------------------")
+
+
+def _evolve_check_principles(model_chain: list, principles: str, raw_diff: str) -> None:
+    """Спрашивает у модели — нарушает ли diff принципы. Только печатает результат."""
+    if not principles:
+        return
+    print("\n[Evolve] Проверяю соответствие принципам...")
+    check_prompt = (
+        f"Принципы:\n{principles}\n\n"
+        f"Diff:\n{raw_diff}\n\n"
+        "Нарушает ли diff какой-либо принцип?\n"
+        "Отвечай ТОЛЬКО: 'OK' или кратко опиши нарушения."
+    )
     try:
-        response = _providers.call(
+        check_resp = _providers.call(
             model_chain,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": prompt},
-            ],
-            temperature=0.2,
-            max_tokens=2048,
+            messages=[{"role": "user", "content": check_prompt}],
+            temperature=0.1,
         )
-        raw_diff = response.choices[0].message.content.strip()
+        check_result = check_resp.choices[0].message.content.strip()
+        if check_result.upper() != "OK":
+            print(f"\n[!] Патч нарушает принципы:\n{check_result}")
+            print("[!] Для применения всё равно введи 'y'.")
+        else:
+            print("[Evolve] Принципы не нарушены.")
+    except Exception as e:
+        logger.warning(f"Principles check failed: {e}")
+        print("[!] Не удалось проверить принципы. Продолжаю без проверки.")
 
-        # Убираем возможные ```diff / ``` обёртки
-        if raw_diff.startswith("```"):
-            raw_diff = "\n".join(
-                l for l in raw_diff.splitlines() if not l.strip().startswith("```")
-            ).strip()
 
-        if not raw_diff or "@@" not in raw_diff:
+def _evolve_apply_and_validate(code: str, raw_diff: str) -> tuple[bool, str]:
+    """Применяет diff → бэкап → синтаксис → smoke-test.
+
+    Возвращает (True, new_code) при успехе, (False, описание ошибки) — иначе.
+    Печатает прогресс пользователю.
+    """
+    ok, result = _apply_unified_diff(code, raw_diff)
+    if not ok:
+        return False, f"не удалось применить diff: {result}"
+    new_code = result
+
+    print("[Evolve] Создаю резервную копию...")
+    backup_path = backup_agent()
+    print(f"[Evolve] Бэкап: {backup_path}")
+
+    print("[Evolve] Проверяю синтаксис...")
+    valid, error = validate_code(new_code)
+    if not valid:
+        return False, f"синтаксическая ошибка: {error}"
+    print("[Evolve] Синтаксис OK.")
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".py", delete=False, encoding="utf-8"
+    ) as tmp:
+        tmp.write(new_code)
+        tmp_path = tmp.name
+
+    print("[Evolve] Запускаю smoke-test...")
+    passed, error = smoke_test(tmp_path)
+    os.unlink(tmp_path)
+    if not passed:
+        return False, f"smoke-test провалился: {error}"
+    print("[Evolve] Smoke-test OK.")
+
+    return True, new_code
+
+
+def evolve(task: str) -> None:
+    """Агент предлагает unified diff к своему коду, проверяет его и применяет.
+
+    Diff (а не полный файл) решает проблему обрезания по max_tokens.
+    Защита: переключение на mira-dev → проверка принципов →
+    подтверждение → бэкап → валидация → smoke-test → запись.
+    """
+    model_chain = alpha.model_chain if alpha else []
+    if not model_chain:
+        print("[-] Нет настроенных провайдеров для /evolve.")
+        return
+
+    print(f"\n[Ouroborus] Генерирую патч для задачи: '{task}'...")
+    logger.info(f"Команда /evolve: задача — {task}")
+
+    if not ensure_dev_branch():
+        print("[!] Не удалось переключиться на mira-dev. Продолжаю на текущей ветке.")
+
+    principles = load_principles()
+    code = read_own_code()
+    if not code:
+        print("[-] Не удалось прочитать код для эволюции.")
+        return
+
+    try:
+        prompt   = _evolve_build_prompt(task, code, principles)
+        raw_diff = _evolve_request_diff(model_chain, prompt)
+        if not raw_diff:
             print("[-] Модель не вернула корректный diff. Попробуй переформулировать задачу.")
-            logger.warning(f"Evolve: модель вернула не-diff: {raw_diff[:200]}")
             return
 
-        # Показываем diff
-        diff_lines = raw_diff.splitlines(keepends=True)
-        print("\n--- ПРЕДЛАГАЕМЫЕ ИЗМЕНЕНИЯ ---")
-        page_size = 60
-        if len(diff_lines) > page_size:
-            for i in range(0, len(diff_lines), page_size):
-                print("".join(diff_lines[i:i + page_size]))
-                if i + page_size < len(diff_lines):
-                    more = input(f"[{i + page_size}/{len(diff_lines)} строк] Показать ещё? [Enter/n]: ").strip().lower()
-                    if more == "n":
-                        print(f"... (пропущено {len(diff_lines) - i - page_size} строк)")
-                        break
-        else:
-            print(raw_diff)
-        print("------------------------------")
-
-        # --- Проверка принципов ---
-        if principles:
-            print("\n[Evolve] Проверяю соответствие принципам...")
-            check_prompt = (
-                f"Принципы:\n{principles}\n\n"
-                f"Diff:\n{raw_diff}\n\n"
-                "Нарушает ли diff какой-либо принцип?\n"
-                "Отвечай ТОЛЬКО: 'OK' или кратко опиши нарушения."
-            )
-            try:
-                check_resp = _providers.call(
-                    model_chain,
-                    messages=[{"role": "user", "content": check_prompt}],
-                    temperature=0.1,
-                )
-                check_result = check_resp.choices[0].message.content.strip()
-                if check_result.upper() != "OK":
-                    print(f"\n[!] Патч нарушает принципы:\n{check_result}")
-                    print("[!] Для применения всё равно введи 'y'.")
-                else:
-                    print("[Evolve] Принципы не нарушены.")
-            except Exception as e:
-                logger.warning(f"Principles check failed: {e}")
-                print("[!] Не удалось проверить принципы. Продолжаю без проверки.")
+        _evolve_show_diff(raw_diff)
+        _evolve_check_principles(model_chain, principles, raw_diff)
 
         confirm = input("\nПрименить изменения? [y/N]: ").strip().lower()
         if confirm != "y":
@@ -1888,53 +1190,16 @@ def evolve(task: str) -> None:
             logger.info("Evolve: изменения отклонены пользователем.")
             return
 
-        # --- Применяем diff ---
-        ok, result = _apply_unified_diff(code, raw_diff)
+        ok, result = _evolve_apply_and_validate(code, raw_diff)
         if not ok:
-            print(f"[-] Не удалось применить diff: {result}")
+            print(f"[-] {result}")
             print("[-] Изменения не применены.")
-            logger.error(f"Evolve: ошибка применения diff — {result}")
+            logger.error(f"Evolve: {result}")
             increment_evolution(success=False)
             return
-        new_code = result
 
-        # --- Бэкап ---
-        print("[Evolve] Создаю резервную копию...")
-        backup_path = backup_agent()
-        print(f"[Evolve] Бэкап: {backup_path}")
-
-        # --- Валидация синтаксиса ---
-        print("[Evolve] Проверяю синтаксис...")
-        valid, error = validate_code(new_code)
-        if not valid:
-            print(f"[-] Код не прошёл проверку синтаксиса: {error}")
-            print("[-] Изменения не применены.")
-            logger.error(f"Evolve: синтаксическая ошибка — {error}")
-            return
-        print("[Evolve] Синтаксис OK.")
-
-        # --- Smoke-test ---
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".py", delete=False, encoding="utf-8"
-        ) as tmp:
-            tmp.write(new_code)
-            tmp_path = tmp.name
-
-        print("[Evolve] Запускаю smoke-test...")
-        passed, error = smoke_test(tmp_path)
-        os.unlink(tmp_path)
-
-        if not passed:
-            print(f"[-] Smoke-test провалился: {error}")
-            print("[-] Изменения не применены. Агент в безопасности.")
-            logger.error(f"Evolve: smoke-test провалился — {error}")
-            increment_evolution(success=False)
-            return
-        print("[Evolve] Smoke-test OK.")
-
-        # --- Записываем финально ---
         with open(AGENT_FILE, "w", encoding="utf-8") as f:
-            f.write(new_code)
+            f.write(result)
 
         increment_evolution(success=True)
         print("[*] Код обновлён на ветке mira-dev. Перезапусти агента.")
