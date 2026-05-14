@@ -816,6 +816,12 @@ async def chat(websocket: WebSocket, session: str = ""):
                 await websocket.send_json({"type": "error", "content": "Что-то пошло не так. Попробуй ещё раз."})
                 continue
 
+            # Сохраняем ответ в постоянную историю. И Конклав-путь (alpha_msgs —
+            # отдельный список), и alpha.run (llm_msgs — копия c augment) не пишут
+            # в основной msgs. Без этого следующий ход видит чат без её ответов
+            # и Мира «забывает» что уже отвечала.
+            msgs.append({"role": "assistant", "content": answer})
+
             await websocket.send_json({"type": "message", "content": answer})
             _save_session(user_id, msgs)
 

@@ -17,6 +17,7 @@ telegram_bot.py — Telegram-интерфейс для Mira.
 
 import asyncio
 import os
+import re
 import stat
 import json
 import base64
@@ -267,6 +268,28 @@ def _reply_target(update: Update):
     if update.callback_query is not None and update.callback_query.message is not None:
         return update.callback_query.message
     return None
+
+
+# Telegram-клиент не рендерит markdown в plain-режиме: **жирный** виден буквально.
+# Модель упорно использует звёздочки несмотря на инструкцию в персоне. Убираем
+# у самой границы — перед reply_text. Веб оставляем как есть, там react-markdown.
+_MD_PATTERNS = [
+    (re.compile(r"\*\*(.+?)\*\*", re.DOTALL), r"\1"),     # **жирный** → жирный
+    (re.compile(r"__(.+?)__",     re.DOTALL), r"\1"),     # __жирный__ → жирный
+    (re.compile(r"^```[^\n]*\n?", re.MULTILINE), ""),     # ```python\n
+    (re.compile(r"\n?```\s*$",    re.MULTILINE), ""),     # закрывающий ```
+    (re.compile(r"`([^`\n]+?)`"),              r"\1"),    # `code` → code
+    (re.compile(r"^#{1,6}\s+",    re.MULTILINE), ""),     # # заголовок
+]
+
+
+def _strip_md_for_tg(text: str) -> str:
+    """Снимает markdown-разметку которая в Telegram отображается буквально."""
+    if not text:
+        return text
+    for pattern, repl in _MD_PATTERNS:
+        text = pattern.sub(repl, text)
+    return text
 
 
 async def _reply(update: Update, text: str, **kwargs) -> None:
@@ -1770,10 +1793,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.warning(f"semantic_memory search failed: {e}")
 
     def _augmented(orig: list) -> list:
-        if not semantic_augment:
-            return orig
+        # Всегда shallow-copy: agent.run() мутирует свой аргумент (добавляет
+        # assistant-ответ). Если возвращать orig, мутации попадают в сохранённую
+        # историю. Если возвращать копию — теряем ответ. Решение: всегда копия,
+        # а ответ дописываем явно после run() (см. ниже).
         out = list(orig)
-        if out and out[0].get("role") == "system":
+        if semantic_augment and out and out[0].get("role") == "system":
             out[0] = {**out[0], "content": out[0]["content"] + "\n\n" + semantic_augment}
         return out
 
@@ -1825,11 +1850,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             msgs.append({"role": "assistant", "content": answer})
         elif alpha:
             answer = alpha.run(_augmented(msgs))
+            # alpha.run мутирует _augmented(msgs) — копию. Сюда не попало.
+            msgs.append({"role": "assistant", "content": answer})
         else:
             await _reply(update,"Провайдеры не настроены.")
             return
 
-        await _send_long(update, answer)
+        await _send_long(update, _strip_md_for_tg(answer))
         await _send_output_files(context, update.effective_chat.id, user_id, ts_before)
         _save_session(user_id, msgs)
 
