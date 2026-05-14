@@ -464,173 +464,118 @@ def load_principles() -> str:
 # ---------------------------------------------------------------------------
 from tools.tool_schemas import TOOL_SCHEMAS
 
+# ---------------------------------------------------------------------------
+# Реестр инструментов — каждый адаптер: (user_id, args) -> dict
+# Простые враппинги — лямбды, с pre/post-хуками — именованные функции.
+# ---------------------------------------------------------------------------
+def _tool_list_files(user_id: str, args: dict) -> dict:
+    subdir = args.get("subdir", "")
+    if not subdir or subdir == "inbox":
+        sync_inbox_from_drive(user_id)
+    return list_files(user_id, subdir)
+
+
+def _tool_read_file(user_id: str, args: dict) -> dict:
+    path = args["relative_path"]
+    if "inbox" in path:
+        sync_inbox_from_drive(user_id)
+    result = read_file(user_id, path)
+    if result.get("ok") and "content" in result:
+        fname = os.path.basename(path)
+        result["content"] = (
+            f"--- BEGIN USER FILE: {fname} ---\n"
+            f"{result['content']}\n"
+            f"--- END USER FILE ---"
+        )
+    return result
+
+
+def _tool_write_file(user_id: str, args: dict) -> dict:
+    result = write_file(
+        user_id, args["relative_path"], args["content"],
+        overwrite=args.get("overwrite", False),
+    )
+    if result.get("ok") and "output/" in args.get("relative_path", ""):
+        sync_output_to_drive(user_id)
+    return result
+
+
+def _tool_excel_read(user_id: str, args: dict) -> dict:
+    path = args["relative_path"]
+    if "inbox" in path:
+        sync_inbox_from_drive(user_id)
+    return excel_read(user_id, path, sheet_name=args.get("sheet_name"))
+
+
+def _tool_excel_write(user_id: str, args: dict) -> dict:
+    result = excel_write(
+        user_id, args["relative_path"], args["headers"], args["rows"],
+        sheet_name=args.get("sheet_name", "Sheet1"),
+        overwrite=args.get("overwrite", False),
+    )
+    if result.get("ok") and "output/" in args.get("relative_path", ""):
+        sync_output_to_drive(user_id)
+    return result
+
+
+def _tool_recall(user_id: str, args: dict) -> dict:
+    top_k = min(int(args.get("top_k", 5)), 10)
+    matches = semantic_memory.search(user_id, args["query"], top_k=top_k)
+    return {"ok": True, "count": len(matches), "matches": matches}
+
+
+_TOOL_REGISTRY = {
+    "list_files":         _tool_list_files,
+    "read_file":          _tool_read_file,
+    "write_file":         _tool_write_file,
+    "excel_read":         _tool_excel_read,
+    "excel_write":        _tool_excel_write,
+    "recall":             _tool_recall,
+    "run_python":         lambda u, a: run_python(a["code"], u),
+    "web_search":         lambda u, a: web_search(a["query"], max_results=a.get("max_results", 5)),
+    "save_template":      lambda u, a: _memory_manager.save_template(u, a["name"], a["description"], a["example"]),
+    "list_templates":     lambda u, a: _memory_manager.list_templates(u),
+    "list_self":          lambda u, a: list_self(),
+    "read_self":          lambda u, a: read_self(a["path"]),
+    "git_log":            lambda u, a: git_log(a.get("limit", 20)),
+    "write_persona":      lambda u, a: write_persona(a["field"], a.get("value")),
+    "write_agent_config": lambda u, a: write_agent_config(a["name"], a["config"]),
+    "gdrive_list":        lambda u, a: gdrive_list(u, a.get("path", "root")),
+    "gdrive_read":        lambda u, a: gdrive_read(u, a["file_path"]),
+    "gdrive_write":       lambda u, a: gdrive_write(u, a["workspace_path"], a.get("drive_folder", "root")),
+    "metrics_read":       lambda u, a: metrics_read(a.get("days", 1)),
+    "gcal_list":          lambda u, a: gcal_list(u, a.get("max_results", 10), a.get("time_min")),
+    "gcal_create":        lambda u, a: gcal_create(u, a["summary"], a["start_time"], a.get("end_time", ""), a.get("description", "")),
+    "gcal_quick_add":     lambda u, a: gcal_quick_add(u, a["text"]),
+    "gsheet_read":        lambda u, a: gsheet_read(u, a["spreadsheet_id"], a.get("sheet_range", "A1:Z100")),
+    "gsheet_write":       lambda u, a: gsheet_write(u, a["spreadsheet_id"], a["sheet_range"], a["values"]),
+    "gsheet_create":      lambda u, a: gsheet_create(u, a["title"]),
+    "schedule_reminder":  lambda u, a: schedule_reminder(u, a["trigger_at"], a["message"]),
+    "list_reminders":     lambda u, a: list_reminders(u),
+    "cancel_reminder":    lambda u, a: cancel_reminder(u, a["task_id"]),
+}
+
+
 def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
-    """
-    Диспетчер инструментов.
- 
-    Получает от API:
-        tool_name — имя функции которую хочет вызвать модель
-        tool_args — аргументы в виде словаря
- 
-    Возвращает строку — результат выполнения инструмента.
+    """Диспетчер инструментов. Возвращает JSON-строку с результатом.
+
     API требует строку, поэтому dict конвертируем через json.dumps().
- 
     user_id подставляем сами — модель его не знает и не передаёт.
     """
     t0 = time.time()
     logger.info(f"Tool call: {tool_name}({json.dumps(tool_args, ensure_ascii=False)})")
 
-    # Проверяем, что инструмент существует в TOOL_SCHEMAS
-    tool_exists = any(
-        s["function"]["name"] == tool_name
-        for s in TOOL_SCHEMAS
-    )
-    if not tool_exists:
+    handler = _TOOL_REGISTRY.get(tool_name)
+    if handler is None:
         logger.warning(f"Tool call: неизвестный инструмент '{tool_name}'")
         return json.dumps({"ok": False, "error": f"Неизвестный инструмент: {tool_name}"})
 
     try:
-        if tool_name == "list_files":
-            subdir = tool_args.get("subdir", "")
-            # Перед чтением — тянем inbox с Google Drive (фоновая задача)
-            if not subdir or subdir in ("", "inbox"):
-                sync_inbox_from_drive(user_id)
-            result = list_files(user_id, subdir)
-
-        elif tool_name == "read_file":
-            # Перед чтением inbox — тянем с Drive
-            path = tool_args["relative_path"]
-            if path.startswith("inbox/") or "inbox" in path:
-                sync_inbox_from_drive(user_id)
-            result = read_file(user_id, path)
-            if result.get("ok") and "content" in result:
-                fname = os.path.basename(path)
-                result["content"] = (
-                    f"--- BEGIN USER FILE: {fname} ---\n"
-                    f"{result['content']}\n"
-                    f"--- END USER FILE ---"
-                )
-
-        elif tool_name == "write_file":
-            result = write_file(
-                user_id,
-                tool_args["relative_path"],
-                tool_args["content"],
-                overwrite=tool_args.get("overwrite", False)
-            )
-            # После записи в output — сразу синхронизируем на Drive
-            if result.get("ok") and "output/" in tool_args.get("relative_path", ""):
-                sync_output_to_drive(user_id)
-
-        elif tool_name == "run_python":
-            result = run_python(tool_args["code"], user_id)
-
-        elif tool_name == "excel_read":
-            path = tool_args["relative_path"]
-            if path.startswith("inbox/") or "inbox" in path:
-                sync_inbox_from_drive(user_id)
-            result = excel_read(
-                user_id,
-                path,
-                sheet_name=tool_args.get("sheet_name"),
-            )
-
-        elif tool_name == "excel_write":
-            result = excel_write(
-                user_id,
-                tool_args["relative_path"],
-                tool_args["headers"],
-                tool_args["rows"],
-                sheet_name=tool_args.get("sheet_name", "Sheet1"),
-                overwrite=tool_args.get("overwrite", False),
-            )
-            # После записи Excel — синхронизируем output на Drive
-            if result.get("ok") and "output/" in tool_args.get("relative_path", ""):
-                sync_output_to_drive(user_id)
-
-        elif tool_name == "web_search":
-            result = web_search(
-                tool_args["query"],
-                max_results=tool_args.get("max_results", 5),
-            )
-
-        elif tool_name == "save_template":
-            result = _memory_manager.save_template(
-                user_id,
-                tool_args["name"],
-                tool_args["description"],
-                tool_args["example"],
-            )
-
-        elif tool_name == "list_templates":
-            result = _memory_manager.list_templates(user_id)
-
-        elif tool_name == "list_self":
-            result = list_self()
-
-        elif tool_name == "read_self":
-            result = read_self(tool_args["path"])
-
-        elif tool_name == "git_log":
-            result = git_log(tool_args.get("limit", 20))
-
-        elif tool_name == "recall":
-            top_k = min(int(tool_args.get("top_k", 5)), 10)
-            matches = semantic_memory.search(user_id, tool_args["query"], top_k=top_k)
-            result = {"ok": True, "count": len(matches), "matches": matches}
-
-        elif tool_name == "write_persona":
-            result = write_persona(tool_args["field"], tool_args.get("value"))
-
-        elif tool_name == "write_agent_config":
-            result = write_agent_config(tool_args["name"], tool_args["config"])
-
-        elif tool_name == "gdrive_list":
-            result = gdrive_list(user_id, tool_args.get("path", "root"))
-
-        elif tool_name == "gdrive_read":
-            result = gdrive_read(user_id, tool_args["file_path"])
-
-        elif tool_name == "gdrive_write":
-            result = gdrive_write(
-                user_id,
-                tool_args["workspace_path"],
-                tool_args.get("drive_folder", "root"),
-            )
-        elif tool_name == "metrics_read":
-            result = metrics_read(tool_args.get("days", 1))
-        elif tool_name == "gcal_list":
-            result = gcal_list(user_id, tool_args.get("max_results", 10),
-                               tool_args.get("time_min"))
-        elif tool_name == "gcal_create":
-            result = gcal_create(user_id, tool_args["summary"],
-                                 tool_args["start_time"],
-                                 tool_args.get("end_time", ""),
-                                 tool_args.get("description", ""))
-        elif tool_name == "gcal_quick_add":
-            result = gcal_quick_add(user_id, tool_args["text"])
-        elif tool_name == "gsheet_read":
-            result = gsheet_read(user_id, tool_args["spreadsheet_id"],
-                                 tool_args.get("sheet_range", "A1:Z100"))
-        elif tool_name == "gsheet_write":
-            result = gsheet_write(user_id, tool_args["spreadsheet_id"],
-                                  tool_args["sheet_range"],
-                                  tool_args["values"])
-        elif tool_name == "gsheet_create":
-            result = gsheet_create(user_id, tool_args["title"])
-        elif tool_name == "schedule_reminder":
-            result = schedule_reminder(user_id, tool_args["trigger_at"], tool_args["message"])
-        elif tool_name == "list_reminders":
-            result = list_reminders(user_id)
-        elif tool_name == "cancel_reminder":
-            result = cancel_reminder(user_id, tool_args["task_id"])
-        else:
-            result = {"ok": False, "error": f"Неизвестный инструмент: {tool_name}"}
- 
+        result = handler(user_id, tool_args)
     except Exception as e:
         result = {"ok": False, "error": f"Ошибка выполнения {tool_name}: {e}"}
         logger.error(f"Tool error ({tool_name}): {e}", exc_info=True)
- 
+
     dt = time.time() - t0
     logger.info(f"Tool result ({tool_name}): ok={result.get('ok')} ({dt:.2f}s)")
     return json.dumps(result, ensure_ascii=False)
