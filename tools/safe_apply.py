@@ -137,9 +137,15 @@ def safe_apply(
         msg = "Запрещённые пути:\n" + "\n".join(f"  • {p}" for p in problems)
         return ApplyResult(False, msg, [])
 
-    # 3. Бэкап-директория
+    # 3. Бэкап-директория + сохраняем сам diff чтобы можно было разобрать
+    # провалы apply (видеть что именно Мира пыталась записать).
     backup_dir = _make_backup_dir(project_root)
     logger.info(f"safe_apply: бэкап в {backup_dir}")
+    try:
+        with open(os.path.join(backup_dir, "_input.diff"), "w", encoding="utf-8") as f:
+            f.write(diff_text)
+    except Exception as e:
+        logger.warning(f"safe_apply: не удалось сохранить _input.diff: {e}")
 
     # 4. Применение по одному файлу
     applied: list[tuple[str, bool]] = []  # (rel_path, existed_before)
