@@ -688,5 +688,42 @@ TOOL_SCHEMAS = [
                 "required": ["task_id"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "openrouter_list_models",
+            "description": (
+                "Возвращает РЕАЛЬНЫЙ актуальный каталог моделей OpenRouter "
+                "(их API openrouter.ai/api/v1/models). Используй когда нужно "
+                "выбрать или проверить id модели — НЕ доверяй своей памяти и "
+                "не выдумывай имена. Если статья в web_search говорит 'FLUX лучший', "
+                "это не значит что FLUX есть в каталоге OpenRouter. Проверь здесь."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filter": {
+                        "type": "string",
+                        "description": (
+                            "Подстрока для поиска в id или name (case-insensitive). "
+                            "Примеры: 'gpt-5', 'gemini', 'claude', 'flux'. Пустая — все."
+                        )
+                    },
+                    "capability": {
+                        "type": "string",
+                        "description": (
+                            "Фильтр по типу вывода: 'image' (модели генерации картинок), "
+                            "'text' (текстовые), 'audio'. Пустой — без фильтра."
+                        )
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Сколько моделей вернуть (1-100, по умолчанию 30)."
+                    }
+                },
+                "required": []
+            }
+        }
     }
 ]

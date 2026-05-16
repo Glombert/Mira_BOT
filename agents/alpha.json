@@ -25,7 +25,7 @@
     "gcal_list", "gcal_create", "gcal_quick_add",
     "gsheet_read", "gsheet_write", "gsheet_create",
     "schedule_reminder", "list_reminders", "cancel_reminder",
-    "metrics_read"
+    "metrics_read", "openrouter_list_models"
   ],
   "created_by": "human",
   "created_at": "2026-05-04",
