@@ -116,11 +116,15 @@ def parse_multi_diff(diff_text: str) -> list[FileChange]:
     return changes
 
 
-def apply_hunks(original: str, hunks: list[Hunk]) -> tuple[bool, str]:
+def apply_hunks(original: str, hunks: list[Hunk], strict: bool = True) -> tuple[bool, str]:
     """Применяет список хунков к тексту. (ok, new_content_or_error).
 
-    Простая реализация без strict context match — полагаемся на ast.parse /
-    json.loads / smoke-test на следующем уровне чтобы поймать косяк и откатить.
+    strict=True (по умолчанию): для `-` и ` ` строк проверяем что фактический
+    контент файла совпадает с тем что описывает diff. Если не совпадает — отказ
+    с понятным указанием места. Это ловит ситуации когда модель сгенерировала
+    хунк с неверной нумерацией строк или устаревшим контекстом.
+
+    strict=False: только структурная проверка границ (был во v1.6).
     """
     result = list(original.splitlines(keepends=True))
     offset = 0
@@ -132,7 +136,6 @@ def apply_hunks(original: str, hunks: list[Hunk]) -> tuple[bool, str]:
 
         for line in h.lines:
             if not line or line.startswith("\\"):
-                # '\ No newline at end of file' — пропускаем
                 continue
             ch   = line[0]
             body = line[1:]
@@ -149,22 +152,46 @@ def apply_hunks(original: str, hunks: list[Hunk]) -> tuple[bool, str]:
                         f"Hunk #{h_idx + 1}: попытка удалить строку {i + 1} "
                         f"за пределами файла ({len(result)} строк)"
                     )
+                if strict and result[i].rstrip("\r\n") != body.rstrip("\r\n"):
+                    return False, (
+                        f"Hunk #{h_idx + 1} (исходно с строки {h.old_start}): "
+                        f"diff удаляет строку {i + 1} как «{body.rstrip()[:60]}», "
+                        f"но в файле там «{result[i].rstrip()[:60]}». "
+                        f"Это значит модель сгенерировала хунк с устаревшим "
+                        f"контекстом — нумерация поплыла."
+                    )
                 result.pop(i)
                 offset -= 1
             elif ch == " ":
+                if i >= len(result):
+                    return False, (
+                        f"Hunk #{h_idx + 1}: контекстная строка {i + 1} "
+                        f"за пределами файла ({len(result)} строк)"
+                    )
+                if strict and result[i].rstrip("\r\n") != body.rstrip("\r\n"):
+                    return False, (
+                        f"Hunk #{h_idx + 1} (исходно с строки {h.old_start}): "
+                        f"контекст на строке {i + 1} не совпадает. "
+                        f"diff ожидает «{body.rstrip()[:60]}», "
+                        f"в файле «{result[i].rstrip()[:60]}»."
+                    )
                 i += 1
             else:
-                # Неизвестный префикс — игнорируем (бывают пустые строки в diff)
+                # Неизвестный префикс — игнорируем
                 pass
 
     return True, "".join(result)
 
 
-def apply_change(existing_content: str | None, change: FileChange) -> tuple[bool, str]:
+def apply_change(
+    existing_content: str | None,
+    change: FileChange,
+    strict: bool = True,
+) -> tuple[bool, str]:
     """Применяет один FileChange. (ok, new_content_or_error).
 
     create — собирает контент из + строк (existing игнорируется)
-    modify — применяет хунки к existing
+    modify — применяет хунки к existing с проверкой контекста (strict)
     delete — возвращает пустую строку (физическое удаление на applier)
     """
     if change.action == "create":
@@ -185,7 +212,7 @@ def apply_change(existing_content: str | None, change: FileChange) -> tuple[bool
 
     if existing_content is None:
         return False, f"{change.path}: MODIFY для несуществующего файла"
-    return apply_hunks(existing_content, change.hunks)
+    return apply_hunks(existing_content, change.hunks, strict=strict)
 
 
 def extract_paths(changes: list[FileChange]) -> set[str]:

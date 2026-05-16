@@ -253,6 +253,49 @@ def test_garbage_diff_rejected(project):
     assert not result.ok
 
 
+def test_input_diff_saved_for_debugging(project):
+    """Каждое применение сохраняет копию diff'а в backup_dir/_input.diff."""
+    diff = """--- a/agent.py
++++ b/agent.py
+@@ -1 +1 @@
+-VERSION = 1
++VERSION = 2
+"""
+    result = safe_apply(diff, project_root=str(project), smoke_test_fn=_no_smoke)
+    assert result.ok
+    diff_log = os.path.join(result.backup_dir, "_input.diff")
+    assert os.path.exists(diff_log), "diff должен быть сохранён для debug"
+    assert "VERSION = 2" in open(diff_log, encoding="utf-8").read()
+
+
+def test_input_diff_saved_even_on_rollback(project):
+    """При откате diff должен остаться — он нужен для разбора провала."""
+    diff = """--- a/agent.py
++++ b/agent.py
+@@ -1 +1 @@
+-VERSION = 1
++VERSION =
+"""  # сломанный синтаксис
+    result = safe_apply(diff, project_root=str(project), smoke_test_fn=_no_smoke)
+    assert not result.ok
+    diff_log = os.path.join(result.backup_dir, "_input.diff")
+    assert os.path.exists(diff_log)
+
+
+def test_strict_diff_rejected_with_wrong_context(project):
+    """Diff с устаревшим контекстом отбивается strict-проверкой."""
+    diff = """--- a/agent.py
++++ b/agent.py
+@@ -1 +1 @@
+-NONEXISTENT_LINE
++VERSION = 2
+"""
+    result = safe_apply(diff, project_root=str(project), smoke_test_fn=_no_smoke)
+    assert not result.ok
+    # Оригинал не тронут
+    assert "VERSION = 1" in (project / "agent.py").read_text()
+
+
 def test_backup_dir_created(project):
     diff = """--- a/agent.py
 +++ b/agent.py

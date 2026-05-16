@@ -286,6 +286,56 @@ def test_apply_multiple_hunks_one_file():
     assert result == "LINE1\nline2\nline3\nline4\nLINE5\n"
 
 
+def test_strict_catches_wrong_context():
+    """Хунк ожидает 'X' на месте контекста, но в файле там 'Y' — отказ."""
+    original = "line1\nline2\nline3\n"
+    diff = """--- a/x.py
++++ b/x.py
+@@ -1,3 +1,3 @@
+ line1
+-WRONG_CONTENT
++new_line
+ line3
+"""
+    changes = parse_multi_diff(diff)
+    ok, err = apply_change(original, changes[0])
+    assert not ok
+    assert "не совпадает" in err or "ожидает" in err or "удаляет" in err
+
+
+def test_strict_catches_wrong_context_line():
+    """Контекстная строка (' ' префикс) не совпадает с файлом."""
+    original = "line1\nline2\nline3\n"
+    diff = """--- a/x.py
++++ b/x.py
+@@ -1,3 +1,3 @@
+ WRONG_CONTEXT
+-line2
++new
+ line3
+"""
+    changes = parse_multi_diff(diff)
+    ok, err = apply_change(original, changes[0])
+    assert not ok
+    assert "контекст" in err.lower() or "не совпадает" in err
+
+
+def test_non_strict_mode_ignores_mismatch():
+    """С strict=False applier работает как раньше (для legacy)."""
+    original = "line1\nline2\nline3\n"
+    diff = """--- a/x.py
++++ b/x.py
+@@ -1,3 +1,3 @@
+ line1
+-WRONG_BUT_OK_IN_NONSTRICT
++new
+ line3
+"""
+    changes = parse_multi_diff(diff)
+    ok, _ = apply_change(original, changes[0], strict=False)
+    assert ok  # без strict просто молча удаляет
+
+
 def test_apply_handles_no_newline_marker():
     original = "a\nb\nc"  # без \n в конце
     diff = """--- a/x.py
