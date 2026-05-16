@@ -116,23 +116,86 @@ def parse_multi_diff(diff_text: str) -> list[FileChange]:
     return changes
 
 
+def _hunk_fingerprint(hunk: Hunk) -> list[str]:
+    """Возвращает «отпечаток» хунка — все строки которые должны быть в файле
+    (контекст ` ` и удаляемые `-`), без префикса и без \\n."""
+    fp = []
+    for line in hunk.lines:
+        if not line or line.startswith("\\"):
+            continue
+        if line[0] in (" ", "-"):
+            fp.append(line[1:].rstrip("\r\n"))
+    return fp
+
+
+def _find_hunk_position(lines: list[str], hunk: Hunk, hint_index: int) -> int | None:
+    """Ищет где в файле начинается контекст хунка.
+
+    Сначала проверяет hint_index (это `old_start - 1 + offset`). Если там
+    не совпало — ищет уникальное вхождение fingerprint'а по всему файлу.
+    Возвращает 0-indexed позицию начала или None если неоднозначно/не найдено.
+    """
+    fp = _hunk_fingerprint(hunk)
+    if not fp:
+        # Только + строки (создание нового блока) — применяем где сказали
+        return hint_index if 0 <= hint_index <= len(lines) else None
+
+    def _matches_at(start: int) -> bool:
+        if start < 0 or start + len(fp) > len(lines):
+            return False
+        return all(
+            lines[start + j].rstrip("\r\n") == fp[j]
+            for j in range(len(fp))
+        )
+
+    # Сначала проверяем hint
+    if _matches_at(hint_index):
+        return hint_index
+
+    # Fuzzy: ищем по всему файлу
+    matches = [i for i in range(len(lines) - len(fp) + 1) if _matches_at(i)]
+    if len(matches) == 1:
+        return matches[0]
+    return None  # 0 или >1 совпадений
+
+
 def apply_hunks(original: str, hunks: list[Hunk], strict: bool = True) -> tuple[bool, str]:
-    """Применяет список хунков к тексту. (ok, new_content_or_error).
+    """Применяет хунки. (ok, new_content_or_error).
 
-    strict=True (по умолчанию): для `-` и ` ` строк проверяем что фактический
-    контент файла совпадает с тем что описывает diff. Если не совпадает — отказ
-    с понятным указанием места. Это ловит ситуации когда модель сгенерировала
-    хунк с неверной нумерацией строк или устаревшим контекстом.
+    Алгоритм для каждого хунка:
+      1. Считаем hint_index по old_start + offset (накопительный за прошлые хунки)
+      2. Ищем _find_hunk_position — если контекст на hint совпадает, берём hint.
+         Иначе ищем уникальное место в файле по fingerprint'у хунка.
+      3. Если нашли — применяем. Если не нашли или неоднозначно — отказ.
 
-    strict=False: только структурная проверка границ (был во v1.6).
+    strict=False — отключает поиск по fingerprint'у, работает чисто по hint.
+    Оставлено для legacy/тестов.
     """
     result = list(original.splitlines(keepends=True))
     offset = 0
 
     for h_idx, h in enumerate(hunks):
-        i = h.old_start - 1 + offset
-        if i < 0:
-            return False, f"Hunk #{h_idx + 1}: некорректный old_start={h.old_start}"
+        hint = h.old_start - 1 + offset
+
+        if strict:
+            pos = _find_hunk_position(result, h, hint)
+            if pos is None:
+                fp = _hunk_fingerprint(h)
+                preview = fp[0] if fp else "(только + строки)"
+                return False, (
+                    f"Hunk #{h_idx + 1} (заявлен на строке {h.old_start}): "
+                    f"не нашёл уникальное место для применения. "
+                    f"Контекст начинается с «{preview[:60]}» — "
+                    f"либо такого в файле нет, либо встречается несколько раз."
+                )
+            if pos != hint:
+                # Записать в лог что хунк сдвинулся? Пока просто продолжаем
+                pass
+            i = pos
+        else:
+            i = hint
+            if i < 0:
+                return False, f"Hunk #{h_idx + 1}: некорректный old_start={h.old_start}"
 
         for line in h.lines:
             if not line or line.startswith("\\"):
@@ -152,33 +215,15 @@ def apply_hunks(original: str, hunks: list[Hunk], strict: bool = True) -> tuple[
                         f"Hunk #{h_idx + 1}: попытка удалить строку {i + 1} "
                         f"за пределами файла ({len(result)} строк)"
                     )
-                if strict and result[i].rstrip("\r\n") != body.rstrip("\r\n"):
-                    return False, (
-                        f"Hunk #{h_idx + 1} (исходно с строки {h.old_start}): "
-                        f"diff удаляет строку {i + 1} как «{body.rstrip()[:60]}», "
-                        f"но в файле там «{result[i].rstrip()[:60]}». "
-                        f"Это значит модель сгенерировала хунк с устаревшим "
-                        f"контекстом — нумерация поплыла."
-                    )
                 result.pop(i)
                 offset -= 1
             elif ch == " ":
                 if i >= len(result):
                     return False, (
-                        f"Hunk #{h_idx + 1}: контекстная строка {i + 1} "
-                        f"за пределами файла ({len(result)} строк)"
-                    )
-                if strict and result[i].rstrip("\r\n") != body.rstrip("\r\n"):
-                    return False, (
-                        f"Hunk #{h_idx + 1} (исходно с строки {h.old_start}): "
-                        f"контекст на строке {i + 1} не совпадает. "
-                        f"diff ожидает «{body.rstrip()[:60]}», "
-                        f"в файле «{result[i].rstrip()[:60]}»."
+                        f"Hunk #{h_idx + 1}: контекст на строке {i + 1} "
+                        f"за пределами файла"
                     )
                 i += 1
-            else:
-                # Неизвестный префикс — игнорируем
-                pass
 
     return True, "".join(result)
 

@@ -256,7 +256,7 @@ def test_apply_delete_returns_empty():
 
 
 def test_apply_delete_out_of_bounds():
-    """Удаление за концом файла — ошибка, не молчаливое искажение."""
+    """Удаление того чего нет в файле — отказ (был «пределами», теперь «не нашёл»)."""
     original = "only_line\n"
     diff = """--- a/x.py
 +++ b/x.py
@@ -266,7 +266,7 @@ def test_apply_delete_out_of_bounds():
     changes = parse_multi_diff(diff)
     ok, err = apply_change(original, changes[0])
     assert not ok
-    assert "пределами" in err
+    assert "не нашёл" in err or "пределами" in err
 
 
 def test_apply_multiple_hunks_one_file():
@@ -286,54 +286,134 @@ def test_apply_multiple_hunks_one_file():
     assert result == "LINE1\nline2\nline3\nline4\nLINE5\n"
 
 
-def test_strict_catches_wrong_context():
-    """Хунк ожидает 'X' на месте контекста, но в файле там 'Y' — отказ."""
+def test_strict_rejects_content_not_in_file():
+    """Хунк описывает то чего в файле вообще нет — отказ."""
+    original = "line1\nline2\nline3\n"
+    diff = """--- a/x.py
++++ b/x.py
+@@ -1,3 +1,3 @@
+ NOWHERE_LINE_A
+-NOWHERE_LINE_B
++new_line
+ NOWHERE_LINE_C
+"""
+    changes = parse_multi_diff(diff)
+    ok, err = apply_change(original, changes[0])
+    assert not ok
+    assert "не нашёл" in err or "не нашел" in err
+
+
+def test_ambiguous_match_disambiguated_by_hint():
+    """Контекст встречается дважды, но hint указывает на 1-е вхождение — берём его.
+
+    Это стандартное поведение GNU patch: line number — disambiguator при
+    повторяющемся контенте. Если hint совпадает с одним из мест — этого достаточно.
+    """
+    original = "DUP\nA\nB\nDUP\nA\nB\n"
+    diff = """--- a/x.py
++++ b/x.py
+@@ -1,2 +1,2 @@
+ DUP
+-A
++REPLACED
+"""
+    changes = parse_multi_diff(diff)
+    ok, result = apply_change(original, changes[0])
+    assert ok
+    # Заменилось первое A (по hint), второе A осталось
+    assert result.startswith("DUP\nREPLACED")
+    assert result.endswith("DUP\nA\nB\n")
+
+
+def test_ambiguous_match_no_hint_fails():
+    """Если hint вообще не совпадает И в файле несколько мест — отказ."""
+    # hint указывает на строку 100 (вне файла), а fingerprint встречается дважды
+    original = "DUP\nA\nB\nDUP\nA\nB\n"
+    diff = """--- a/x.py
++++ b/x.py
+@@ -100,2 +100,2 @@
+ DUP
+-A
++REPLACED
+"""
+    changes = parse_multi_diff(diff)
+    ok, err = apply_change(original, changes[0])
+    assert not ok
+    assert "несколько раз" in err or "не нашёл" in err
+
+
+def test_fuzzy_finds_shifted_hunk():
+    """Заголовок @@ -1 @@ но контекст реально на строке 10 — applier найдёт."""
+    original = (
+        "padding1\npadding2\npadding3\npadding4\npadding5\n"
+        "padding6\npadding7\npadding8\npadding9\n"
+        "target_line\nafter_target\n"
+    )
+    diff = """--- a/x.py
++++ b/x.py
+@@ -1,2 +1,3 @@
+ target_line
++inserted
+ after_target
+"""
+    changes = parse_multi_diff(diff)
+    ok, result = apply_change(original, changes[0])
+    assert ok, f"fuzzy match должен найти target_line: {result}"
+    # Между target_line и after_target вставилась inserted
+    lines = result.splitlines()
+    target_idx = lines.index("target_line")
+    assert lines[target_idx + 1] == "inserted"
+    assert lines[target_idx + 2] == "after_target"
+
+
+def test_fuzzy_realistic_scenario_off_by_5():
+    """Воспроизводит реальный кейс из /evolve с conclave.py — старт на 5 строк раньше."""
+    original = "\n".join([
+        "# header line 0",
+        "import os",
+        "",
+        "# some constants",
+        "X = 1",
+        "Y = 2",
+        "",
+        "_AGENT_NAMES = {",
+        '    "coder":     "Кодер",',
+        '    "critic":    "Критик",',
+        '    "scout":     "Разведчик",',
+        "}",
+        "",
+    ]) + "\n"
+
+    # Мира думает что _AGENT_NAMES начинается с 4 строки, а реально с 8
+    diff = """--- a/x.py
++++ b/x.py
+@@ -4,3 +4,4 @@
+     "coder":     "Кодер",
+     "critic":    "Критик",
+     "scout":     "Разведчик",
++    "artist":    "Художник",
+ }
+"""
+    changes = parse_multi_diff(diff)
+    ok, result = apply_change(original, changes[0])
+    assert ok, f"fuzzy match должен исправить промах нумерации: {result}"
+    assert '"artist":    "Художник"' in result
+
+
+def test_non_strict_mode_skips_fingerprint():
+    """С strict=False работает по hint и не ищет fingerprint."""
     original = "line1\nline2\nline3\n"
     diff = """--- a/x.py
 +++ b/x.py
 @@ -1,3 +1,3 @@
  line1
--WRONG_CONTENT
-+new_line
- line3
-"""
-    changes = parse_multi_diff(diff)
-    ok, err = apply_change(original, changes[0])
-    assert not ok
-    assert "не совпадает" in err or "ожидает" in err or "удаляет" in err
-
-
-def test_strict_catches_wrong_context_line():
-    """Контекстная строка (' ' префикс) не совпадает с файлом."""
-    original = "line1\nline2\nline3\n"
-    diff = """--- a/x.py
-+++ b/x.py
-@@ -1,3 +1,3 @@
- WRONG_CONTEXT
 -line2
 +new
  line3
 """
     changes = parse_multi_diff(diff)
-    ok, err = apply_change(original, changes[0])
-    assert not ok
-    assert "контекст" in err.lower() or "не совпадает" in err
-
-
-def test_non_strict_mode_ignores_mismatch():
-    """С strict=False applier работает как раньше (для legacy)."""
-    original = "line1\nline2\nline3\n"
-    diff = """--- a/x.py
-+++ b/x.py
-@@ -1,3 +1,3 @@
- line1
--WRONG_BUT_OK_IN_NONSTRICT
-+new
- line3
-"""
-    changes = parse_multi_diff(diff)
     ok, _ = apply_change(original, changes[0], strict=False)
-    assert ok  # без strict просто молча удаляет
+    assert ok
 
 
 def test_apply_handles_no_newline_marker():
