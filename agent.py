@@ -20,6 +20,7 @@ from tools.gdrive_tools import gcal_list, gcal_create, gcal_quick_add
 from tools.gdrive_tools import gsheet_read, gsheet_write, gsheet_create
 from tools.metrics_tools import metrics_read
 from tools.scheduler import schedule_reminder, list_reminders, cancel_reminder
+from tools.openrouter_tools import list_models as _openrouter_list_models
 import memory_manager as _memory_manager
 import memory_crypto
 from tools.git_tools   import sync_with_git, ensure_dev_branch, release_to_main
@@ -560,6 +561,9 @@ _TOOL_REGISTRY = {
     "schedule_reminder":  lambda u, a: schedule_reminder(u, a["trigger_at"], a["message"]),
     "list_reminders":     lambda u, a: list_reminders(u),
     "cancel_reminder":    lambda u, a: cancel_reminder(u, a["task_id"]),
+    "openrouter_list_models": lambda u, a: _openrouter_list_models(
+        a.get("filter", ""), a.get("capability", ""), a.get("limit", 30)
+    ),
 }
 
 
