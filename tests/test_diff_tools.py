@@ -400,6 +400,57 @@ def test_fuzzy_realistic_scenario_off_by_5():
     assert '"artist":    "Художник"' in result
 
 
+def test_loose_match_handles_extra_internal_whitespace():
+    """Реальный кейс: модель сгенерировала diff с лишним пробелом внутри строки.
+    В файле «X, True», в diff'е «X,  True» (два пробела). Loose match должен найти.
+    """
+    original = "header\n"
+    original += '    "search":  ("scout", True,  False),\n'
+    original += '    "code":    ("coder", False, False),\n'
+    original += "footer\n"
+
+    diff = """--- a/x.py
++++ b/x.py
+@@ -2,2 +2,3 @@
+     "search":  ("scout",  True,  False),
+     "code":    ("coder", False, False),
++    "image":   ("artist", True,  False),
+"""
+    changes = parse_multi_diff(diff)
+    ok, result = apply_change(original, changes[0])
+    assert ok, f"loose должен найти место несмотря на лишний пробел: {result}"
+    assert '"image":' in result
+
+
+def test_loose_match_does_not_fire_when_strict_matches():
+    """Если strict нашёл, loose не должен искажать поиск."""
+    original = "A\nB\nC\n"
+    diff = """--- a/x.py
++++ b/x.py
+@@ -2,1 +2,2 @@
+ B
++INSERTED
+"""
+    changes = parse_multi_diff(diff)
+    ok, result = apply_change(original, changes[0])
+    assert ok
+    assert result == "A\nB\nINSERTED\nC\n"
+
+
+def test_loose_does_not_fire_when_truly_nothing():
+    """Контента вообще нет в файле — loose тоже не найдёт, отказ."""
+    original = "A\nB\nC\n"
+    diff = """--- a/x.py
++++ b/x.py
+@@ -1,1 +1,1 @@
+-COMPLETELY_DIFFERENT_LINE
++new
+"""
+    changes = parse_multi_diff(diff)
+    ok, err = apply_change(original, changes[0])
+    assert not ok
+
+
 def test_non_strict_mode_skips_fingerprint():
     """С strict=False работает по hint и не ищет fingerprint."""
     original = "line1\nline2\nline3\n"

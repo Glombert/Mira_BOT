@@ -128,19 +128,26 @@ def _hunk_fingerprint(hunk: Hunk) -> list[str]:
     return fp
 
 
+def _normalize_loose(s: str) -> str:
+    """Для loose сравнения: collapse internal whitespace + strip trailing/leading."""
+    return re.sub(r"\s+", " ", s.strip())
+
+
 def _find_hunk_position(lines: list[str], hunk: Hunk, hint_index: int) -> int | None:
     """Ищет где в файле начинается контекст хунка.
 
-    Сначала проверяет hint_index (это `old_start - 1 + offset`). Если там
-    не совпало — ищет уникальное вхождение fingerprint'а по всему файлу.
+    Три уровня поиска (от строгого к мягкому):
+      1. Точное совпадение на hint_index (быстрый путь когда модель не промахнулась)
+      2. Точное совпадение в уникальной позиции файла (модель ошиблась в нумерации)
+      3. Loose: с нормализованным whitespace (модель перепутала пробелы)
+
     Возвращает 0-indexed позицию начала или None если неоднозначно/не найдено.
     """
     fp = _hunk_fingerprint(hunk)
     if not fp:
-        # Только + строки (создание нового блока) — применяем где сказали
         return hint_index if 0 <= hint_index <= len(lines) else None
 
-    def _matches_at(start: int) -> bool:
+    def _strict_at(start: int) -> bool:
         if start < 0 or start + len(fp) > len(lines):
             return False
         return all(
@@ -148,15 +155,36 @@ def _find_hunk_position(lines: list[str], hunk: Hunk, hint_index: int) -> int | 
             for j in range(len(fp))
         )
 
-    # Сначала проверяем hint
-    if _matches_at(hint_index):
+    def _loose_at(start: int) -> bool:
+        if start < 0 or start + len(fp) > len(lines):
+            return False
+        return all(
+            _normalize_loose(lines[start + j]) == _normalize_loose(fp[j])
+            for j in range(len(fp))
+        )
+
+    # Уровень 1: точный hint
+    if _strict_at(hint_index):
         return hint_index
 
-    # Fuzzy: ищем по всему файлу
-    matches = [i for i in range(len(lines) - len(fp) + 1) if _matches_at(i)]
-    if len(matches) == 1:
-        return matches[0]
-    return None  # 0 или >1 совпадений
+    # Уровень 2: точное совпадение в уникальной позиции
+    strict_matches = [
+        i for i in range(len(lines) - len(fp) + 1) if _strict_at(i)
+    ]
+    if len(strict_matches) == 1:
+        return strict_matches[0]
+    if len(strict_matches) > 1:
+        return None  # неоднозначно, hint не помог разрешить
+
+    # Уровень 3: loose match (модель промахнулась с whitespace)
+    if _loose_at(hint_index):
+        return hint_index
+    loose_matches = [
+        i for i in range(len(lines) - len(fp) + 1) if _loose_at(i)
+    ]
+    if len(loose_matches) == 1:
+        return loose_matches[0]
+    return None
 
 
 def apply_hunks(original: str, hunks: list[Hunk], strict: bool = True) -> tuple[bool, str]:
