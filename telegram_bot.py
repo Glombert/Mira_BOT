@@ -1026,56 +1026,77 @@ async def cmd_evolve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def _run_evolve_preview(update, context, task):
-    """Генерирует diff и отправляет владельцу для одобрения через кнопки.
+    """Генерирует мульти-файл diff и отправляет владельцу для одобрения.
 
-    Использует те же _evolve_build_prompt / _evolve_request_diff что CLI-/evolve —
-    с контекстом кода (первые 80 + последние 20 строк) и принципами. Без этого
-    модель пишет вслепую и возвращает заглушки/галлюцинации.
+    Мира работает в режиме «исследовать + вернуть diff»: даёт ей read_self,
+    list_self, openrouter_list_models, web_search. На write_* блок.
+    Возвращённый diff может затрагивать несколько файлов — применит safe_apply.
     """
-    from agent import read_own_code, _evolve_build_prompt, _evolve_request_diff
+    from agent import (
+        _evolve_build_messages, _evolve_extract_diff, _evolve_make_readonly_agent,
+        profile as _profile,
+    )
+    from tools.diff_tools import parse_multi_diff, extract_paths
 
     if not ensure_dev_branch():
-        await _reply(update,"[!] Не удалось переключиться на mira-dev.")
+        await _reply(update, "[!] Не удалось переключиться на mira-dev.")
 
     principles = load_principles()
-    code = read_own_code()
-    if not code:
-        await _reply(update,"[-] Не удалось прочитать код.")
+
+    tg_id = update.effective_user.id
+    alpha_main = _make_alpha(tg_id, _user_id(tg_id))
+    if not alpha_main:
+        await _reply(update, "Ошибка создания агента.")
         return
 
-    tg_id   = update.effective_user.id
-    alpha   = _make_alpha(tg_id, _user_id(tg_id))
-    if not alpha:
-        await _reply(update,"Ошибка создания агента.")
-        return
+    evolve_agent = _evolve_make_readonly_agent(alpha_main.model_chain, _profile)
+    messages = _evolve_build_messages(task, principles)
 
     try:
-        prompt   = _evolve_build_prompt(task, code, principles)
-        raw_diff = _evolve_request_diff(alpha.model_chain, prompt)
-        if not raw_diff:
-            await _reply(update,"Модель не вернула корректный diff. Попробуй другую формулировку.")
-            return
-
-        # Сохраняем diff для применения при подтверждении
-        context.user_data["evolve_diff"] = raw_diff
-        context.user_data["evolve_code"] = code
-
-        # Отправляем diff (обрезаем если слишком длинный)
-        diff_preview = raw_diff[:3000] + ("\n...(обрезано)" if len(raw_diff) > 3000 else "")
-        keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton("✅ Применить", callback_data="evolve_apply"),
-            InlineKeyboardButton("❌ Отклонить", callback_data="evolve_reject"),
-        ]])
-        # parse_mode=HTML: оборачиваем в <pre> для моноширинного вида и
-        # экранируем спецсимволы. Markdown ломался на _ и * в коде diff.
-        import html as _html
-        await _reply(update,
-            f"<pre>{_html.escape(diff_preview)}</pre>",
-            parse_mode="HTML",
-            reply_markup=keyboard,
-        )
+        # Мира многораундово читает код и формирует diff. Может занимать 30-90с.
+        import asyncio
+        response_text = await asyncio.to_thread(evolve_agent.run, messages, 20)
     except Exception as e:
-        await _reply(update,f"Ошибка: {e}")
+        await _reply(update, f"Ошибка при генерации: {e}")
+        logger.error(f"Telegram evolve gen failed: {e}", exc_info=True)
+        return
+
+    raw_diff = _evolve_extract_diff(response_text)
+    if not raw_diff:
+        snippet = response_text[:1000].replace("<", "&lt;").replace(">", "&gt;")
+        await _reply(update, f"Мира не вернула diff. Её ответ:\n<pre>{snippet}</pre>",
+                     parse_mode="HTML")
+        return
+
+    # Парсим diff чтобы показать пользователю краткую сводку
+    try:
+        changes = parse_multi_diff(raw_diff)
+    except ValueError as e:
+        await _reply(update, f"Diff не парсится: {e}")
+        return
+
+    context.user_data["evolve_diff"] = raw_diff
+
+    # Сводка по затронутым файлам
+    file_summary = "\n".join(
+        f"  {'➕' if c.action == 'create' else '✏️' if c.action == 'modify' else '❌'} "
+        f"{c.action.upper():6} {c.path}"
+        for c in changes
+    )
+
+    diff_preview = raw_diff[:2800] + ("\n...(обрезано)" if len(raw_diff) > 2800 else "")
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Применить", callback_data="evolve_apply"),
+        InlineKeyboardButton("❌ Отклонить", callback_data="evolve_reject"),
+    ]])
+    import html as _html
+    await _reply(update,
+        f"Затронет <b>{len(changes)}</b> файлов:\n<pre>{_html.escape(file_summary)}</pre>\n\n"
+        f"<pre>{_html.escape(diff_preview)}</pre>",
+        parse_mode="HTML",
+        reply_markup=keyboard,
+    )
 
 
 async def cmd_rollback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1383,34 +1404,50 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         if not _is_owner(tg_id):
             return
         diff = context.user_data.get("evolve_diff")
-        code = context.user_data.get("evolve_code")
-        if not diff or not code:
+        if not diff:
             await query.edit_message_text("Сессия устарела — запусти /evolve снова.")
             return
-        from agent import _apply_unified_diff, validate_code, backup_agent, smoke_test, AGENT_FILE
-        import tempfile
-        ok, new_code = _apply_unified_diff(code, diff)
-        if not ok:
-            await query.edit_message_text(f"Не удалось применить diff: {new_code}")
-            return
-        valid, err = validate_code(new_code)
-        if not valid:
-            await query.edit_message_text(f"Синтаксическая ошибка: {err}")
-            return
-        backup_path = backup_agent()
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as tmp:
-            tmp.write(new_code)
-            tmp_path = tmp.name
-        passed, error = smoke_test(tmp_path)
-        os.unlink(tmp_path)
-        if not passed:
-            await query.edit_message_text(f"Smoke-test не прошёл: {error[:500]}")
-            return
-        with open(AGENT_FILE, "w", encoding="utf-8") as f:
-            f.write(new_code)
+
+        await query.edit_message_text("⏳ Применяю атомарно (бэкап → валидация → smoke-test)...")
+
+        from tools.safe_apply import safe_apply
+        import asyncio
+        result = await asyncio.to_thread(safe_apply, diff, ".")
+
         context.user_data.pop("evolve_diff", None)
         context.user_data.pop("evolve_code", None)
-        await query.edit_message_text(f"✅ Код обновлён. Бэкап: {backup_path}\nПерезапусти бота.")
+
+        if not result.ok:
+            msg = f"❌ Не применено:\n{result.message}"
+            if result.backup_dir:
+                msg += f"\n\nОткат сделан, бэкап: {result.backup_dir}"
+            await context.bot.send_message(chat_id=query.message.chat_id, text=msg[:4000])
+            from agent import increment_evolution
+            increment_evolution(success=False)
+            return
+
+        from agent import increment_evolution
+        increment_evolution(success=True)
+        files_list = "\n".join(f"  • {p}" for p in result.touched_paths)
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text=(
+                f"✅ {result.message}\n\n"
+                f"Затронуто:\n{files_list}\n\n"
+                f"Бэкап: {result.backup_dir}\n\n"
+                f"♻️ Перезапускаюсь, чтобы загрузить новый код. До связи через ~5 сек."
+            )[:4000],
+        )
+
+        # Дать сообщению дойти, потом systemd перезапустит — новый процесс
+        # подхватит свежий код. Делаем в фоновом сабпроцессе чтобы текущий
+        # процесс успел отдать ответ Telegram.
+        import subprocess
+        subprocess.Popen(
+            ["sh", "-c", "sleep 2 && systemctl restart mira-bot mira-web"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
     elif data == "evolve_reject":
         context.user_data.pop("evolve_diff", None)

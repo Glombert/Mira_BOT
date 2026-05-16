@@ -1,5 +1,6 @@
 # Mira — Ouroboros agent
 import os
+import re
 import ast
 import sys
 import json
@@ -696,12 +697,19 @@ class Agent:
         """
         if max_tool_rounds is None:
             max_tool_rounds = self.profile.max_tool_rounds
+        # Показываем модели ТОЛЬКО те инструменты которые она реально может вызвать
+        # (пересечение agent.allowed_tools и profile.allowed_tools). Без этого она
+        # видит всю палитру и пытается звать запрещённые, получая 'Blocked tool'.
+        allowed_schemas = [
+            s for s in TOOL_SCHEMAS
+            if self.can_use(s["function"]["name"])
+        ]
         t_start = time.time()
         for round_num in range(max_tool_rounds):
             response = _providers.call(
                 self.model_chain,
                 messages,
-                tools=TOOL_SCHEMAS,
+                tools=allowed_schemas,
                 tool_choice="auto",
                 max_tokens=self.max_tokens,
                 user_id=self.user_id,
@@ -1022,8 +1030,108 @@ def _apply_unified_diff(original: str, diff_text: str) -> tuple[bool, str]:
     return True, "".join(result)
 
 
-def _evolve_build_prompt(task: str, code: str, principles: str) -> str:
-    """Собирает промт: задача + контекст из первых/последних строк кода + пример diff."""
+def _evolve_build_messages(task: str, principles: str) -> list[dict]:
+    """Сообщения для Agent.run в режиме /evolve.
+
+    Мира получает инструкции: можешь читать любой файл проекта через read_self,
+    видеть структуру через list_self, проверять каталог моделей через
+    openrouter_list_models. Должна вернуть мульти-файл unified diff внутри
+    ```diff ... ``` блока. Без прямых write_* вызовов — они отключены через
+    allowed_tools нового агента.
+    """
+    from tools.self_edit import ALLOWED_PATTERNS
+
+    principles_block = (
+        f"\nПринципы (не нарушай):\n{principles}\n" if principles else ""
+    )
+    allowed_files = "\n".join(f"  • {p}" for p in ALLOWED_PATTERNS)
+
+    system = (
+        "Ты — Мира, изменяющая собственный код через команду /evolve.\n\n"
+        "Что ты можешь СДЕЛАТЬ в этом режиме:\n"
+        "  • list_self — посмотреть структуру проекта\n"
+        "  • read_self — прочитать содержимое любого файла из проекта\n"
+        "  • openrouter_list_models — реальный каталог моделей OpenRouter\n"
+        "  • web_search — найти информацию в интернете\n\n"
+        "Что ты НЕ ДЕЛАЕШЬ в этом режиме (заблокировано):\n"
+        "  • write_file, write_agent_config, write_persona — НЕ работают сейчас.\n"
+        "  • Вместо них ты ВОЗВРАЩАЕШЬ мульти-файл unified diff. Система применит его атомарно.\n\n"
+        "Файлы которые можно править через diff:\n"
+        f"{allowed_files}\n"
+        "Запрещённые (auto-reject): .env, memory/, workspace/, logs/, versions/, credentials.json, .git/\n\n"
+        f"{principles_block}\n"
+        "Когда сделала анализ — заверши ответ ОДНИМ блоком ```diff ... ```:\n\n"
+        "```diff\n"
+        "--- a/agent.py\n"
+        "+++ b/agent.py\n"
+        "@@ -10,3 +10,4 @@\n"
+        " line\n"
+        "-old\n"
+        "+new\n"
+        " line\n"
+        "--- /dev/null\n"
+        "+++ b/tools/new_tool.py\n"
+        "@@ -0,0 +1,N @@\n"
+        "+content\n"
+        "```\n\n"
+        "Принципы хорошего diff:\n"
+        "  • Сначала read_self файлов которые собираешься менять — нумерация строк нужна точная.\n"
+        "  • Изменяй ТОЛЬКО то что относится к задаче. Не рефактор, не cleanup.\n"
+        "  • Новые файлы создаются через `--- /dev/null` + `+++ b/path`.\n"
+        "  • Если задача мульти-файловая (новый инструмент + регистрация + тесты) — собери всё в один diff.\n"
+        "  • Не пиши длинные объяснения вокруг diff — пользователь увидит только diff и нажмёт кнопку.\n"
+    )
+
+    user = f"Задача: {task}"
+
+    return [
+        {"role": "system", "content": system},
+        {"role": "user",   "content": user},
+    ]
+
+
+_DIFF_BLOCK_RE = re.compile(r"```(?:diff)?\s*\n(.*?)\n```", re.DOTALL)
+
+
+def _evolve_extract_diff(response_text: str) -> str | None:
+    """Достаёт diff из ``` block в ответе Миры. Возвращает None если не нашёл."""
+    if not response_text:
+        return None
+    m = _DIFF_BLOCK_RE.search(response_text)
+    if m:
+        candidate = m.group(1).strip()
+        if "@@" in candidate or "/dev/null" in candidate:
+            return candidate
+    # Fallback: если нет ``` блока, но весь ответ выглядит как diff
+    if "--- " in response_text and "+++ " in response_text and "@@" in response_text:
+        return response_text.strip()
+    return None
+
+
+def _evolve_make_readonly_agent(model_chain: list, profile: "Profile") -> "Agent":
+    """Создаёт ad-hoc агента с правами только на чтение/исследование.
+
+    Это не позволяет ему случайно вызвать write_* во время /evolve — все изменения
+    должны прийти как diff, который мы применяем атомарно через safe_apply.
+    """
+    config = {
+        "name": "Mira-Evolve",
+        "role": "alpha",
+        "model_chain": model_chain,
+        "max_tokens": 8192,
+        "allowed_tools": [
+            "list_self", "read_self",
+            "openrouter_list_models", "web_search",
+            "recall", "git_log",
+        ],
+    }
+    return Agent(config, profile, "", "")
+
+
+def _legacy_evolve_build_prompt(task: str, code: str, principles: str) -> str:
+    """Старый single-file промт. Оставлен на случай если кто-то импортирует.
+
+    Используй _evolve_build_messages для мульти-файла."""
     code_lines   = code.splitlines()
     total_lines  = len(code_lines)
     preview_head = "\n".join(code_lines[:80])
@@ -1162,65 +1270,72 @@ def _evolve_apply_and_validate(code: str, raw_diff: str) -> tuple[bool, str]:
 
 
 def evolve(task: str) -> None:
-    """Агент предлагает unified diff к своему коду, проверяет его и применяет.
+    """Мульти-файл эволюция через /evolve.
 
-    Diff (а не полный файл) решает проблему обрезания по max_tokens.
-    Защита: переключение на mira-dev → проверка принципов →
-    подтверждение → бэкап → валидация → smoke-test → запись.
+    Мира получает задачу и инструменты для исследования (read_self, list_self,
+    openrouter_list_models, web_search). Возвращает мульти-файл unified diff.
+    Diff проходит через safe_apply: whitelist → валидация → атомарная запись
+    → smoke-test → откат при любой ошибке.
     """
+    from tools.safe_apply import safe_apply as _safe_apply
+
     model_chain = alpha.model_chain if alpha else []
     if not model_chain:
         print("[-] Нет настроенных провайдеров для /evolve.")
         return
 
-    print(f"\n[Ouroborus] Генерирую патч для задачи: '{task}'...")
-    logger.info(f"Команда /evolve: задача — {task}")
+    print(f"\n[Ouroborus] Эволюция: '{task}'...")
+    logger.info(f"Команда /evolve: {task}")
 
     if not ensure_dev_branch():
         print("[!] Не удалось переключиться на mira-dev. Продолжаю на текущей ветке.")
 
     principles = load_principles()
-    code = read_own_code()
-    if not code:
-        print("[-] Не удалось прочитать код для эволюции.")
-        return
+    evolve_agent = _evolve_make_readonly_agent(model_chain, profile)
+    messages = _evolve_build_messages(task, principles)
 
     try:
-        prompt   = _evolve_build_prompt(task, code, principles)
-        raw_diff = _evolve_request_diff(model_chain, prompt)
-        if not raw_diff:
-            print("[-] Модель не вернула корректный diff. Попробуй переформулировать задачу.")
-            return
-
-        _evolve_show_diff(raw_diff)
-        _evolve_check_principles(model_chain, principles, raw_diff)
-
-        confirm = input("\nПрименить изменения? [y/N]: ").strip().lower()
-        if confirm != "y":
-            print("[Evolve] Изменения отклонены.")
-            logger.info("Evolve: изменения отклонены пользователем.")
-            return
-
-        ok, result = _evolve_apply_and_validate(code, raw_diff)
-        if not ok:
-            print(f"[-] {result}")
-            print("[-] Изменения не применены.")
-            logger.error(f"Evolve: {result}")
-            increment_evolution(success=False)
-            return
-
-        with open(AGENT_FILE, "w", encoding="utf-8") as f:
-            f.write(result)
-
-        increment_evolution(success=True)
-        print("[*] Код обновлён на ветке mira-dev. Перезапусти агента.")
-        print("[*] Когда готов к релизу — введи /release.")
-        logger.info(f"Evolve: код успешно обновлён. Задача: {task}")
-
+        print("[Evolve] Мира исследует код и формирует diff...")
+        response_text = evolve_agent.run(messages, max_tool_rounds=20)
     except Exception as e:
+        print(f"[-] Ошибка при генерации: {e}")
+        logger.error(f"Evolve generation error: {e}", exc_info=True)
         increment_evolution(success=False)
-        print(f"[-] Ошибка при генерации патча: {e}")
-        logger.error(f"Evolve Error: {e}", exc_info=True)
+        return
+
+    raw_diff = _evolve_extract_diff(response_text)
+    if not raw_diff:
+        print("[-] Мира не вернула diff. Её ответ:")
+        print(response_text[:1500])
+        increment_evolution(success=False)
+        return
+
+    _evolve_show_diff(raw_diff)
+
+    confirm = input("\nПрименить изменения? [y/N]: ").strip().lower()
+    if confirm != "y":
+        print("[Evolve] Изменения отклонены.")
+        logger.info("Evolve: отклонены пользователем")
+        return
+
+    print("[Evolve] Применяю атомарно (бэкап → валидация → smoke-test)...")
+    result = _safe_apply(raw_diff, project_root=".")
+
+    if not result.ok:
+        print(f"[-] {result.message}")
+        if result.backup_dir:
+            print(f"[i] Откат сделан из {result.backup_dir}")
+        logger.error(f"Evolve apply failed: {result.message}")
+        increment_evolution(success=False)
+        return
+
+    increment_evolution(success=True)
+    print(f"[*] {result.message}")
+    print(f"[*] Затронуто: {', '.join(result.touched_paths)}")
+    print(f"[*] Бэкап: {result.backup_dir}")
+    print("[*] Перезапусти агента чтобы изменения вступили в силу.")
+    print("[*] Когда готов к релизу — /release.")
+    logger.info(f"Evolve OK: {result.touched_paths}")
 
 
 # ---------------------------------------------------------------------------
