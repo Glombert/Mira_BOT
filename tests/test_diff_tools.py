@@ -325,21 +325,29 @@ def test_ambiguous_match_disambiguated_by_hint():
     assert result.endswith("DUP\nA\nB\n")
 
 
-def test_ambiguous_match_no_hint_fails():
-    """Если hint вообще не совпадает И в файле несколько мест — отказ."""
-    # hint указывает на строку 100 (вне файла), а fingerprint встречается дважды
-    original = "DUP\nA\nB\nDUP\nA\nB\n"
+def test_ambiguous_match_picks_closest_to_hint():
+    """Если hint указывает на одно из мест — берём ближайшее (GNU patch стратегия).
+
+    Это нужно для случаев когда контекст слишком общий и встречается N раз
+    (например '"required": []' в tool_schemas.py). Hint выступает диcambiguator'ом.
+    """
+    original = "DUP\nA\nB\nDUP\nA\nB\nDUP\nA\nB\n"
+    # Hint указывает близко к среднему вхождению (строка 4, индекс 3)
     diff = """--- a/x.py
 +++ b/x.py
-@@ -100,2 +100,2 @@
+@@ -4,2 +4,2 @@
  DUP
 -A
 +REPLACED
 """
     changes = parse_multi_diff(diff)
-    ok, err = apply_change(original, changes[0])
-    assert not ok
-    assert "несколько раз" in err or "не нашёл" in err
+    ok, result = apply_change(original, changes[0])
+    assert ok
+    # Заменилось ВТОРОЕ A (среднее, ближе к hint=3), а не первое или третье
+    lines = result.splitlines()
+    assert lines[4] == "REPLACED"  # на позиции 4 (после DUP с позиции 3)
+    assert lines[1] == "A"  # первое A не тронуто
+    assert lines[7] == "A"  # третье A не тронуто
 
 
 def test_fuzzy_finds_shifted_hunk():

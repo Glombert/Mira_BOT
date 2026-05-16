@@ -167,14 +167,17 @@ def _find_hunk_position(lines: list[str], hunk: Hunk, hint_index: int) -> int | 
     if _strict_at(hint_index):
         return hint_index
 
-    # Уровень 2: точное совпадение в уникальной позиции
+    # Уровень 2: точные совпадения по файлу
     strict_matches = [
         i for i in range(len(lines) - len(fp) + 1) if _strict_at(i)
     ]
     if len(strict_matches) == 1:
         return strict_matches[0]
     if len(strict_matches) > 1:
-        return None  # неоднозначно, hint не помог разрешить
+        # Несколько мест подходят (контекст слишком общий, например
+        # «"required": []» встречается в каждом tool schema). Берём
+        # ближайший к hint — стандартная стратегия GNU patch.
+        return min(strict_matches, key=lambda i: abs(i - hint_index))
 
     # Уровень 3: loose match (модель промахнулась с whitespace)
     if _loose_at(hint_index):
@@ -184,6 +187,8 @@ def _find_hunk_position(lines: list[str], hunk: Hunk, hint_index: int) -> int | 
     ]
     if len(loose_matches) == 1:
         return loose_matches[0]
+    if len(loose_matches) > 1:
+        return min(loose_matches, key=lambda i: abs(i - hint_index))
     return None
 
 
