@@ -1081,9 +1081,12 @@ async def _run_evolve_preview(update, context, task):
             InlineKeyboardButton("✅ Применить", callback_data="evolve_apply"),
             InlineKeyboardButton("❌ Отклонить", callback_data="evolve_reject"),
         ]])
+        # parse_mode=HTML: оборачиваем в <pre> для моноширинного вида и
+        # экранируем спецсимволы. Markdown ломался на _ и * в коде diff.
+        import html as _html
         await _reply(update,
-            f"```diff\n{diff_preview}\n```",
-            parse_mode="Markdown",
+            f"<pre>{_html.escape(diff_preview)}</pre>",
+            parse_mode="HTML",
             reply_markup=keyboard,
         )
     except Exception as e:
