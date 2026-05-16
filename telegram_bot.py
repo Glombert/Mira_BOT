@@ -1026,9 +1026,13 @@ async def cmd_evolve(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def _run_evolve_preview(update, context, task):
-    """Генерирует diff и отправляет владельцу для одобрения через кнопки."""
-    from agent import read_own_code
-    import providers as _providers
+    """Генерирует diff и отправляет владельцу для одобрения через кнопки.
+
+    Использует те же _evolve_build_prompt / _evolve_request_diff что CLI-/evolve —
+    с контекстом кода (первые 80 + последние 20 строк) и принципами. Без этого
+    модель пишет вслепую и возвращает заглушки/галлюцинации.
+    """
+    from agent import read_own_code, _evolve_build_prompt, _evolve_request_diff
 
     if not ensure_dev_branch():
         await _reply(update,"[!] Не удалось переключиться на mira-dev.")
@@ -1045,30 +1049,11 @@ async def _run_evolve_preview(update, context, task):
         await _reply(update,"Ошибка создания агента.")
         return
 
-    principles_block = f"\nПринципы:\n{principles}\n" if principles else ""
-    prompt = (
-        f"Файл agent.py ({len(code.splitlines())} строк). Задача: {task}\n"
-        f"{principles_block}\n"
-        "Верни unified diff (формат diff -u). Только diff, не весь файл."
-    )
     try:
-        response = _providers.call(
-            alpha.model_chain,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": prompt},
-            ],
-            temperature=0.2,
-            max_tokens=2048,
-        )
-        raw_diff = response.choices[0].message.content.strip()
-        if raw_diff.startswith("```"):
-            raw_diff = "\n".join(
-                l for l in raw_diff.splitlines() if not l.strip().startswith("```")
-            ).strip()
-
-        if "@@" not in raw_diff:
-            await _reply(update,"Модель не вернула diff. Попробуй другую формулировку.")
+        prompt   = _evolve_build_prompt(task, code, principles)
+        raw_diff = _evolve_request_diff(alpha.model_chain, prompt)
+        if not raw_diff:
+            await _reply(update,"Модель не вернула корректный diff. Попробуй другую формулировку.")
             return
 
         # Сохраняем diff для применения при подтверждении
