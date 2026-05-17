@@ -17,6 +17,7 @@ from openai import OpenAI
 from tools import list_files, read_file, write_file, run_python, undo_last, list_undo, excel_read, excel_write, web_search, list_self, read_self, write_persona, write_agent_config, git_log
 from tools import semantic_memory
 from tools.gdrive_tools import gdrive_list, gdrive_read, gdrive_write, is_authorized as _gdrive_authorized, auto_upload_to_drive as _gdrive_auto_upload
+from tools import image_tools
 from tools.gdrive_tools import gcal_list, gcal_create, gcal_quick_add
 from tools.gdrive_tools import gsheet_read, gsheet_write, gsheet_create
 from tools.metrics_tools import metrics_read
@@ -565,6 +566,7 @@ _TOOL_REGISTRY = {
     "openrouter_list_models": lambda u, a: _openrouter_list_models(
         a.get("filter", ""), a.get("capability", ""), a.get("limit", 30)
     ),
+    "generate_image":     lambda u, a: image_tools.generate_image(u, a["prompt"], a.get("model", "google/gemini-2.5-flash-image")),
 }
 
 
