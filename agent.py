@@ -1093,18 +1093,42 @@ def _evolve_build_messages(task: str, principles: str) -> list[dict]:
 _DIFF_BLOCK_RE = re.compile(r"```(?:diff)?\s*\n(.*?)\n```", re.DOTALL)
 
 
+def _unescape_diff(text: str) -> str:
+    """Чистит JSON-style экранирование которое модель иногда оставляет в diff.
+
+    Замечено в реальных /evolve: модель пишет `\\"required\\": []` вместо
+    `"required": []`. Strict/loose сравнения не ловят — это другие символы.
+    Точечная замена escaped quotes, бэкслеша и tab/newline literals.
+    """
+    if '\\"' not in text and "\\n" not in text and "\\t" not in text:
+        return text
+    # Порядок важен: сначала \\\\ → \\ (чтобы не съесть один из последующих \)
+    out = text.replace("\\\\", "\x00")
+    out = out.replace('\\"', '"')
+    out = out.replace("\\'", "'")
+    out = out.replace("\\t", "\t")
+    # \n как literal — заменяем только если их меньше чем реальных переводов
+    # (иначе diff приехал в одну строку, что тоже фикcится)
+    real_newlines = out.count("\n")
+    literal_newlines = out.count("\\n")
+    if literal_newlines > 0 and literal_newlines > real_newlines // 2:
+        out = out.replace("\\n", "\n")
+    out = out.replace("\x00", "\\")
+    return out
+
+
 def _evolve_extract_diff(response_text: str) -> str | None:
     """Достаёт diff из ``` block в ответе Миры. Возвращает None если не нашёл."""
     if not response_text:
         return None
     m = _DIFF_BLOCK_RE.search(response_text)
     if m:
-        candidate = m.group(1).strip()
+        candidate = _unescape_diff(m.group(1).strip())
         if "@@" in candidate or "/dev/null" in candidate:
             return candidate
     # Fallback: если нет ``` блока, но весь ответ выглядит как diff
     if "--- " in response_text and "+++ " in response_text and "@@" in response_text:
-        return response_text.strip()
+        return _unescape_diff(response_text.strip())
     return None
 
 
