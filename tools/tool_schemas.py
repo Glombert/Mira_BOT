@@ -725,5 +725,30 @@ TOOL_SCHEMAS = [
                 "required": []
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_image",
+            "description": (
+                "Генерирует изображение по текстовому описанию через мультимодальную модель OpenRouter. "
+                "Сохраняет PNG в workspace/{user_id}/output/. "
+                "Используй когда пользователь просит нарисовать, сгенерировать или визуализировать что-либо."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Промпт для генерации на английском языке. Описывай субъект, стиль, освещение, композицию."
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "ID image-модели из OpenRouter (например 'google/gemini-2.5-flash-image'). Если не указана — используется модель по умолчанию."
+                    }
+                },
+                "required": ["prompt"]
+            }
+        }
     }
 ]
