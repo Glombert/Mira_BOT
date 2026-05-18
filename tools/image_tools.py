@@ -48,12 +48,38 @@ def generate_image(
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
+    # API мог вернуть 200 OK без images (например модель отдала только текст
+    # вместо картинки). Логируем raw чтобы можно было отлаживать.
     try:
         message   = data["choices"][0]["message"]
-        image_url = message["images"][0]["image_url"]["url"]
+    except (KeyError, IndexError) as e:
+        logger.warning(f"generate_image: нет choices[0].message в ответе: {str(data)[:500]}")
+        return {"ok": False, "error": f"Нет choices в ответе API: {e}"}
+
+    images = message.get("images") or []
+    if not images:
+        # Модель вернула только текст — частая проблема. Дублирую в лог.
+        content_preview = str(message.get("content"))[:200]
+        logger.warning(
+            f"generate_image: модель вернула текст без images. "
+            f"finish_reason={data['choices'][0].get('finish_reason')}, "
+            f"content={content_preview}"
+        )
+        return {
+            "ok": False,
+            "error": (
+                f"Модель не вернула изображение, только текст. "
+                f"Возможно отказала из-за политики или промт был воспринят как текстовый запрос. "
+                f"Ответ модели: «{content_preview}»"
+            ),
+        }
+
+    try:
+        image_url = images[0]["image_url"]["url"]
         text      = message.get("content") or ""
     except (KeyError, IndexError) as e:
-        return {"ok": False, "error": f"Неожиданная структура ответа API: {e}. Raw: {str(data)[:400]}"}
+        logger.warning(f"generate_image: кривая структура images[0]: {str(images[0])[:300]}")
+        return {"ok": False, "error": f"Неожиданная структура images[0]: {e}"}
 
     try:
         _, b64_data = image_url.split(",", 1)
