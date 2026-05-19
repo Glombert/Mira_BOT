@@ -47,6 +47,44 @@ cargo tauri build        # собрать desktop бандл (.AppImage / .deb)
 | `NEXT_PUBLIC_BOT_USERNAME` | Username Telegram-бота | `MiraTestBot` |
 | `NEXT_PUBLIC_MIRA_MOCK` | Включить мок-режим | `false` |
 
+## Деплой на VPS (production)
+
+`clients/apps/web/dist/` гитнорируется — на VPS бандл собирается локально через
+`scripts/deploy_web.sh` после `git pull`.
+
+### Требования к VPS
+
+- **node 20+** и npm:
+  ```bash
+  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  sudo apt install -y nodejs
+  node --version  # должно быть v20+
+  ```
+- systemd unit `mira-web.service` уже установлен (см. `scripts/mira-web.service`).
+
+### Сценарий деплоя
+
+```bash
+# на VPS, под root:
+cd /root/mira_agent
+git pull
+./scripts/deploy_web.sh
+```
+
+Скрипт:
+1. Проверяет node ≥20.
+2. `npm install` в `clients/` (только если `package-lock.json` обновился).
+3. `npm run build:web` → создаёт `clients/apps/web/dist/`.
+4. `systemctl restart mira-web`.
+
+Идемпотентный — можно запускать сколько угодно раз. Опции:
+- `SKIP_RESTART=1` — пропустить restart (если нужно собрать без рестарта).
+- `REPO=/путь` — переопределить корень репо.
+
+`git_autosync.sh` тянет коммиты автоматически (cron), но **не** запускает
+deploy. После UI-изменений нужно зайти на VPS и вызвать `deploy_web.sh`
+вручную (или добавить хук позже).
+
 ## Требования к Linux (desktop)
 
 ### Сборка
