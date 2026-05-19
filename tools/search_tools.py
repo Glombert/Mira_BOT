@@ -8,7 +8,7 @@ import json
 import logging
 import time
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 
 
 def web_search(query: str, max_results: int = 5) -> dict:

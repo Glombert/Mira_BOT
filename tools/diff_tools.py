@@ -14,9 +14,12 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Literal
+
+logger = logging.getLogger("Ouroboros")
 
 Action = Literal["create", "modify", "delete"]
 
@@ -222,8 +225,14 @@ def apply_hunks(original: str, hunks: list[Hunk], strict: bool = True) -> tuple[
                     f"либо такого в файле нет, либо встречается несколько раз."
                 )
             if pos != hint:
-                # Записать в лог что хунк сдвинулся? Пока просто продолжаем
-                pass
+                # Хунк сдвинулся относительно заявленной позиции — либо контекст
+                # неоднозначен, либо модель промахнулась с номером строки. Лог
+                # нужен чтобы видеть «тихие» сдвиги при разборе провалов /evolve.
+                logger.warning(
+                    f"diff_tools: hunk #{h_idx + 1} применён на строке {pos + 1} "
+                    f"вместо заявленной {hint + 1} (Δ={pos - hint:+d}). "
+                    f"Контекст возможно неоднозначен."
+                )
             i = pos
         else:
             i = hint

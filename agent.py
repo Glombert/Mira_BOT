@@ -43,8 +43,11 @@ from conclave import Conclave
 # ---------------------------------------------------------------------------
 # Настройка логирования
 # ---------------------------------------------------------------------------
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 logger.setLevel(logging.INFO)
+# propagate=False — чтобы наш handler был единственным владельцем agent.log,
+# а basicConfig из telegram_bot не дублировал записи в свой файл.
+logger.propagate = False
 
 os.makedirs("logs", exist_ok=True)
 log_handler = TimedRotatingFileHandler(
@@ -86,7 +89,7 @@ if _args.self_test:
     print("OK")
     sys.exit(0)
 
-logger.info("=== Запуск агента Ouroborus ===")
+logger.info("=== Запуск агента Ouroboros ===")
 
 # ---------------------------------------------------------------------------
 # Конфигурация — все пути и константы в одном месте
@@ -125,7 +128,11 @@ def time_context() -> str:
 
 # Провайдеры моделей (заполняется из .env автоматически)
 MODELS_CONFIG: dict = {}
-counter = 1
+counter = 1  # счётчик ID моделей при заполнении MODELS_CONFIG ниже
+
+# Главный агент. Создаётся в __main__ для CLI; для импортов (telegram_bot,
+# web/app) остаётся None — evolve() это явно проверяет и выходит.
+alpha: "Agent | None" = None
 
 
 # ---------------------------------------------------------------------------
@@ -948,7 +955,7 @@ def reflect(model_chain: list[dict], messages: list) -> None:
     Агент читает свой код и даёт аналитику через providers.call(model_chain).
     Резервирование работает так же, как в обычном чате.
     """
-    print("\n[Ouroborus] Запуск рефлексии — читаю собственный код...")
+    print("\n[Ouroboros] Запуск рефлексии — читаю собственный код...")
     logger.info("Команда /reflect: запуск самоанализа.")
 
     code = read_own_code()
@@ -1310,7 +1317,7 @@ def evolve(task: str) -> None:
         print("[-] Нет настроенных провайдеров для /evolve.")
         return
 
-    print(f"\n[Ouroborus] Эволюция: '{task}'...")
+    print(f"\n[Ouroboros] Эволюция: '{task}'...")
     logger.info(f"Команда /evolve: {task}")
 
     if not ensure_dev_branch():

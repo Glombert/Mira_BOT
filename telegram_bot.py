@@ -71,6 +71,7 @@ memory_crypto.init()
 import memory_manager
 from tools import semantic_memory
 from tools import rate_limit
+from tools.access_tools import increment_guest_counter
 from tools.gdrive_tools import (
     is_configured as gdrive_configured,
     is_authorized as gdrive_authorized,
@@ -115,8 +116,10 @@ MAX_HISTORY  = 20
 MAX_MSG_LEN  = 4000   # Telegram ограничивает сообщения ~4096 символами
 
 os.makedirs("logs", exist_ok=True)
+# Отдельный файл для бота: agent.log принадлежит "Ouroboros" (см. agent.py),
+# и тот логгер с propagate=False, поэтому записи не пересекаются.
 _file_handler = TimedRotatingFileHandler(
-    "logs/agent.log",
+    "logs/telegram_bot.log",
     when="midnight",
     interval=1,
     backupCount=3,
@@ -1789,17 +1792,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await _reply(update,"Доступ закрыт.")
         return
 
-    # Гостевой лимит
+    # Гостевой лимит — единый источник в access_tools.GUEST_LIMIT
     if profile_data and profile_data.get("status") == "guest":
-        count = profile_data.get("guest_message_count", 0) + 1
-        profile_data["guest_message_count"] = count
-        save_user_profile(user_id, profile_data)
-        if count > 10:
+        count, limit = increment_guest_counter(user_id, profile_data)
+        if count > limit:
             logger.info(f"handle_message: гость {user_id} исчерпал лимит сообщений")
-            await _reply(update,"Лимит сообщений исчерпан. Ожидай одобрения.")
+            await _reply(update, "Лимит сообщений исчерпан. Ожидай одобрения.")
             return
-        elif count >= 8:
-            await _reply(update,f"(осталось {10 - count} сообщений из 10)")
+        elif count >= limit - 2:
+            await _reply(update, f"(осталось {limit - count} сообщений из {limit})")
 
     msgs   = _load_session(user_id)
     alpha  = _make_alpha(tg_id, user_id)

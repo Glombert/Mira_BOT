@@ -34,7 +34,7 @@ from typing import Callable, Optional
 from tools.diff_tools import parse_multi_diff, apply_change, extract_paths, FileChange
 from tools.self_edit  import check_all_paths, validate_content
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 
 
 @dataclass

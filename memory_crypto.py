@@ -20,7 +20,7 @@ import json
 import logging
 import threading
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 
 _fernet = None
 _locks: dict[str, threading.Lock] = {}

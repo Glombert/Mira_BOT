@@ -9,7 +9,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 METRICS_DIR = os.path.join("memory", "metrics")
 
 
