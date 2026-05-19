@@ -10,7 +10,8 @@ Nginx проксирует запросы снаружи.
   3. Сервер проверяет подпись и выдаёт подписанный session token
   4. Token хранится в localStorage, передаётся в WebSocket
 
-Сессии: tg_id → user_id "web_tg_{tg_id}", та же memory/ что у Telegram.
+Сессии: tg_id → user_id "tg_{tg_id}". История общая с Telegram и Mobile.
+Старые web-сессии под "web_tg_{tg_id}" мигрируют при первой загрузке.
 """
 
 import os
@@ -189,15 +190,56 @@ def _web_user_id(tg_id: int) -> str:
     return f"tg_{tg_id}"
 
 
-def _web_session_key(user_id: str) -> str:
-    """Web-сессии хранятся под отдельным префиксом, чтобы не конфликтовать с tg-сессиями."""
-    return f"web_{user_id}"
+# Одноразовая миграция: пользователи, у которых до унификации копилась
+# отдельная web-сессия (ключ web_<user_id>) — склеиваем её с tg-сессией
+# по updated_at и удаляем legacy-запись. Флаг «уже мигрировали» не нужен:
+# после успешной миграции web_<user_id> просто отсутствует в БД.
+_migrated_users: set[str] = set()
+
+
+def _migrate_legacy_web_session(user_id: str) -> None:
+    """Сливает web_<user_id> в <user_id> и удаляет legacy-запись.
+
+    Стратегия: чья updated_at старше → в начало, моложе → в конец.
+    Дедуп смежных дублей по (role, content). После — legacy удаляется.
+    Идемпотентно: повторный вызов ничего не делает (legacy уже нет).
+    """
+    if user_id in _migrated_users:
+        return
+    _migrated_users.add(user_id)
+    from tools import db
+    legacy_key = f"web_{user_id}"
+    legacy = db.load_session(legacy_key)
+    if not legacy:
+        return
+    current = db.load_session(user_id) or []
+    legacy_ts  = db.get_session_updated_at(legacy_key)  or ""
+    current_ts = db.get_session_updated_at(user_id)     or ""
+    if legacy_ts <= current_ts:
+        merged = legacy + current
+    else:
+        merged = current + legacy
+    # System-prompt пересчитывается при каждом _load_session, в БД ему делать
+    # нечего. Дедупим смежные дубли (могут возникнуть на стыке двух сессий).
+    out: list = []
+    prev: tuple | None = None
+    for m in merged:
+        if m.get("role") == "system":
+            continue
+        key = (m.get("role"), m.get("content"))
+        if key != prev:
+            out.append(m)
+            prev = key
+    db.save_session(user_id, out)
+    db.delete_session(legacy_key)
+    logger.info(f"migrate: web_{user_id} ({len(legacy)}) + {user_id} ({len(current)}) → {len(out)}")
 
 
 def _load_session(user_id: str) -> list:
+    _migrate_legacy_web_session(user_id)
     sys_prompt = _system_prompt_for(user_id)
     from tools import db
-    msgs = db.load_session(_web_session_key(user_id))
+    msgs = db.load_session(user_id)
     if isinstance(msgs, list):
         for m in msgs:
             if m.get("role") == "system":
@@ -230,7 +272,7 @@ def _save_session(user_id: str, msgs: list) -> None:
 
     try:
         from tools import db
-        db.save_session(_web_session_key(user_id), saveable)
+        db.save_session(user_id, saveable)
     except Exception as e:
         logger.warning(f"save_session {user_id}: {e}")
 
