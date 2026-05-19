@@ -1819,6 +1819,7 @@ if __name__ == "__main__":
             "search":  ("scout", True,  False),  # поиск — без редактора
             "code":    ("coder", False, False),  # код — полный цикл
             "complex": ("coder", False, True),   # сложное — scout параллельно
+            "image":   ("artist", True, False),  # рисование — без редактора и параллельного scout
         }
 
         task_type = classify(user_input, alpha.model_chain if alpha else [])

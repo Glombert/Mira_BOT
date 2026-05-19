@@ -835,7 +835,7 @@ async def chat(websocket: WebSocket, session: str = ""):
             await websocket.send_json({"type": "thinking"})
 
             # Классификация + роутинг как в CLI и Telegram
-            _EXECUTOR_FOR = {"search": "scout", "code": "coder", "complex": "coder"}
+            _EXECUTOR_FOR = {"search": "scout", "code": "coder", "complex": "coder", "image": "artist"}
             task_type = classify(text, alpha.model_chain if alpha else [])
 
             try:

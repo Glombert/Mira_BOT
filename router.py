@@ -19,7 +19,7 @@ import providers as _providers
 
 logger = logging.getLogger("Ouroborus")
 
-LABELS = {"chat", "files", "code", "complex", "search"}
+LABELS = {"chat", "files", "code", "complex", "search", "image"}
 
 _PROMPT = """\
 Classify the user message into exactly one category.
@@ -30,6 +30,7 @@ Categories:
 - files   : reading, writing, listing files in the workspace
 - code    : writing, reviewing, fixing, explaining code
 - search  : needs current/live information — prices, news, reviews, comparisons of real products or services, recent events
+- image   : generating, drawing, creating an image/picture/illustration/visual
 - complex : multi-step task requiring planning, analysis, or calculation (no need for live search)
 
 User message: {message}
