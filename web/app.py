@@ -571,11 +571,6 @@ _AUTH_MOBILE_HTML = """<!DOCTYPE html>
   }
   .status.visible { opacity: 1; }
 </style>
-<script async src="https://telegram.org/js/telegram-widget.js?22"
-  data-telegram-login="{bot_username}"
-  data-size="large"
-  data-onauth="onTelegramAuth(user)"
-  data-request-access="write"></script>
 </head>
 <body>
   <img src="/static/mira-avatar.png" class="logo" alt="Мира" onerror="this.style.display='none'">
@@ -585,6 +580,21 @@ _AUTH_MOBILE_HTML = """<!DOCTYPE html>
   <div id="status" class="status"></div>
 
 <script>
+  // Виджет рисует кнопку прямо на месте своего <script>-тега. Поэтому
+  // создаём <script> динамически и вкладываем внутрь #widget-container —
+  // иначе кнопка отрисуется в <head> или в конце <body>.
+  (function() {
+    const wrap = document.getElementById('widget-container');
+    const s = document.createElement('script');
+    s.src = 'https://telegram.org/js/telegram-widget.js?22';
+    s.async = true;
+    s.setAttribute('data-telegram-login', '{bot_username}');
+    s.setAttribute('data-size', 'large');
+    s.setAttribute('data-onauth', 'onTelegramAuth(user)');
+    s.setAttribute('data-request-access', 'write');
+    wrap.appendChild(s);
+  })();
+
   // Telegram Login Widget callback
   function onTelegramAuth(user) {
     const status = document.getElementById('status');
