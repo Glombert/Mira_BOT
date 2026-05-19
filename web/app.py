@@ -500,6 +500,89 @@ async def auth_telegram(request: Request):
     return {"ok": True, "session": token, "name": name, "is_new": is_new}
 
 
+_AUTH_MOBILE_HTML = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Мира · Вход</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a1a; color: #e0e0f0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    min-height: 100vh; padding: 24px;
+  }
+  .logo {
+    width: 120px; height: 120px; border-radius: 60px;
+    object-fit: cover; border: 2px solid #FF8C4240;
+    margin-bottom: 16px;
+  }
+  h1 { color: #FF8C42; font-size: 28px; font-weight: 700; margin-bottom: 4px; }
+  p { color: #8888aa; font-size: 14px; margin-bottom: 32px; text-align: center; }
+  #widget-container { margin-bottom: 24px; }
+  .status {
+    font-size: 14px; color: #aaaacc; text-align: center;
+    opacity: 0; transition: opacity 0.3s;
+  }
+  .status.visible { opacity: 1; }
+</style>
+<script async src="https://telegram.org/js/telegram-widget.js?22"
+  data-telegram-login="{bot_username}"
+  data-size="large"
+  data-auth-url="/auth/telegram"
+  data-request-access="write"></script>
+</head>
+<body>
+  <img src="/static/mira-avatar.png" class="logo" alt="Мира" onerror="this.style.display='none'">
+  <h1>Мира</h1>
+  <p>Войди через Telegram чтобы продолжить</p>
+  <div id="widget-container"></div>
+  <div id="status" class="status"></div>
+
+<script>
+  // Telegram Login Widget callback
+  function onTelegramAuth(user) {
+    const status = document.getElementById('status');
+    status.textContent = 'Авторизация...';
+    status.classList.add('visible');
+
+    fetch('/auth/telegram?' + new URLSearchParams(user).toString())
+      .then(r => r.json())
+      .then(data => {
+        if (data.ok && data.session) {
+          status.textContent = 'Успешно! Открываю приложение...';
+          // Редирект в мобильное приложение через deep link
+          setTimeout(() => {
+            window.location.href = 'miramobile://auth?token=' + encodeURIComponent(data.session);
+          }, 500);
+        } else {
+          status.textContent = 'Ошибка авторизации. Попробуй ещё раз.';
+          status.style.color = '#ef4444';
+        }
+      })
+      .catch(err => {
+        status.textContent = 'Ошибка сети. Попробуй ещё раз.';
+        status.style.color = '#ef4444';
+      });
+  }
+
+  // Перехватываем callback от widget (data-onauth не работает с data-auth-url,
+  // поэтому переопределяем глобальную функцию которую вызывает widget)
+  window.onTelegramAuth = onTelegramAuth;
+</script>
+</body>
+</html>"""
+
+
+@app.get("/auth/mobile")
+async def auth_mobile():
+    """Мобильная auth-страница с Telegram Login Widget → deep link в приложение."""
+    return HTMLResponse(_AUTH_MOBILE_HTML.format(bot_username=BOT_USERNAME.replace("@", "")))
+
+
 @app.websocket("/ws")
 async def chat(websocket: WebSocket, session: str = ""):
     await websocket.accept()
