@@ -235,6 +235,17 @@ def delete_session(user_id: str) -> bool:
     return cur.rowcount > 0
 
 
+def get_session_updated_at(user_id: str) -> str | None:
+    """Возвращает updated_at сессии в ISO-формате или None если сессии нет.
+
+    Нужен для миграции «по timestamp» — какая из двух сессий свежее.
+    """
+    row = get_conn().execute(
+        "SELECT updated_at FROM sessions WHERE user_id = ?", (user_id,)
+    ).fetchone()
+    return row["updated_at"] if row else None
+
+
 # ---------------------------------------------------------------------------
 # Reminders
 # ---------------------------------------------------------------------------
