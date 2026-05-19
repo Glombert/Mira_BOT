@@ -398,29 +398,46 @@ def _help_keyboard(is_owner: bool) -> InlineKeyboardMarkup:
 # Web/Mobile-сессия
 # ---------------------------------------------------------------------------
 
+_MIRA_PUBLIC_URL = os.getenv("MIRA_PUBLIC_URL", "https://mira-bot.duckdns.org")
+
+
+async def _send_session_token(update: Update, tg_id: int, name: str) -> None:
+    """Генерит токен, шлёт пользователю с inline-кнопкой «Войти в приложение».
+
+    Кнопка ведёт на /m/auth?token=... — сервер редиректит в miramobile://
+    deep link, MiraMobile принимает токен без копипасты.
+
+    Для пользователей без приложения остаётся текстовый токен в кодовом блоке —
+    его можно тапнуть для копирования и вставить в любой клиент.
+    """
+    from web.security import make_session
+    token = make_session(TOKEN, tg_id, name)
+    deeplink_url = f"{_MIRA_PUBLIC_URL}/m/auth?token={token}"
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📱 Войти в приложение", url=deeplink_url)]
+    ])
+    await _reply(update,
+        "Токен сессии (30 дней):\n\n"
+        f"`{token}`\n\n"
+        "На телефоне нажми кнопку ниже — Мира откроется сама. "
+        "Либо вставь токен вручную в поле «У меня есть токен». "
+        "Никому не пересылай — он эквивалентен паролю.",
+        parse_mode="Markdown",
+        reply_markup=keyboard,
+    )
+
+
 async def cmd_login(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Отдаёт session-токен для веб/мобильного клиента (Войти → «У меня есть токен»).
+    """Отдаёт session-токен для веб/мобильного клиента.
 
     Альтернатива Telegram Login Widget: на сетях с DPI/RKN-блокировкой
-    telegram.org-виджет не грузится, а через бота — работает. Токен валиден
-    30 дней (SESSION_MAX_AGE), привязан к этому Telegram-id.
+    telegram.org-виджет не грузится, а через бота — работает.
     """
     user_id = _user_id(update.effective_user.id)
     if not _is_approved(user_id):
         await _reply(update, "Команда доступна только одобренным пользователям. Напиши /start.")
         return
-
-    from web.security import make_session
-    name  = update.effective_user.first_name or ""
-    token = make_session(TOKEN, update.effective_user.id, name)
-
-    await _reply(update,
-        "Токен сессии (действителен 30 дней):\n\n"
-        f"`{token}`\n\n"
-        "Скопируй его в приложение → «У меня есть токен» → «Войти». "
-        "Никому не пересылай — он эквивалентен паролю.",
-        parse_mode="Markdown",
-    )
+    await _send_session_token(update, update.effective_user.id, update.effective_user.first_name or "")
 
 
 # ---------------------------------------------------------------------------
@@ -834,6 +851,19 @@ async def cmd_remind_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     tg_id   = update.effective_user.id
     user_id = _user_id(tg_id)
+
+    # Deeplink-payload /start login → шлём токен для мобильного клиента.
+    # Так мобильное приложение запускает «Войти через Telegram» одним тапом:
+    # tg://resolve?domain=<bot>&start=login открывает чат с этим payload'ом.
+    payload = (context.args[0] if context.args else "").strip().lower()
+    if payload == "login":
+        if not _is_approved(user_id):
+            await _reply(update,
+                "Привет! Я тебя не помню — сначала нажми /start без параметров, "
+                "владелец одобрит, тогда вернёмся к логину.")
+            return
+        await _send_session_token(update, tg_id, update.effective_user.first_name or "")
+        return
 
     os.makedirs(MEMORY_DIR, exist_ok=True)
     os.makedirs(MEMORY_SESSIONS_DIR, exist_ok=True)

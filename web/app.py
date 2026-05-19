@@ -684,6 +684,53 @@ async def auth_mobile():
     return HTMLResponse(html)
 
 
+_MOBILE_REDIRECT_HTML = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Открываю Мира…</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+         background: #0a0a1a; color: #e0e0f0; min-height: 100vh;
+         display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; }
+  h1 { color: #FF8C42; font-size: 28px; margin-bottom: 12px; }
+  p { color: #8888aa; font-size: 14px; margin-bottom: 24px; text-align: center; }
+  a.btn { display: inline-block; background: #FF8C42; color: #0a0a1a;
+          padding: 14px 32px; border-radius: 12px; font-weight: 700;
+          text-decoration: none; }
+</style>
+</head>
+<body>
+<h1>Мира</h1>
+<p>Открываю приложение…<br>Если ничего не произошло — нажми кнопку.</p>
+<a id="open" class="btn" href="__DEEPLINK__">Открыть Мира</a>
+<script>
+  setTimeout(function () { window.location.href = '__DEEPLINK__'; }, 250);
+</script>
+</body>
+</html>"""
+
+
+@app.get("/m/auth")
+async def mobile_auth_redirect(token: str = ""):
+    """Бот шлёт юзеру inline-кнопку с URL сюда → Telegram открывает страницу →
+    мы редиректим в miramobile://auth?token=... → Android отдаёт MiraMobile.
+
+    Зачем не сразу deeplink в кнопке: Telegram BotAPI разрешает в inline_button.url
+    только http/https/tg-схемы; кастомные (miramobile://) запрещены.
+    """
+    if not token or len(token) > 512:
+        return HTMLResponse("Неверный или пустой токен.", status_code=400)
+    # Безопасный html-escape для атрибута/JS-литерала
+    import html as _html
+    safe = _html.escape(token, quote=True).replace("'", "&#39;")
+    deeplink = f"miramobile://auth?token={safe}"
+    body = _MOBILE_REDIRECT_HTML.replace("__DEEPLINK__", deeplink)
+    return HTMLResponse(body, headers={"Cache-Control": "no-store"})
+
+
 @app.websocket("/ws")
 async def chat(websocket: WebSocket, session: str = ""):
     await websocket.accept()
