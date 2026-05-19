@@ -180,7 +180,15 @@ def _find_hunk_position(lines: list[str], hunk: Hunk, hint_index: int) -> int | 
         # Несколько мест подходят (контекст слишком общий, например
         # «"required": []» встречается в каждом tool schema). Берём
         # ближайший к hint — стандартная стратегия GNU patch.
-        return min(strict_matches, key=lambda i: abs(i - hint_index))
+        chosen = min(strict_matches, key=lambda i: abs(i - hint_index))
+        logger.warning(
+            f"diff_tools: контекст хунка неоднозначен — найдено "
+            f"{len(strict_matches)} совпадений на строках "
+            f"{[m + 1 for m in strict_matches[:5]]}"
+            f"{'…' if len(strict_matches) > 5 else ''}, "
+            f"выбрана ближайшая к hint={hint_index + 1}: строка {chosen + 1}."
+        )
+        return chosen
 
     # Уровень 3: loose match (модель промахнулась с whitespace)
     if _loose_at(hint_index):

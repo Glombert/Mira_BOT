@@ -22,6 +22,7 @@ import hashlib
 import asyncio
 import json
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -114,6 +115,22 @@ if os.getenv("MIRA_ALLOW_LOCAL_CORS") == "1":
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
+
+
+# Cache-Control для статики:
+#   /_next/static/* — хешированные имена файлов (chunks/webpack-<hash>.js),
+#                     immutable + 1 год — браузер не дёрнет сервер повторно.
+#   /              — index.html без кеша, иначе пользователи будут видеть
+#                     старый бандл после деплоя.
+@app.middleware("http")
+async def _cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/_next/static/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif path == "/" or path.endswith("/index.html"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
 
 # Web heartbeat: фоновый поток пишет метку каждые 30 секунд
 _web_heartbeat_path = os.path.join(MEMORY_DIR, ".heartbeat_web")
@@ -525,9 +542,38 @@ async def download_file(file_path: str, session: str = ""):
     return FileResponse(full_path, filename=os.path.basename(full_path))
 
 
+# Rate limit на /auth/telegram: 10 попыток в минуту с одного IP.
+# In-memory, без зависимостей. На один процесс — Mira крутится в одном uvicorn,
+# репликаций нет, этого достаточно. При перезапуске счётчики сбрасываются — ок.
+from collections import deque
+_AUTH_RATE_WINDOW   = 60.0
+_AUTH_RATE_MAX_HITS = 10
+_auth_rate_buckets: dict[str, deque[float]] = {}
+_auth_rate_lock     = threading.Lock()
+
+
+def _auth_rate_check(ip: str) -> bool:
+    """True если разрешено, False — превышение."""
+    now = time.time()
+    with _auth_rate_lock:
+        bucket = _auth_rate_buckets.setdefault(ip, deque())
+        while bucket and now - bucket[0] > _AUTH_RATE_WINDOW:
+            bucket.popleft()
+        if len(bucket) >= _AUTH_RATE_MAX_HITS:
+            return False
+        bucket.append(now)
+        return True
+
+
 @app.get("/auth/telegram")
 async def auth_telegram(request: Request):
     """Верифицирует данные Telegram Login Widget и возвращает session token."""
+    client_ip = request.client.host if request.client else "?"
+    if not _auth_rate_check(client_ip):
+        logger.warning(f"/auth/telegram rate-limit: {client_ip}")
+        raise HTTPException(status_code=429, detail="Too many auth attempts",
+                            headers={"Retry-After": str(int(_AUTH_RATE_WINDOW))})
+
     data = dict(request.query_params)
     if not data or not BOT_TOKEN or not _verify_telegram(data):
         return {"ok": False, "error": "Ошибка авторизации"}
@@ -952,7 +998,15 @@ async def chat(websocket: WebSocket, session: str = ""):
             else:
                 profile = Profile("guest")
                 agent = "alpha_guest"
-            alpha = Agent.from_config_file(agent, profile, user_id, _system_prompt_for(user_id))
+            try:
+                alpha = Agent.from_config_file(agent, profile, user_id, _system_prompt_for(user_id))
+            except FileNotFoundError as e:
+                logger.error(f"agent config '{agent}' не найден: {e}")
+                await websocket.send_json({
+                    "type": "system",
+                    "content": f"Конфиг агента «{agent}» не найден на сервере. Сообщи владельцу.",
+                })
+                continue
 
             msgs.append({"role": "user", "content": text})
             system   = [m for m in msgs if m["role"] == "system"]

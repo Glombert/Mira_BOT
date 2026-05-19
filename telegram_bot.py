@@ -2007,6 +2007,7 @@ async def post_init(app: Application) -> None:
     def _heartbeat_loop() -> None:
         while True:
             try:
+                os.makedirs(MEMORY_DIR, exist_ok=True)
                 with open(_heartbeat_path, "w") as f:
                     f.write(str(_time.time()))
             except Exception:

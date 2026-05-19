@@ -45,15 +45,18 @@ export function ChatPage() {
   const dragCounterRef = useRef(0);
   const [autoScroll, setAutoScroll] = useState(true);
 
-  // Initialize client
+  // Initialize client.
+  // Зависимостей нет — это единоразовый init на mount. Если компонент
+  // размонтируется до завершения async — clientRef всё ещё undefined,
+  // optional chain ниже выполнит no-op.
+  const clientRef = useRef<MiraClient | undefined>(undefined);
   useEffect(() => {
-    let c: MiraClient;
-
     (async () => {
       const storage = IS_TAURI
         ? (await import('@/lib/tauri-session-storage')).tauriSessionStorage
         : webSessionStorage;
-      c = new MiraClient({ baseUrl: BASE_URL, mock: IS_MOCK, sessionStorage: storage });
+      const c = new MiraClient({ baseUrl: BASE_URL, mock: IS_MOCK, sessionStorage: storage });
+      clientRef.current = c;
       setClient(c);
 
       const stored = await c.loadSession();
@@ -66,12 +69,11 @@ export function ChatPage() {
     })();
 
     return () => {
-      if (c!) {
-        c.disconnect();
-      }
+      clientRef.current?.disconnect();
       unsubscribersRef.current.forEach((u) => u());
       unsubscribersRef.current = [];
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const addMessage = useCallback((msg: ChatMessageItem) => {
