@@ -56,7 +56,20 @@ BASE=$(git merge-base @ "@{u}")
 if [[ "$LOCAL" = "$BASE" ]]; then
     # Локальный отстал — pull (fast-forward only)
     if git pull --ff-only --quiet origin "$BRANCH" 2>>"$LOG"; then
-        echo "$(ts) [pull] $BRANCH ${LOCAL:0:7} -> $(git rev-parse --short HEAD)" >> "$LOG"
+        NEW_HEAD=$(git rev-parse HEAD)
+        echo "$(ts) [pull] $BRANCH ${LOCAL:0:7} -> ${NEW_HEAD:0:7}" >> "$LOG"
+
+        # Если в pull'е есть изменения web-клиента — пересобрать бандл
+        # и перезапустить mira-web. clients/apps/web/dist/ гитнорится,
+        # значит git pull сам бандл не привезёт.
+        if git diff --name-only "$LOCAL" "$NEW_HEAD" 2>/dev/null | grep -qE '^clients/(apps/web|packages/shared|package(-lock)?\.json)'; then
+            echo "$(ts) [deploy] изменения web-клиента — запуск deploy_web.sh" >> "$LOG"
+            if "$REPO/scripts/deploy_web.sh" >>"$LOG" 2>&1; then
+                echo "$(ts) [deploy] ✓ готов" >> "$LOG"
+            else
+                echo "$(ts) [deploy] ✗ упал — см. лог выше" >> "$LOG"
+            fi
+        fi
     else
         echo "$(ts) [error] pull --ff-only failed for $BRANCH" >> "$LOG"
     fi
