@@ -72,10 +72,18 @@ git pull
 ```
 
 Скрипт:
-1. Проверяет node ≥20.
-2. `npm install` в `clients/` (только если `package-lock.json` обновился).
-3. `npm run build:web` → создаёт `clients/apps/web/dist/`.
-4. `systemctl restart mira-web`.
+1. Читает `TELEGRAM_BOT_USERNAME` и `MIRA_PUBLIC_URL` из `/root/mira_agent/.env`,
+   генерирует `clients/apps/web/.env.production` (этот файл гитнорится) —
+   без них Next.js собирается с дефолтами `MiraTestBot` + `localhost:8000`,
+   и виджет Telegram вернёт «Bot domain invalid».
+2. Проверяет node ≥20.
+3. `npm install` в `clients/` (только если `package-lock.json` обновился).
+4. `npm run build:web` → создаёт `clients/apps/web/dist/`.
+5. `systemctl restart mira-web`.
+
+`MIRA_PUBLIC_URL` — внешний https-URL, который видит браузер
+(например `https://mira-bot.duckdns.org`). Этот же домен должен быть
+зарегистрирован у бота через `/setdomain` в [@BotFather](https://t.me/BotFather).
 
 Идемпотентный — можно запускать сколько угодно раз. Опции:
 - `SKIP_RESTART=1` — пропустить restart (если нужно собрать без рестарта).
