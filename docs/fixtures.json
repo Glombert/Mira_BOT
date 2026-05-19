@@ -1,0 +1,280 @@
+{
+  "$comment": "Mock-данные для разработки клиентов оффлайн. MiraClient в dev-режиме отвечает из этих фикстур вместо реальных сетевых вызовов.",
+
+  "health": {
+    "status": "ok",
+    "bot_alive": true,
+    "web_alive": true
+  },
+
+  "auth_telegram_success": {
+    "ok": true,
+    "session": "12345:Andrey:1715692800:abcdef1234567890abcdef1234567890",
+    "name": "Andrey",
+    "is_new": false
+  },
+
+  "auth_telegram_failure": {
+    "ok": false,
+    "error": "Ошибка авторизации"
+  },
+
+  "upload_success": {
+    "ok": true,
+    "filename": "report.xlsx",
+    "size": 12345
+  },
+
+  "upload_too_large_413": {
+    "status": 413,
+    "detail": "Файл слишком тяжёлый — я могу принимать до 20 МБ. Можешь сжать или разбить на части?"
+  },
+
+  "upload_rate_limit_429": {
+    "status": 429,
+    "detail": "Многовато файлов сразу — мне нужно немного времени, чтобы успеть их обработать. Попробуй через 18 сек.",
+    "headers": {
+      "Retry-After": "18"
+    }
+  },
+
+  "ws_messages_from_server": {
+    "ready": {
+      "type": "ready",
+      "name": "Andrey"
+    },
+    "auth_required": {
+      "type": "auth_required",
+      "bot": "MiraTestBot"
+    },
+    "pong": {
+      "type": "pong"
+    },
+    "thinking": {
+      "type": "thinking"
+    },
+    "message_simple": {
+      "type": "message",
+      "content": "Привет, Андрей. Чем могу помочь сегодня?"
+    },
+    "message_markdown": {
+      "type": "message",
+      "content": "Готово. Я создала файл `report.xlsx` в `output/`. Вот краткая сводка:\n\n- **Строк:** 142\n- **Колонок:** 8\n- **Период:** январь-март 2026\n\nСкачать можно [по ссылке](/files/output/report.xlsx)."
+    },
+    "message_rate_limited": {
+      "type": "message",
+      "content": "Эй, помедленнее — я ещё не успеваю отвечать. Подожди 24 сек и продолжим."
+    },
+    "system_history_cleared": {
+      "type": "system",
+      "content": "История очищена."
+    },
+    "system_whoami": {
+      "type": "system",
+      "content": "Имя: Andrey\nСтатус: owner\nGoogle Drive: andrey@gmail.com\n\nЧто Мира знает о тебе:\nРаботает над проектом Mira_BOT. Любит лаконичные ответы. Часто работает по вечерам."
+    },
+    "system_guest_limit_warning": {
+      "type": "system",
+      "content": "(осталось 2 сообщений из 10)"
+    },
+    "system_guest_limit_exceeded": {
+      "type": "system",
+      "content": "Лимит сообщений исчерпан. Ожидай одобрения."
+    },
+    "system_blocked": {
+      "type": "system",
+      "content": "Доступ закрыт."
+    },
+    "system_gdrive_not_authorized": {
+      "type": "system",
+      "content": "Google Drive не привязан. Нажми «Привязать Drive» чтобы начать."
+    },
+    "system_gdrive_list": {
+      "type": "system",
+      "content": "Google Drive · root (4)\n📁 Документы\n  id: 1A2B3C4D5E\n📄 отчёт-март.xlsx · 124 KB\n  id: 6F7G8H9I0J\n📄 заметки.txt · 2.4 KB\n  id: 1K2L3M4N5O\n📁 фото\n  id: 6P7Q8R9S0T"
+    },
+    "system_reminder_created": {
+      "type": "system",
+      "content": "Напоминание создано!\nID: a3f7b2c1\nКогда: 2026-05-15T09:00:00\nТекст: Утренний кофе"
+    },
+    "system_reminders_list": {
+      "type": "system",
+      "content": "Напоминания (2)\n  a3f7b2c1 — 2026-05-15 09:00 — Утренний кофе\n  b8e4d2f3 — 2026-05-16 14:30 — Встреча с командой"
+    },
+    "error_llm_failed": {
+      "type": "error",
+      "content": "Что-то пошло не так. Попробуй ещё раз."
+    },
+    "files_list": {
+      "type": "files",
+      "files": [
+        { "name": "report.xlsx", "dir": "output", "size": 12345 },
+        { "name": "input-data.csv", "dir": "inbox", "size": 4567 },
+        { "name": "photo.jpg", "dir": "inbox", "size": 234890 }
+      ]
+    },
+    "gdrive_auth_url": {
+      "type": "gdrive_auth_url",
+      "url": "https://accounts.google.com/o/oauth2/v2/auth?client_id=...&redirect_uri=...&scope=...&state=tg_12345&response_type=code"
+    }
+  },
+
+  "ws_messages_from_client": {
+    "ping": {
+      "type": "ping"
+    },
+    "text_message": {
+      "content": "Сделай мне таблицу с выручкой за квартал"
+    },
+    "command_clear": {
+      "type": "command",
+      "cmd": "clear"
+    },
+    "command_whoami": {
+      "type": "command",
+      "cmd": "whoami"
+    },
+    "command_files": {
+      "type": "command",
+      "cmd": "files"
+    },
+    "command_forget": {
+      "type": "command",
+      "cmd": "forget"
+    },
+    "command_gdrive_login": {
+      "type": "command",
+      "cmd": "gdrive_login"
+    },
+    "command_gdrive_list_root": {
+      "type": "command",
+      "cmd": "gdrive_list"
+    },
+    "command_gdrive_list_folder": {
+      "type": "command",
+      "cmd": "gdrive_list Документы"
+    },
+    "command_gdrive_get": {
+      "type": "command",
+      "cmd": "gdrive_get 6F7G8H9I0J"
+    },
+    "command_gcal_list": {
+      "type": "command",
+      "cmd": "gcal 5"
+    },
+    "command_gcal_create": {
+      "type": "command",
+      "cmd": "gcal_create Встреча с Колей завтра в 15:00"
+    },
+    "command_gsheet_read": {
+      "type": "command",
+      "cmd": "gsheet 1A2B3C4D A1:D20"
+    },
+    "command_gsheet_create": {
+      "type": "command",
+      "cmd": "gsheet_create Бюджет 2026"
+    },
+    "command_remind": {
+      "type": "command",
+      "cmd": "remind 2026-05-15T09:00 Утренний кофе"
+    },
+    "command_reminders": {
+      "type": "command",
+      "cmd": "reminders"
+    },
+    "command_remind_cancel": {
+      "type": "command",
+      "cmd": "remind_cancel a3f7b2c1"
+    }
+  },
+
+  "scenarios": {
+    "$comment": "Полные сценарии — последовательности сообщений для тестирования UX",
+
+    "first_login": [
+      { "from": "client", "data": { "type": "ping" } },
+      { "from": "server", "data": { "type": "pong" } },
+      { "from": "server", "data": { "type": "ready", "name": "Andrey" } },
+      { "from": "client", "data": { "content": "Привет, я первый раз тут" } },
+      { "from": "server", "data": { "type": "thinking" } },
+      { "from": "server", "data": { "type": "message", "content": "Привет, Андрей. Рада познакомиться. Расскажи немного о себе — чем занимаешься?" } }
+    ],
+
+    "file_upload_and_chat": [
+      { "from": "client", "data": { "type": "command", "cmd": "files" } },
+      { "from": "server", "data": { "type": "files", "files": [] } },
+      { "from": "client", "data": { "$action": "POST /upload data.csv (1.2 KB)" } },
+      { "from": "server_http", "data": { "ok": true, "filename": "data.csv", "size": 1234 } },
+      { "from": "client", "data": { "content": "Посмотри в файл data.csv и скажи сколько там строк" } },
+      { "from": "server", "data": { "type": "thinking" } },
+      { "from": "server", "data": { "type": "message", "content": "В data.csv 47 строк. Колонки: дата, продукт, сумма. Если нужно — могу посчитать общую выручку." } }
+    ],
+
+    "rate_limit_hit": [
+      { "from": "client", "data": { "content": "1" } },
+      { "from": "client", "data": { "content": "2" } },
+      { "from": "client", "data": { "content": "3" } },
+      { "from": "server", "data": { "type": "message", "content": "Эй, помедленнее — я ещё не успеваю отвечать. Подожди 28 сек и продолжим." } }
+    ],
+
+    "session_expired": [
+      { "from": "client", "data": { "content": "Привет" } },
+      { "from": "server", "data": { "type": "auth_required", "bot": "MiraTestBot" } },
+      { "$close": 4001 }
+    ],
+
+    "guest_journey": [
+      { "from": "server", "data": { "type": "ready", "name": "Маша" } },
+      { "from": "client", "data": { "content": "Привет" } },
+      { "from": "server", "data": { "type": "thinking" } },
+      { "from": "server", "data": { "type": "message", "content": "Привет, Маша. Я — Мира. Пока ты ждёшь одобрения, можем просто поговорить." } },
+      { "$comment": "...после 8 сообщений..." },
+      { "from": "server", "data": { "type": "system", "content": "(осталось 2 сообщений из 10)" } },
+      { "$comment": "...после 11 сообщений..." },
+      { "from": "server", "data": { "type": "system", "content": "Лимит сообщений исчерпан. Ожидай одобрения." } }
+    ]
+  },
+
+  "user_profiles": {
+    "$comment": "Примеры структуры профиля из БД — клиент их не видит напрямую, но whoami возвращает summary",
+
+    "owner_profile": {
+      "id": "tg_12345",
+      "name": "Andrey",
+      "status": "owner",
+      "created_at": "2026-01-15",
+      "last_seen": "2026-05-14",
+      "sessions_count": 142,
+      "about": {
+        "role": "разработчик",
+        "project": "Mira_BOT"
+      },
+      "preferences": {
+        "language": "ru"
+      }
+    },
+
+    "regular_profile": {
+      "id": "tg_67890",
+      "name": "Маша",
+      "status": "regular",
+      "created_at": "2026-04-02",
+      "last_seen": "2026-05-13",
+      "sessions_count": 18,
+      "about": {},
+      "preferences": {
+        "language": "ru"
+      }
+    },
+
+    "guest_profile": {
+      "id": "tg_11111",
+      "name": "Гость",
+      "status": "guest",
+      "created_at": "2026-05-14",
+      "last_seen": "2026-05-14",
+      "sessions_count": 1,
+      "guest_message_count": 3
+    }
+  }
+}
