@@ -723,9 +723,15 @@ async def mobile_auth_redirect(token: str = ""):
     """
     if not token or len(token) > 512:
         return HTMLResponse("Неверный или пустой токен.", status_code=400)
-    # Безопасный html-escape для атрибута/JS-литерала
-    import html as _html
-    safe = _html.escape(token, quote=True).replace("'", "&#39;")
+    # КРИТИЧНО: токен идёт в URL (miramobile://auth?token=...), а формат токена —
+    # "<tg_id>:<first_name>:<auth_date>:<hmac>". Если first_name содержит пробел
+    # или кириллицу — Android intent-parser обрежет токен и сервер потом скажет
+    # "сессия истекла". urllib.parse.quote безопасно кодирует всё, что не a-zA-Z0-9-_.
+    import urllib.parse, html as _html
+    encoded = urllib.parse.quote(token, safe="")
+    # html-escape применяем поверх — encoded уже URL-safe, но мы вставляем его
+    # одновременно в href-атрибут и в JS-литерал, для атрибута нужен escape.
+    safe = _html.escape(encoded, quote=True)
     deeplink = f"miramobile://auth?token={safe}"
     body = _MOBILE_REDIRECT_HTML.replace("__DEEPLINK__", deeplink)
     return HTMLResponse(body, headers={"Cache-Control": "no-store"})

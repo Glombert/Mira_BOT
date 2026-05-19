@@ -411,8 +411,11 @@ async def _send_session_token(update: Update, tg_id: int, name: str) -> None:
     его можно тапнуть для копирования и вставить в любой клиент.
     """
     from web.security import make_session
+    from urllib.parse import quote as _urlquote
     token = make_session(TOKEN, tg_id, name)
-    deeplink_url = f"{_MIRA_PUBLIC_URL}/m/auth?token={token}"
+    # URL-кодируем токен: имя в payload может содержать пробел/кириллицу,
+    # без кодирования Telegram-клиент или Android intent обрежет на пробеле.
+    deeplink_url = f"{_MIRA_PUBLIC_URL}/m/auth?token={_urlquote(token, safe='')}"
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📱 Войти в приложение", url=deeplink_url)]
     ])
