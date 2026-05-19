@@ -532,7 +532,7 @@ _AUTH_MOBILE_HTML = """<!DOCTYPE html>
 <script async src="https://telegram.org/js/telegram-widget.js?22"
   data-telegram-login="{bot_username}"
   data-size="large"
-  data-auth-url="/auth/telegram"
+  data-onauth="onTelegramAuth(user)"
   data-request-access="write"></script>
 </head>
 <body>
@@ -569,8 +569,8 @@ _AUTH_MOBILE_HTML = """<!DOCTYPE html>
       });
   }
 
-  // Перехватываем callback от widget (data-onauth не работает с data-auth-url,
-  // поэтому переопределяем глобальную функцию которую вызывает widget)
+  // Виджет вызовет onTelegramAuth(user) по data-onauth выше.
+  // window-привязка нужна, потому что виджет ищет функцию в глобальной области.
   window.onTelegramAuth = onTelegramAuth;
 </script>
 </body>
