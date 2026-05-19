@@ -130,8 +130,7 @@ def _encode(data: Any) -> str:
     try:
         import memory_crypto
         if memory_crypto.is_enabled():
-            # Fernet возвращает base64-bytes — кодируем в str для TEXT-колонки
-            return memory_crypto._fernet.encrypt(raw.encode("utf-8")).decode("ascii")  # type: ignore[attr-defined]
+            return memory_crypto.encrypt_str(raw)
     except Exception:
         pass
     return raw
@@ -145,8 +144,7 @@ def _decode(raw: str | None) -> Any:
         if memory_crypto.is_enabled():
             # Fernet-токены начинаются с 'gAAAA'. Plain JSON — с '{' или '['
             if raw and raw[0] not in ("{", "["):
-                decrypted = memory_crypto._fernet.decrypt(raw.encode("ascii"))  # type: ignore[attr-defined]
-                return json.loads(decrypted.decode("utf-8"))
+                return json.loads(memory_crypto.decrypt_str(raw))
     except Exception as e:
         logger.warning(f"db._decode: ошибка дешифрования: {e}")
     return json.loads(raw)

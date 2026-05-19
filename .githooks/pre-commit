@@ -1,0 +1,49 @@
+#!/bin/bash
+# pre-commit hook: блокирует случайное добавление секретов в коммит.
+#
+# Установка (однократно):
+#   ./scripts/install_hooks.sh
+#
+# Что проверяется:
+#   1. В staging area не должно быть файлов, которые гитнорятся как секрет:
+#      .env, credentials.json, token.json, client_secret*.json, *.pem, *.key.
+#      Это случается при `git add -A` или `git add -f`.
+#   2. В содержимом diff'а — простой эвристический поиск явных API-ключей
+#      (sk-..., ghp_..., AIza..., Bearer ..., RSA private key и т.д.).
+
+set -e
+
+red()   { printf '\e[31m%s\e[0m\n' "$*"; }
+green() { printf '\e[32m%s\e[0m\n' "$*"; }
+
+# 1. Файлы-секреты в staging
+DENY_PATTERNS='^(\.env|.*\.env|credentials\.json|token\.json|client_secret.*\.json|.*\.pem|.*\.key|.*\.p12)$'
+STAGED=$(git diff --cached --name-only --diff-filter=ACM)
+BAD=""
+while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    base=$(basename "$f")
+    if [[ "$base" =~ $DENY_PATTERNS ]]; then
+        BAD+="$f"$'\n'
+    fi
+done <<< "$STAGED"
+
+if [[ -n "$BAD" ]]; then
+    red "✗ pre-commit: попытка закоммитить файл со секретами:"
+    echo "$BAD" | sed 's/^/    /'
+    red "Если ты УВЕРЕН что это безопасно — git commit --no-verify"
+    exit 1
+fi
+
+# 2. Очевидные ключи в diff'е (исключая сам хук — он содержит regex'ы префиксов).
+DIFF=$(git diff --cached --unified=0 \
+    -- ':(exclude).gitignore' ':(exclude)*.md' ':(exclude).githooks/*')
+SECRET_RE='(sk-[A-Za-z0-9]{16,}|ghp_[A-Za-z0-9]{20,}|AIza[A-Za-z0-9_-]{30,}|-----BEGIN .* PRIVATE KEY-----|Bearer [A-Za-z0-9._-]{20,})'
+if echo "$DIFF" | grep -qE "$SECRET_RE"; then
+    red "✗ pre-commit: в diff'е похоже на API-ключ:"
+    echo "$DIFF" | grep -nE "$SECRET_RE" | head -5 | sed 's/^/    /'
+    red "Уточни и закоммить через --no-verify если ложное срабатывание."
+    exit 1
+fi
+
+green "✓ pre-commit: секретов не обнаружено."

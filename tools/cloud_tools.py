@@ -24,7 +24,9 @@ import logging
 logger = logging.getLogger("Ouroboros")
 
 SYNC_DIRS   = ["memory", "versions"]
-GDRIVE_BASE = "gdrive:Mira"   # папка на Google Drive (без RCLONE_REMOTE)
+# Папка на Google Drive. Переопределяется через .env (MIRA_GDRIVE_BASE),
+# чтобы её можно было менять без правки кода.
+GDRIVE_BASE = os.getenv("MIRA_GDRIVE_BASE", "gdrive:Mira")
 
 # Throttle для sync_output/sync_inbox: leading-edge запуск + trailing повтор
 # через COOLDOWN_S, чтобы серия из write_file не плодила параллельные rclone.

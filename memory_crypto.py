@@ -50,6 +50,24 @@ def is_enabled() -> bool:
     return _fernet is not None
 
 
+def encrypt_str(plain: str) -> str:
+    """Шифрует строку и возвращает base64-токен (для хранения в TEXT-колонке SQLite).
+
+    Требует включённого шифрования (is_enabled()=True). Иначе — RuntimeError,
+    чтобы вызывающий не записал случайно plaintext там, где должен быть токен.
+    """
+    if _fernet is None:
+        raise RuntimeError("memory_crypto.encrypt_str: шифрование не инициализировано")
+    return _fernet.encrypt(plain.encode("utf-8")).decode("ascii")
+
+
+def decrypt_str(token: str) -> str:
+    """Расшифровывает base64-токен в исходную строку."""
+    if _fernet is None:
+        raise RuntimeError("memory_crypto.decrypt_str: шифрование не инициализировано")
+    return _fernet.decrypt(token.encode("ascii")).decode("utf-8")
+
+
 def _get_lock(path: str) -> threading.Lock:
     """Возвращает блокировку для файла — гарантирует что фоновый поток не перезапишет основной."""
     path = os.path.abspath(path)
