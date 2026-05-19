@@ -17,7 +17,7 @@ router.py — классификатор задач.
 import logging
 import providers as _providers
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 
 LABELS = {"chat", "files", "code", "complex", "search", "image"}
 

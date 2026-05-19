@@ -25,7 +25,7 @@ try:
 except ImportError:
     _crypto = None
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 
 MEMORY_DIR      = "memory"
 WORKSPACE_DIR   = "workspace"

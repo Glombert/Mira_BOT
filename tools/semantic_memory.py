@@ -27,7 +27,7 @@ import logging
 import threading
 from datetime import datetime
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 
 CHROMA_DIR      = os.path.join("memory", "chroma")
 COLLECTION_NAME = "messages"

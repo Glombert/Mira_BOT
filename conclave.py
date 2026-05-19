@@ -31,7 +31,7 @@ import logging
 import concurrent.futures
 import providers as _providers
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 
 AGENTS_DIR   = "agents"
 MAX_ITER     = 3      # максимум итераций в run_with_qa
@@ -315,6 +315,7 @@ class Conclave:
         best_score  = -1
         prev_score  = -1
         stagnation  = 0
+        iteration   = 0   # на случай MAX_ITER=0 (иначе UnboundLocalError в финальном логе)
         t_start     = time.time()
 
         for iteration in range(1, MAX_ITER + 1):

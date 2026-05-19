@@ -15,7 +15,7 @@ import os
 import subprocess
 import logging
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 
 
 def _github_push_url() -> str | None:
@@ -69,7 +69,7 @@ def get_current_branch() -> str:
     return result.stdout.strip() or "main"
 
 
-def sync_with_git(commit_message: str = "Auto-update from Ouroborus agent") -> None:
+def sync_with_git(commit_message: str = "Auto-update from Ouroboros agent") -> None:
     """
     Добавляет безопасные файлы, создаёт коммит и пушит в текущую ветку.
 

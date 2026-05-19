@@ -23,7 +23,7 @@ import subprocess
 import tempfile
 import logging
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 
 DEFAULT_TIMEOUT  = 30
 MAX_OUTPUT_CHARS = 8000

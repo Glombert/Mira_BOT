@@ -18,12 +18,49 @@ tools/cloud_tools.py — синхронизация с облаком через
 import os
 import subprocess
 import threading
+import time
 import logging
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 
 SYNC_DIRS   = ["memory", "versions"]
 GDRIVE_BASE = "gdrive:Mira"   # папка на Google Drive (без RCLONE_REMOTE)
+
+# Throttle для sync_output/sync_inbox: leading-edge запуск + trailing повтор
+# через COOLDOWN_S, чтобы серия из write_file не плодила параллельные rclone.
+_THROTTLE_COOLDOWN_S = 10.0
+_throttle_lock = threading.Lock()
+_throttle_state: dict[tuple[str, str], dict] = {}
+
+
+def _throttled_run(key: tuple[str, str], run_fn) -> None:
+    """Запускает run_fn (rclone в потоке) с дросселированием.
+
+    Первый вызов уходит сразу. Повторные в течение COOLDOWN — собираются
+    в один отложенный trailing-запуск через Timer. Серия из N быстрых
+    вызовов даёт максимум 2 rclone-процесса на ключ.
+    """
+    with _throttle_lock:
+        st = _throttle_state.setdefault(key, {"running": False, "pending": False, "last": 0.0})
+        now = time.time()
+        if st["running"] or now - st["last"] < _THROTTLE_COOLDOWN_S:
+            if not st["pending"]:
+                st["pending"] = True
+                delay = max(0.5, _THROTTLE_COOLDOWN_S - (now - st["last"]))
+                threading.Timer(delay, lambda: _throttled_run(key, run_fn)).start()
+            return
+        st["running"] = True
+        st["pending"] = False
+
+    def _worker():
+        try:
+            run_fn()
+        finally:
+            with _throttle_lock:
+                st["running"] = False
+                st["last"] = time.time()
+
+    threading.Thread(target=_worker, daemon=True).start()
 
 
 def _rclone_available() -> bool:
@@ -85,8 +122,8 @@ def cloud_sync() -> bool:
 def sync_output_to_drive(user_id: str) -> None:
     """
     Копирует workspace/{user_id}/output/ → gdrive:Mira/workspace/{user_id}/output/
-    Запускается в фоне после write_file / excel_write.
-    Пользователь сразу видит файл на своём диске.
+    Запускается после write_file / excel_write. Через throttle — серия
+    записей даёт максимум 2 rclone-процесса (см. _throttled_run).
     """
     if not _rclone_available():
         return
@@ -108,14 +145,14 @@ def sync_output_to_drive(user_id: str) -> None:
         except Exception as e:
             logger.warning(f"cloud: sync output error: {e}")
 
-    threading.Thread(target=_run, daemon=True).start()
+    _throttled_run(("output", user_id), _run)
 
 
 def sync_inbox_from_drive(user_id: str) -> None:
     """
     Копирует gdrive:Mira/workspace/{user_id}/inbox/ → workspace/{user_id}/inbox/
-    Запускается в фоне перед list_files / read_file.
-    Мира видит файлы которые пользователь положил на диск.
+    Запускается перед list_files / read_file. Дросселируется так же,
+    как sync_output_to_drive.
     """
     if not _rclone_available():
         return
@@ -136,7 +173,7 @@ def sync_inbox_from_drive(user_id: str) -> None:
         except Exception as e:
             logger.warning(f"cloud: sync inbox error: {e}")
 
-    threading.Thread(target=_run, daemon=True).start()
+    _throttled_run(("inbox", user_id), _run)
 
 
 def cloud_restore() -> bool:

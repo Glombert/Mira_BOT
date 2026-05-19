@@ -162,7 +162,7 @@ def write_agent_config(name: str, config: dict) -> dict:
       max_tokens    — максимум токенов (по умолчанию 2048)
     """
     import logging
-    logger = logging.getLogger("Ouroborus")
+    logger = logging.getLogger("Ouroboros")
 
     name = name.strip().lower().replace(" ", "_")[:40]
     if not name:

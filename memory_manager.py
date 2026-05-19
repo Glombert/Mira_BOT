@@ -28,7 +28,7 @@ import logging
 import threading
 import providers as _providers
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 
 SUMMARY_TRIGGER    = 20    # сжимаем когда не-системных сообщений больше этого
 KEEP_RECENT        = 10    # сколько последних оставляем дословно

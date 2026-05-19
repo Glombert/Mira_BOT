@@ -27,7 +27,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 
 DB_PATH = os.path.join("memory", "mira.db")
 _thread_local = threading.local()

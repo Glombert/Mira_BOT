@@ -7,7 +7,7 @@ from datetime import datetime
 
 import httpx
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 _DEFAULT_MODEL  = "google/gemini-2.5-flash-image"

@@ -13,7 +13,7 @@ import time
 import urllib.error
 import urllib.request
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 
 _CATALOG_URL = "https://openrouter.ai/api/v1/models"
 _CACHE_TTL   = 3600  # 1 час

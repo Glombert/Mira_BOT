@@ -27,7 +27,7 @@ import logging
 from datetime import datetime
 from openai import OpenAI
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 DECISIONS_LOG = os.path.join("memory", "decisions.log")
 METRICS_DIR = os.path.join("memory", "metrics")
 

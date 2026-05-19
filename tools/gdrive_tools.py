@@ -28,7 +28,7 @@ import logging
 import threading
 from pathlib import Path
 
-logger = logging.getLogger("Ouroborus")
+logger = logging.getLogger("Ouroboros")
 
 # Scopes: Drive (file-level), Calendar (events), Sheets (full access)
 SCOPES = [

@@ -47,3 +47,5 @@ logs/
 clients/node_modules/
 clients/**/.next/
 clients/**/target/
+clients/**/.env
+clients/**/.env.*
