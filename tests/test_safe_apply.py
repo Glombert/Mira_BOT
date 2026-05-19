@@ -6,9 +6,10 @@
 """
 
 import os
+import subprocess
 import pytest
 
-from tools.safe_apply import safe_apply, ApplyResult
+from tools.safe_apply import safe_apply, ApplyResult, _git_commit_changes
 
 
 def _setup_project(root):
@@ -328,3 +329,118 @@ def test_smoke_test_runs_when_default(project):
     assert "smoke-test" in result.message
     # Откат восстановил
     assert "VERSION = 1" in (project / "agent.py").read_text()
+
+
+# ---------------------------------------------------------------------------
+# _git_commit_changes — авто-коммит /evolve правок
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def git_project(tmp_path):
+    """Проект внутри настоящего git repo (для тестов автокоммита)."""
+    _setup_project(tmp_path)
+    # Инициализируем git с локальной (не глобальной) конфигурацией
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=tmp_path, check=True)
+    return tmp_path
+
+
+def test_git_commit_creates_commit(git_project):
+    # Меняем файл вручную, потом коммитим через нашу функцию
+    (git_project / "agent.py").write_text("VERSION = 99\n", encoding="utf-8")
+    ok, sha = _git_commit_changes(["agent.py"], "увеличить версию", str(git_project))
+    assert ok
+    assert sha  # короткий SHA
+
+    # Проверяем что коммит реально создан
+    r = subprocess.run(
+        ["git", "log", "-1", "--pretty=format:%s|%an"],
+        cwd=git_project, capture_output=True, text=True,
+    )
+    assert "evolve: увеличить версию" in r.stdout
+    assert "Mira" in r.stdout
+
+
+def test_git_commit_handles_no_changes(git_project):
+    # Никаких изменений в файлах
+    ok, msg = _git_commit_changes(["agent.py"], "пустая задача", str(git_project))
+    assert not ok
+    assert "no changes" in msg.lower() or "nothing" in msg.lower()
+
+
+def test_git_commit_long_task_summary_in_body(git_project):
+    (git_project / "agent.py").write_text("X = 1\n", encoding="utf-8")
+    long_task = "очень длинная задача " * 10  # > 70 символов
+    ok, _ = _git_commit_changes(["agent.py"], long_task, str(git_project))
+    assert ok
+
+    r = subprocess.run(
+        ["git", "log", "-1", "--pretty=format:%B"],
+        cwd=git_project, capture_output=True, text=True,
+    )
+    # Длинная задача должна быть в теле коммита, не только subject
+    assert "очень длинная задача" in r.stdout
+    # Subject обрезан до 70 char
+    first_line = r.stdout.splitlines()[0]
+    assert len(first_line) <= 80  # "evolve: " + 70
+
+
+def test_git_commit_in_non_git_dir_fails_gracefully(tmp_path):
+    _setup_project(tmp_path)
+    (tmp_path / "agent.py").write_text("x = 1\n", encoding="utf-8")
+    ok, msg = _git_commit_changes(["agent.py"], "no git here", str(tmp_path))
+    assert not ok
+    # Не падает, возвращает понятную ошибку
+
+
+def test_safe_apply_auto_commits_in_git_project(git_project):
+    diff = """--- a/agent.py
++++ b/agent.py
+@@ -1 +1 @@
+-VERSION = 1
++VERSION = 2
+"""
+    result = safe_apply(
+        diff,
+        project_root=str(git_project),
+        smoke_test_fn=_no_smoke,
+        task_summary="bump VERSION",
+        auto_commit=True,
+    )
+    assert result.ok
+    # Сообщение должно содержать факт коммита
+    assert "git commit" in result.message or "коммит" in result.message
+    # И сам коммит должен существовать
+    r = subprocess.run(
+        ["git", "log", "-1", "--pretty=format:%s"],
+        cwd=git_project, capture_output=True, text=True,
+    )
+    assert "evolve: bump VERSION" in r.stdout
+
+
+def test_safe_apply_auto_commit_disabled(git_project):
+    diff = """--- a/agent.py
++++ b/agent.py
+@@ -1 +1 @@
+-VERSION = 1
++VERSION = 2
+"""
+    result = safe_apply(
+        diff,
+        project_root=str(git_project),
+        smoke_test_fn=_no_smoke,
+        auto_commit=False,
+    )
+    assert result.ok
+    assert "git commit" not in result.message
+    # Файл изменён, но коммита нет
+    r = subprocess.run(
+        ["git", "log", "-1", "--pretty=format:%s"],
+        cwd=git_project, capture_output=True, text=True,
+    )
+    # Последний коммит — init, не evolve
+    assert "init" in r.stdout
+    assert "evolve" not in r.stdout

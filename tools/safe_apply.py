@@ -115,12 +115,86 @@ def _rollback(applied: list[tuple[str, bool]], project_root: str, backup_dir: st
                 logger.info(f"rollback: удалён созданный {rel_path}")
 
 
+def _git_commit_changes(
+    paths:        list[str],
+    task_summary: str,
+    project_root: str,
+) -> tuple[bool, str]:
+    """После успешного safe_apply делает git add + commit для затронутых файлов.
+
+    Не пушит — push'ит отдельный cron. Если git не настроен или commit не
+    прошёл — логируем но не откатываем файлы (они уже валидны, smoke прошёл).
+    """
+    if not paths:
+        return False, "нет файлов для коммита"
+
+    subject = (task_summary or "evolve").split("\n")[0].strip()[:70]
+    if not subject:
+        subject = "evolve"
+    body = (
+        f"Затронуто: {', '.join(paths)}\n\n"
+        f"Применено через safe_apply (мульти-файл /evolve)."
+    )
+    if task_summary and len(task_summary) > 70:
+        body = f"Задача:\n{task_summary}\n\n" + body
+
+    full_message = f"evolve: {subject}\n\n{body}"
+
+    # LANG=C — заставляем git отвечать на английском, чтобы парсить ошибки
+    # независимо от локали системы (на VPS может быть ru_RU)
+    env = {**os.environ, "LANG": "C", "LC_ALL": "C"}
+
+    try:
+        # add
+        r = subprocess.run(
+            ["git", "add", "--"] + paths,
+            capture_output=True, text=True, cwd=project_root, timeout=15, env=env,
+        )
+        if r.returncode != 0:
+            return False, f"git add: {r.stderr.strip()}"
+
+        # commit — Mira как author, host как committer
+        r = subprocess.run(
+            ["git", "-c", "commit.gpgsign=false",
+             "commit",
+             "--author", "Mira via /evolve <mira@bot.evolve>",
+             "-m", full_message],
+            capture_output=True, text=True, cwd=project_root, timeout=15, env=env,
+        )
+        if r.returncode != 0:
+            err = r.stderr.strip() or r.stdout.strip()
+            # Если коммит пустой (файлы не изменились реально) — это не ошибка
+            if "nothing to commit" in err or "no changes added" in err:
+                return False, "no changes to commit"
+            return False, f"git commit: {err}"
+
+        # Берём короткий хеш для лога
+        r2 = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, cwd=project_root, timeout=5, env=env,
+        )
+        sha = r2.stdout.strip() if r2.returncode == 0 else "?"
+        return True, sha
+
+    except subprocess.TimeoutExpired:
+        return False, "git timeout"
+    except Exception as e:
+        return False, f"git error: {e}"
+
+
 def safe_apply(
     diff_text:     str,
     project_root:  str = ".",
     smoke_test_fn: Optional[Callable[[str], tuple[bool, str]]] = _default_smoke_test,
+    task_summary:  str = "",
+    auto_commit:   bool = True,
 ) -> ApplyResult:
-    """Применяет мульти-файл diff атомарно. См. docstring модуля."""
+    """Применяет мульти-файл diff атомарно. См. docstring модуля.
+
+    auto_commit=True (по умолчанию): после успешного smoke-test делает
+    git add + commit изменённых файлов. Push выполняется отдельным
+    cron-скриптом — мы не делаем сетевые операции внутри.
+    """
     # 1. Парсинг
     try:
         changes = parse_multi_diff(diff_text)
@@ -192,10 +266,22 @@ def safe_apply(
             if not ok_smoke:
                 raise RuntimeError(f"smoke-test упал: {smoke_err}")
 
+        touched = [p for p, _ in applied]
+        msg = f"Применено {len(applied)} файлов"
+
+        if auto_commit and touched:
+            ok_commit, commit_info = _git_commit_changes(touched, task_summary, project_root)
+            if ok_commit:
+                msg += f" + git commit {commit_info}"
+                logger.info(f"safe_apply: коммит {commit_info}")
+            else:
+                logger.warning(f"safe_apply: коммит не создан ({commit_info})")
+                msg += f" (без git-коммита: {commit_info})"
+
         return ApplyResult(
             ok            = True,
-            message       = f"Применено {len(applied)} файлов",
-            touched_paths = [p for p, _ in applied],
+            message       = msg,
+            touched_paths = touched,
             backup_dir    = backup_dir,
         )
 
