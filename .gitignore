@@ -41,3 +41,9 @@ env/
 logs/
 *.log
 .aider*
+
+# Клиенты (web/desktop) — артефакты сборки.
+# dist/ уже покрыт строкой выше — туда падает Next.js export.
+clients/node_modules/
+clients/**/.next/
+clients/**/target/

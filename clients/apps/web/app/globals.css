@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap');
+
+:root {
+  --bg-base: #0d0c0f;
+  --bg-elevated: #16151a;
+  --bg-overlay: #1e1d23;
+  --bg-input: #15141a;
+  --text-primary: #eae6dc;
+  --text-secondary: #a8a39c;
+  --text-muted: #6e6a64;
+  --text-on-accent: #1a1410;
+  --accent: #FF8C42;
+  --accent-hover: #FFA060;
+  --accent-soft: #FFB888;
+  --accent-glow: rgba(255, 140, 66, 0.15);
+  --success: #7BB661;
+  --warning: #E8A24A;
+  --error: #D9534F;
+  --info: #7B9FD4;
+  --border-subtle: rgba(234, 230, 220, 0.06);
+  --border-default: rgba(234, 230, 220, 0.12);
+  --border-focus: var(--accent);
+  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 1px rgba(255, 140, 66, 0.06);
+  --shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 2px rgba(255, 140, 66, 0.08);
+  --shadow-glow: 0 0 24px rgba(255, 140, 66, 0.18);
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --duration-slow: 320ms;
+  --easing: cubic-bezier(0.2, 0.0, 0.2, 1);
+}
+
+html {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(234, 230, 220, 0.12);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(234, 230, 220, 0.2);
+}
+
+/* Markdown overrides */
+.mira-markdown p {
+  margin: 0 0 0.5em;
+}
+.mira-markdown p:last-child {
+  margin-bottom: 0;
+}
+.mira-markdown ul,
+.mira-markdown ol {
+  margin: 0.25em 0 0.5em 1.2em;
+  padding-left: 0.5em;
+}
+.mira-markdown li {
+  margin-bottom: 0.25em;
+}
+.mira-markdown code {
+  font-family: 'JetBrains Mono', monospace;
+  background: var(--bg-overlay);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+.mira-markdown pre {
+  background: var(--bg-overlay);
+  padding: 0.75em 1em;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.mira-markdown pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.85em;
+}
+.mira-markdown a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.mira-markdown a:hover {
+  text-decoration: underline;
+}
+.mira-markdown strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

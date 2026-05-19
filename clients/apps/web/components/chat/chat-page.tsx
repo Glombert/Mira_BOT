@@ -1,0 +1,428 @@
+'use client';
+
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { MiraClient } from '@mira/shared';
+import type { ServerMessage } from '@mira/shared';
+import { webSessionStorage } from '@/lib/session-storage';
+import { IS_TAURI } from '@/lib/runtime';
+import { TelegramLogin } from '@/components/auth/telegram-login';
+import { ChatHeader } from './chat-header';
+import { ChatInput } from './chat-input';
+import { ChatMessageBubble, type ChatMessageItem } from './chat-message';
+import { WhoamiModal } from '@/components/ui/whoami-modal';
+import { CommandPalette } from '@/components/palette/command-palette';
+import { RemindersModal } from '@/components/ui/reminders-modal';
+import { DriveModal } from '@/components/ui/drive-modal';
+
+function generateId() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+import { formatBytes } from '@/lib/utils';
+
+const BOT_USERNAME = process.env.NEXT_PUBLIC_BOT_USERNAME || 'MiraTestBot';
+const BASE_URL = process.env.NEXT_PUBLIC_MIRA_URL || 'http://localhost:8000';
+const IS_MOCK = process.env.NEXT_PUBLIC_MIRA_MOCK === 'true';
+
+export function ChatPage() {
+  const [client, setClient] = useState<MiraClient | null>(null);
+  const [session, setSession] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string>('');
+  const [messages, setMessages] = useState<ChatMessageItem[]>([]);
+  const [connectionStatus, setConnectionStatus] = useState<'online' | 'reconnecting' | 'offline'>('offline');
+  const [showAuth, setShowAuth] = useState(false);
+  const [whoamiContent, setWhoamiContent] = useState<string | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [remindersOpen, setRemindersOpen] = useState(false);
+  const [driveOpen, setDriveOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const unsubscribersRef = useRef<(() => void)[]>([]);
+  const pendingWhoamiRef = useRef(false);
+  const historyLoadedRef = useRef(false);
+  const dragCounterRef = useRef(0);
+  const [autoScroll, setAutoScroll] = useState(true);
+
+  // Initialize client
+  useEffect(() => {
+    let c: MiraClient;
+
+    (async () => {
+      const storage = IS_TAURI
+        ? (await import('@/lib/tauri-session-storage')).tauriSessionStorage
+        : webSessionStorage;
+      c = new MiraClient({ baseUrl: BASE_URL, mock: IS_MOCK, sessionStorage: storage });
+      setClient(c);
+
+      const stored = await c.loadSession();
+      if (stored) {
+        setSession(stored);
+        connectClient(c);
+      } else {
+        setShowAuth(true);
+      }
+    })();
+
+    return () => {
+      if (c!) {
+        c.disconnect();
+      }
+      unsubscribersRef.current.forEach((u) => u());
+      unsubscribersRef.current = [];
+    };
+  }, []);
+
+  const addMessage = useCallback((msg: ChatMessageItem) => {
+    setMessages((prev) => {
+      if (msg.type === 'message' || msg.type === 'error') {
+        const filtered = prev.filter((m) => m.type !== 'thinking');
+        return [...filtered, msg];
+      }
+      return [...prev, msg];
+    });
+  }, []);
+
+  const connectClient = useCallback((c: MiraClient) => {
+    // Clean up previous listeners
+    unsubscribersRef.current.forEach((u) => u());
+    unsubscribersRef.current = [];
+
+    setConnectionStatus('reconnecting');
+
+    const unsubReady = c.on('ready', (msg) => {
+      setConnectionStatus('online');
+      setUserName(msg.name);
+      setShowAuth(false);
+      if (!historyLoadedRef.current) {
+        historyLoadedRef.current = true;
+        c.fetchHistory(50).then((hist) => {
+          if (hist.messages.length > 0) {
+            const historyMsgs: ChatMessageItem[] = hist.messages.map((m) => ({
+              id: generateId(),
+              type: m.role === 'user' ? 'user' : 'message',
+              content: m.content,
+              timestamp: Date.now(),
+            }));
+            setMessages(historyMsgs);
+          }
+        }).catch(() => {
+          // history not available yet — fine for MVP
+        });
+      }
+    });
+
+    const unsubAuthRequired = c.on('auth_required', () => {
+      setConnectionStatus('offline');
+      setShowAuth(true);
+      historyLoadedRef.current = false;
+      c.clearSession().catch(() => {});
+    });
+
+    const unsubThinking = c.on('thinking', () => {
+      addMessage({ id: generateId(), type: 'thinking', timestamp: Date.now() });
+    });
+
+    const unsubMessage = c.on('message', (msg) => {
+      addMessage({ id: generateId(), type: 'message', content: msg.content, timestamp: Date.now() });
+    });
+
+    const unsubSystem = c.on('system', (msg) => {
+      if (pendingWhoamiRef.current) {
+        setWhoamiContent(msg.content);
+        pendingWhoamiRef.current = false;
+        return;
+      }
+      addMessage({ id: generateId(), type: 'system', content: msg.content, timestamp: Date.now() });
+    });
+
+    const unsubError = c.on('error', (msg) => {
+      addMessage({ id: generateId(), type: 'error', content: msg.content, timestamp: Date.now() });
+    });
+
+    const unsubPong = c.on('pong', () => {
+      // keep alive
+    });
+
+    const unsubFiles = c.on('files', (msg) => {
+      addMessage({ id: generateId(), type: 'files', files: msg.files, timestamp: Date.now() });
+    });
+
+    const unsubGdrive = c.on('gdrive_auth_url', (msg) => {
+      addMessage({ id: generateId(), type: 'gdrive_auth_url', url: msg.url, timestamp: Date.now() });
+    });
+
+    unsubscribersRef.current = [
+      unsubReady, unsubAuthRequired, unsubThinking, unsubMessage,
+      unsubSystem, unsubError, unsubPong, unsubFiles, unsubGdrive,
+    ];
+
+    c.connect().catch(() => {
+      setConnectionStatus('offline');
+    });
+  }, [addMessage]);
+
+  const handleAuth = useCallback(
+    async (user: { id: string; first_name: string; last_name?: string; username?: string; photo_url?: string; auth_date: string; hash: string }) => {
+      if (!client) return;
+      const result = await client.authenticate(user);
+      if (result.ok && result.session) {
+        await client.setSession(result.session);
+        setSession(result.session);
+        setUserName(result.name || '');
+        connectClient(client);
+      } else {
+        addMessage({
+          id: generateId(),
+          type: 'error',
+          content: result.error || 'Ошибка авторизации',
+          timestamp: Date.now(),
+        });
+      }
+    },
+    [client, connectClient, addMessage]
+  );
+
+  const handleAuthRef = useRef(handleAuth);
+  handleAuthRef.current = handleAuth;
+
+  const handleSend = useCallback(
+    (text: string) => {
+      if (!client || !session) return;
+      addMessage({ id: generateId(), type: 'user', content: text, timestamp: Date.now() });
+      client.sendMessage(text);
+      setAutoScroll(true);
+    },
+    [client, session, addMessage]
+  );
+
+  const handleClear = useCallback(() => {
+    if (!client) return;
+    if (!window.confirm('Точно очистить историю? Действие необратимо.')) return;
+    client.sendCommand('clear');
+    setMessages([]);
+  }, [client]);
+
+  const handleWhoami = useCallback(() => {
+    if (!client) return;
+    pendingWhoamiRef.current = true;
+    client.sendCommand('whoami');
+  }, [client]);
+
+  const handleOpenPalette = useCallback(() => setPaletteOpen(true), []);
+  const handleOpenReminders = useCallback(() => setRemindersOpen(true), []);
+  const handleOpenDrive = useCallback(() => setDriveOpen(true), []);
+
+  const handlePaletteRun = useCallback(
+    (cmd: string) => {
+      if (!client) return;
+      if (cmd === 'whoami') pendingWhoamiRef.current = true;
+      client.sendCommand(cmd);
+    },
+    [client]
+  );
+
+  // Global keybind Cmd+K / Ctrl+K
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const handleUpload = useCallback(
+    async (file: File) => {
+      if (!client || !session) return;
+      setUploadProgress(0);
+      try {
+        const result = await client.uploadFile(file, (pct) => setUploadProgress(pct));
+        addMessage({
+          id: generateId(),
+          type: 'system',
+          content: `Загружено: ${result.filename} (${formatBytes(result.size)})`,
+          timestamp: Date.now(),
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Ошибка загрузки';
+        if (msg === 'Unauthorized') {
+          setConnectionStatus('offline');
+          setShowAuth(true);
+        } else {
+          addMessage({
+            id: generateId(),
+            type: 'error',
+            content: msg,
+            timestamp: Date.now(),
+          });
+        }
+      } finally {
+        setUploadProgress(null);
+      }
+    },
+    [client, session, addMessage]
+  );
+
+  // Drag & drop
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current++;
+    setIsDragging(true);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current--;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+      const file = e.dataTransfer.files?.[0];
+      if (file) handleUpload(file);
+    },
+    [handleUpload]
+  );
+
+  // Deep-link auth listener (desktop only)
+  useEffect(() => {
+    if (!IS_TAURI || !client) return;
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      const { onOpenUrl } = await import('@tauri-apps/plugin-deep-link');
+      unlisten = await onOpenUrl((urls) => {
+        for (const url of urls) {
+          const parsed = new URL(url);
+          const isAuth = parsed.pathname === '/auth' || parsed.host === 'auth';
+          if (!isAuth) continue;
+          const id = parsed.searchParams.get('id');
+          const first_name = parsed.searchParams.get('first_name') || '';
+          const hash = parsed.searchParams.get('hash');
+          const auth_date = parsed.searchParams.get('auth_date');
+          if (!id || !hash || !auth_date) continue;
+          handleAuthRef.current({
+            id,
+            first_name,
+            last_name: parsed.searchParams.get('last_name') || undefined,
+            username: parsed.searchParams.get('username') || undefined,
+            photo_url: parsed.searchParams.get('photo_url') || undefined,
+            auth_date,
+            hash,
+          });
+        }
+      });
+    })();
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [client]);
+
+  // Auto scroll
+  useEffect(() => {
+    if (autoScroll && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, autoScroll]);
+
+  const handleScroll = useCallback(() => {
+    if (!containerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+    const nearBottom = scrollHeight - scrollTop - clientHeight < 80;
+    setAutoScroll(nearBottom);
+  }, []);
+
+  return (
+    <div className="flex flex-col h-[100dvh] bg-bg-base">
+      <ChatHeader
+        userName={userName}
+        connectionStatus={connectionStatus}
+        onClear={handleClear}
+        onWhoami={handleWhoami}
+        onOpenPalette={handleOpenPalette}
+        onOpenReminders={handleOpenReminders}
+        onOpenDrive={handleOpenDrive}
+      />
+
+      {showAuth ? (
+        <div className="flex-1 flex items-center justify-center px-4">
+          <div className="w-full max-w-sm bg-bg-elevated rounded-card p-8 shadow-elevated">
+            <TelegramLogin botUsername={BOT_USERNAME} mockEnabled={IS_MOCK} onAuth={handleAuth} />
+          </div>
+        </div>
+      ) : (
+        <>
+          <div
+            ref={containerRef}
+            onScroll={handleScroll}
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            className="flex-1 overflow-y-auto px-4 py-4 space-y-3 scroll-smooth relative"
+          >
+            {isDragging && (
+              <div className="absolute inset-0 z-20 flex items-center justify-center bg-bg-base/80 border-2 border-dashed border-accent rounded-lg m-2">
+                <p className="text-accent text-lg font-medium">Брось файл сюда</p>
+              </div>
+            )}
+            {uploadProgress !== null && (
+              <div className="flex items-center justify-center gap-2 py-1">
+                <span className="text-sm text-text-secondary">Загрузка {uploadProgress}%</span>
+                <div className="w-32 h-1.5 bg-bg-overlay rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-accent transition-all duration-200"
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            {messages.length === 0 && (
+              <div className="flex flex-col items-center justify-center h-full gap-3 text-text-muted">
+                <svg width="48" height="48" viewBox="0 0 28 28" fill="none">
+                  <defs>
+                    <linearGradient id="emptyStar" x1="0" y1="0" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+                      <stop stopColor="#FF8C42" stopOpacity="0.3" />
+                      <stop offset="1" stopColor="#FFB888" stopOpacity="0.2" />
+                    </linearGradient>
+                  </defs>
+                  <path
+                    d="M14 2L16.5 11.5H26L18.5 17L21 26L14 21L7 26L9.5 17L2 11.5H11.5L14 2Z"
+                    fill="url(#emptyStar)"
+                  />
+                </svg>
+                <p className="text-sm">Напиши что-нибудь, чтобы начать</p>
+              </div>
+            )}
+            {messages.map((msg) => (
+              <ChatMessageBubble key={msg.id} message={msg} getFileUrl={client?.fileUrl.bind(client)} />
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+
+          <div className="px-4 py-3 border-t border-border-subtle bg-bg-base">
+            <ChatInput onSend={handleSend} onFileSelect={handleUpload} disabled={!session || connectionStatus === 'offline'} />
+          </div>
+        </>
+      )}
+
+      {whoamiContent && <WhoamiModal content={whoamiContent} onClose={() => setWhoamiContent(null)} />}
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={handlePaletteRun} />
+      <RemindersModal open={remindersOpen} onClose={() => setRemindersOpen(false)} client={client} />
+      <DriveModal open={driveOpen} onClose={() => setDriveOpen(false)} client={client} />
+    </div>
+  );
+}
