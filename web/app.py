@@ -622,7 +622,10 @@ _AUTH_MOBILE_HTML = """<!DOCTYPE html>
 @app.get("/auth/mobile")
 async def auth_mobile():
     """Мобильная auth-страница с Telegram Login Widget → deep link в приложение."""
-    return HTMLResponse(_AUTH_MOBILE_HTML.format(bot_username=BOT_USERNAME.replace("@", "")))
+    # .replace вместо .format — в HTML много CSS-блоков {...}, которые
+    # str.format() пытается интерпретировать как placeholder'ы.
+    html = _AUTH_MOBILE_HTML.replace("{bot_username}", BOT_USERNAME.replace("@", ""))
+    return HTMLResponse(html)
 
 
 @app.websocket("/ws")
