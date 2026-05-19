@@ -340,6 +340,7 @@ BASIC_COMMANDS = [
     BotCommand("start",  "Начать / онбординг"),
     BotCommand("help",   "Список команд"),
     BotCommand("whoami", "Мой профиль"),
+    BotCommand("login",  "Токен для веб/мобильного клиента"),
     BotCommand("files",  "Мои файлы"),
     BotCommand("gdrive", "Мои файлы на Google Drive"),
     BotCommand("gcal",   "Мой календарь"),
@@ -393,6 +394,35 @@ def _help_keyboard(is_owner: bool) -> InlineKeyboardMarkup:
 
 # ---------------------------------------------------------------------------
 # Обработчики команд
+# ---------------------------------------------------------------------------
+# Web/Mobile-сессия
+# ---------------------------------------------------------------------------
+
+async def cmd_login(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Отдаёт session-токен для веб/мобильного клиента (Войти → «У меня есть токен»).
+
+    Альтернатива Telegram Login Widget: на сетях с DPI/RKN-блокировкой
+    telegram.org-виджет не грузится, а через бота — работает. Токен валиден
+    30 дней (SESSION_MAX_AGE), привязан к этому Telegram-id.
+    """
+    user_id = _user_id(update.effective_user.id)
+    if not _is_approved(user_id):
+        await _reply(update, "Команда доступна только одобренным пользователям. Напиши /start.")
+        return
+
+    from web.security import make_session
+    name  = update.effective_user.first_name or ""
+    token = make_session(TOKEN, update.effective_user.id, name)
+
+    await _reply(update,
+        "Токен сессии (действителен 30 дней):\n\n"
+        f"`{token}`\n\n"
+        "Скопируй его в приложение → «У меня есть токен» → «Войти». "
+        "Никому не пересылай — он эквивалентен паролю.",
+        parse_mode="Markdown",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Google Drive OAuth
 # ---------------------------------------------------------------------------
@@ -2100,6 +2130,7 @@ def main() -> None:
     app.add_handler(CommandHandler("start",    cmd_start))
     app.add_handler(CommandHandler("help",     cmd_help))
     app.add_handler(CommandHandler("whoami",   cmd_whoami))
+    app.add_handler(CommandHandler("login",    cmd_login))
     app.add_handler(CommandHandler("google_login",  cmd_google_login))
     app.add_handler(CommandHandler("google_auth",   cmd_google_auth))
     app.add_handler(CommandHandler("google_logout", cmd_google_logout))
