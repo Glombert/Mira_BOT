@@ -1345,7 +1345,7 @@ def evolve(task: str) -> None:
         return
 
     print("[Evolve] Применяю атомарно (бэкап → валидация → smoke-test)...")
-    result = _safe_apply(raw_diff, project_root=".")
+    result = _safe_apply(raw_diff, project_root=".", task_summary=task)
 
     if not result.ok:
         print(f"[-] {result.message}")

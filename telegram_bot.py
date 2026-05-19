@@ -1412,7 +1412,11 @@ async def _handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
         from tools.safe_apply import safe_apply
         import asyncio
-        result = await asyncio.to_thread(safe_apply, diff, ".")
+        task_summary = context.user_data.get("pending_evolve", "") or ""
+        # asyncio.to_thread не поддерживает kwargs до 3.11, поэтому ламбда
+        result = await asyncio.to_thread(
+            lambda: safe_apply(diff, project_root=".", task_summary=task_summary)
+        )
 
         context.user_data.pop("evolve_diff", None)
         context.user_data.pop("evolve_code", None)
