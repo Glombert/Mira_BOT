@@ -85,9 +85,34 @@ BOT_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN", "")
 BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")   # например: MyMiraBot (без @)
 OWNER_TG_ID  = int(os.getenv("OWNER_TELEGRAM_ID", "0"))
 MAX_HISTORY  = 20
-STATIC_DIR   = Path(__file__).parent / "static"
+# Next.js статический бандл клиента (см. clients/apps/web).
+# Собирается командой: cd clients && npm install && npm run build:web
+CLIENT_DIST  = Path(__file__).parent.parent / "clients" / "apps" / "web" / "dist"
+# Legacy vanilla-JS клиент — fallback пока новый бандл не собран.
+LEGACY_STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="Mira Web")
+
+# Next.js client static assets — отдаются по /_next/...
+# (используется при output: 'export' из clients/apps/web/next.config.js).
+if (CLIENT_DIST / "_next").is_dir():
+    app.mount(
+        "/_next",
+        StaticFiles(directory=str(CLIENT_DIST / "_next")),
+        name="next-static",
+    )
+
+# CORS для локальной dev-разработки клиента (apps/web на :3000).
+# В проде клиент отдаётся nginx с того же домена что и API — CORS не нужен.
+if os.getenv("MIRA_ALLOW_LOCAL_CORS") == "1":
+    from fastapi.middleware.cors import CORSMiddleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3000"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
 
 # Web heartbeat: фоновый поток пишет метку каждые 30 секунд
 _web_heartbeat_path = os.path.join(MEMORY_DIR, ".heartbeat_web")
@@ -120,7 +145,7 @@ async def startup():
     except Exception as e:
         logger.warning(f"Не удалось отправить стартовое уведомление: {e}")
 
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.mount("/static", StaticFiles(directory=str(LEGACY_STATIC_DIR)), name="static")
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +287,14 @@ def _ensure_profile(user_id: str, tg_name: str = "") -> bool:
 
 @app.get("/")
 async def index():
-    return FileResponse(str(STATIC_DIR / "index.html"))
+    # Отдаём новый Next.js клиент если собран, иначе legacy vanilla-JS.
+    new_index = CLIENT_DIST / "index.html"
+    if new_index.is_file():
+        return FileResponse(str(new_index))
+    legacy_index = LEGACY_STATIC_DIR / "index.html"
+    if legacy_index.is_file():
+        return FileResponse(str(legacy_index))
+    raise HTTPException(status_code=404, detail="Web client not built")
 
 
 def _check_heartbeat(filename: str) -> bool:
@@ -287,6 +319,26 @@ async def health():
         "bot_alive": bot_alive,
         "web_alive": web_alive,
     }
+
+
+@app.get("/history")
+async def history(session: str = "", limit: int = 50):
+    """Подгрузить переписку для клиента (user/assistant, без system).
+
+    Клиент вызывает один раз после `ready` чтобы показать прошлый контекст.
+    """
+    tg_id = _verify_session(session) if session else None
+    if not tg_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    user_id = _web_user_id(tg_id)
+    msgs = _load_session(user_id)
+    limit = max(1, min(limit, 200))
+    visible = [
+        {"role": m["role"], "content": m["content"]}
+        for m in msgs
+        if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)
+    ][-limit:]
+    return {"messages": visible}
 
 
 @app.get("/oauth/google/callback")
@@ -783,7 +835,7 @@ async def chat(websocket: WebSocket, session: str = ""):
             await websocket.send_json({"type": "thinking"})
 
             # Классификация + роутинг как в CLI и Telegram
-            _EXECUTOR_FOR = {"search": "scout", "code": "coder", "complex": "coder"}
+            _EXECUTOR_FOR = {"search": "scout", "code": "coder", "complex": "coder", "image": "artist"}
             task_type = classify(text, alpha.model_chain if alpha else [])
 
             try:
