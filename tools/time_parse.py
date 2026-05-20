@@ -1,101 +1,126 @@
-"""tools/time_parse.py — простой парсер русскоязычных временных выражений.
+"""tools/time_parse.py — парсер русскоязычных временных выражений.
 
-Поддерживает форматы:
-  "завтра 8:00"    → завтра в указанное время
-  "через 2 часа"   → через N часов от now
-  "через 30 минут" → через N минут
-  "2026-06-01T09:00:00" → ISO (pass-through)
-  "2026-06-01"     → дата + 09:00
-  "в пятницу 14:00" → ближайшая пятница
+Две функции:
+- parse_time(text)  — СТРОГИЙ парсер: вся строка должна быть time-фразой,
+                      иначе ok=False. Используется тестами и как
+                      низкоуровневый строительный блок.
+- extract_time_and_rest(text) — извлекает time-фразу из НАЧАЛА строки,
+                                остаток отдаёт как promt. Используется
+                                /task — пользователь пишет «завтра 8:00
+                                проверь календарь».
+
+Поддерживаемые формы:
+  ISO:           "2026-06-15T14:30:00"
+  дата:          "2026-12-01"           → дата + 09:00
+  «завтра 8:00»  / «завтра в 8:00»     → завтра, время указано
+  «завтра»                              → завтра 09:00 (без времени → default)
+  «послезавтра 9:00»                    → послезавтра, время указано
+  «через 2 часа»                        → now + 2 часа
+  «через 30 минут»                      → now + 30 минут
+  «в пятницу 14:00» / «пятница 14:00»  → ближайшая пятница 14:00
+  «сегодня 15:30»                       → сегодня 15:30
 """
 
+import re
 from datetime import datetime, timedelta
 
 WEEKDAYS = {
-    "понедельник": 0, "вторник": 1, "среда": 2,
-    "четверг": 3, "пятница": 4, "суббота": 5, "воскресенье": 6,
+    "понедельник": 0, "вторник": 1, "среда": 2, "среду": 2,
+    "четверг": 3, "пятница": 4, "пятницу": 4, "суббота": 5, "субботу": 5,
+    "воскресенье": 6,
 }
-WEEKDAY_RU = [
-    "понедельник", "вторник", "среда", "четверг",
-    "пятница", "суббота", "воскресенье",
-]
+
+_ISO_RE       = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$")
+_DATE_RE      = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_HHMM_RE      = re.compile(r"^(\d{1,2}):(\d{2})$")
+_REL_HOURS    = re.compile(r"^через\s+(\d+)\s+час(?:а|ов)?$", re.IGNORECASE)
+_REL_MINUTES  = re.compile(r"^через\s+(\d+)\s+минут[уы]?$", re.IGNORECASE)
+
+# Слова-метки дня: префикс time-фразы. Поиск через word-boundary,
+# чтобы «послезавтра» не матчилось как «завтра».
+_DAY_WORDS = ("сегодня", "завтра", "послезавтра")
+
+
+def _maybe_time_suffix(text: str) -> tuple[int, int] | None:
+    """Извлекает trailing «8:00» / «в 8:00» из конца строки. Возвращает (h, m) или None."""
+    m = re.search(r"(?:^|\s)(?:в\s+)?(\d{1,2}):(\d{2})$", text)
+    if m:
+        h = int(m.group(1))
+        mi = int(m.group(2))
+        if 0 <= h < 24 and 0 <= mi < 60:
+            return h, mi
+    return None
 
 
 def parse_time(raw: str) -> tuple[bool, str]:
-    """Парсит строку времени. Возвращает (ok, iso_or_error).
+    """Строгий парсер. Вся строка должна быть time-фразой целиком."""
+    text = raw.strip()
+    if not text:
+        return False, "пустая строка"
 
-    ok=True  → "2026-06-01T09:00:00"
-    ok=False → "не понял время, попробуй формат: завтра 8:00 ..."
-    """
-    text = raw.strip().lower()
-    now = datetime.now()
-
-    # ISO pass-through
-    if "T" in text and len(text) >= 16:
+    # ISO pass-through (без .lower()!)
+    if _ISO_RE.match(text):
         try:
             datetime.fromisoformat(text)
             return True, text
         except ValueError:
             pass
 
-    # Дата без времени: 2026-06-01
-    if len(text) == 10 and text[4] == "-" and text[7] == "-":
+    # Дата YYYY-MM-DD
+    if _DATE_RE.match(text):
         try:
             datetime.strptime(text, "%Y-%m-%d")
             return True, text + "T09:00:00"
         except ValueError:
             pass
 
-    hour = 9
-    minute = 0
-    time_str = ""
-    # Извлекаем время если есть (чч:мм)
-    import re
-    tm = re.search(r"(\d{1,2}):(\d{2})", text)
-    if tm:
-        hour = int(tm.group(1))
-        minute = int(tm.group(2))
-        time_str = f"{hour:02d}:{minute:02d}"
+    text_lo = text.lower()
+    now = datetime.now()
 
-    # "через N часов"
-    m = re.search(r"через\s+(\d+)\s+час", text)
-    if m and time_str:
-        # "через 2 часа 8:00" не имеет смысла — игнорируем
-        pass
-    if m and not time_str:
-        target = now + timedelta(hours=int(m.group(1)))
-        return True, target.strftime("%Y-%m-%dT%H:%M:%S")
+    # «через N часов»
+    m = _REL_HOURS.match(text_lo)
+    if m:
+        return True, (now + timedelta(hours=int(m.group(1)))).strftime("%Y-%m-%dT%H:%M:%S")
 
-    # "через N минут"
-    m = re.search(r"через\s+(\d+)\s+минут", text)
-    if m and not time_str:
-        target = now + timedelta(minutes=int(m.group(1)))
-        return True, target.strftime("%Y-%m-%dT%H:%M:%S")
+    # «через N минут»
+    m = _REL_MINUTES.match(text_lo)
+    if m:
+        return True, (now + timedelta(minutes=int(m.group(1)))).strftime("%Y-%m-%dT%H:%M:%S")
 
-    # "завтра [чч:мм]"
-    if "завтра" in text:
-        target = now + timedelta(days=1)
-        return True, target.strftime(f"%Y-%m-%dT{hour:02d}:{minute:02d}:00")
-
-    # "послезавтра [чч:мм]"
-    if "послезавтра" in text:
+    # «послезавтра [в] [hh:mm]»
+    m = re.match(r"^послезавтра(?:\s+в)?(?:\s+(\d{1,2}):(\d{2}))?$", text_lo)
+    if m:
+        h = int(m.group(1)) if m.group(1) else 9
+        mi = int(m.group(2)) if m.group(2) else 0
         target = now + timedelta(days=2)
-        return True, target.strftime(f"%Y-%m-%dT{hour:02d}:{minute:02d}:00")
+        return True, target.strftime(f"%Y-%m-%dT{h:02d}:{mi:02d}:00")
 
-    # "в <день недели> [чч:мм]"
+    # «завтра [в] [hh:mm]»
+    m = re.match(r"^завтра(?:\s+в)?(?:\s+(\d{1,2}):(\d{2}))?$", text_lo)
+    if m:
+        h = int(m.group(1)) if m.group(1) else 9
+        mi = int(m.group(2)) if m.group(2) else 0
+        target = now + timedelta(days=1)
+        return True, target.strftime(f"%Y-%m-%dT{h:02d}:{mi:02d}:00")
+
+    # «сегодня [в] hh:mm»  (без времени — нет смысла, отбрасываем)
+    m = re.match(r"^сегодня(?:\s+в)?\s+(\d{1,2}):(\d{2})$", text_lo)
+    if m:
+        h = int(m.group(1)); mi = int(m.group(2))
+        target = now.replace(hour=h, minute=mi, second=0, microsecond=0)
+        return True, target.strftime("%Y-%m-%dT%H:%M:%S")
+
+    # «[в] <день недели> [hh:mm]»
     for day_name, day_num in WEEKDAYS.items():
-        if day_name in text:
-            days_ahead = (day_num - now.weekday()) % 7
-            if days_ahead == 0:
-                days_ahead = 7  # сегодня → следующая неделя
+        # «в пятницу 14:00» / «пятница 14:00» / «пятницу 14:00»
+        pat = rf"^(?:в\s+)?{day_name}(?:\s+(\d{{1,2}}):(\d{{2}}))?$"
+        m = re.match(pat, text_lo)
+        if m:
+            h = int(m.group(1)) if m.group(1) else 9
+            mi = int(m.group(2)) if m.group(2) else 0
+            days_ahead = (day_num - now.weekday()) % 7 or 7  # сегодня этот день → след. неделя
             target = now + timedelta(days=days_ahead)
-            return True, target.strftime(f"%Y-%m-%dT{hour:02d}:{minute:02d}:00")
-
-    # "сегодня [чч:мм]"
-    if "сегодня" in text or not any(k in text for k in ("завтра", "через", "послезавтра")):
-        if time_str:
-            target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            return True, target.strftime("%Y-%m-%dT%H:%M:%S")
+            return True, target.strftime(f"%Y-%m-%dT{h:02d}:{mi:02d}:00")
 
     return False, f"не понял время, попробуй формат: завтра 8:00 ... или 2026-06-01T09:00:00 (получил: {raw!r})"
 
@@ -103,38 +128,35 @@ def parse_time(raw: str) -> tuple[bool, str]:
 def extract_time_and_rest(text: str) -> tuple[bool, str, str]:
     """Извлекает time-фразу из начала строки. Возвращает (ok, iso, remainder).
 
-    Перебирает префиксы из 1, 2, 3, 4 слов, ищет ПОСЛЕДНИЙ ok-префикс.
-    Остаток — промпт для задачи.
-
-    Форматы на входе:
-      \"завтра 8:00 проверь календарь\"
-      \"через 2 часа сделай отчёт\"
-      \"в пятницу 14:00 напомни про звонок\"
-      \"сегодня 15:30 отзвонить Андрею\"
+    Берёт САМЫЙ ДЛИННЫЙ префикс из 1..6 слов, который parse_time принимает,
+    и оставляет НЕпустой остаток. Так «завтра 8:00 проверь календарь»
+    отдаст iso=завтра 08:00 и remainder=«проверь календарь», а не
+    iso=завтра 09:00 (одно слово «завтра») с лишней «8:00» в остатке.
     """
     text = text.strip()
     if not text:
         return False, "пустая строка", ""
 
     words = text.split()
-    best_iso = ""
-    best_end = 0  # конец time-фразы в исходной строке
+    # Берём САМЫЙ ДЛИННЫЙ префикс, который parse_time принимает.
+    # Если у него пустой остаток — значит строка целиком time-фраза
+    # без задачи, отказ. Иначе iso + remainder.
+    longest_iso = ""
+    longest_remainder = ""
+    found = False
 
-    for n in range(1, min(len(words) + 1, 5)):
+    for n in range(1, min(len(words) + 1, 7)):
         candidate = " ".join(words[:n])
         ok_p, iso_or_err = parse_time(candidate)
-        if ok_p:
-            # Найти эту фразу в исходном тексте и взять позицию после неё
-            idx = text.find(candidate)
-            if idx != -1:
-                best_iso = iso_or_err
-                best_end = idx + len(candidate)
+        if not ok_p:
+            continue
+        longest_iso = iso_or_err
+        longest_remainder = " ".join(words[n:]).strip()
+        found = True
 
-    if not best_iso:
+    if not found:
         return False, f"не понял время в начале строки, попробуй: завтра 8:00 твоя задача ... (получил: {text[:60]!r})", ""
-
-    remainder = text[best_end:].strip()
-    if not remainder:
+    if not longest_remainder:
         return False, "после времени не указана задача (что сделать?)", ""
 
-    return True, best_iso, remainder
+    return True, longest_iso, longest_remainder
