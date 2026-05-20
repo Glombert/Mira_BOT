@@ -102,6 +102,38 @@ def is_configured() -> bool:
     return os.path.isfile(_credentials_path())
 
 
+_client_secret_cache: tuple[str, str] | None = None
+
+
+def _load_client_id_secret() -> tuple[str, str]:
+    """Читает client_id и client_secret из credentials.json (Google Cloud OAuth app).
+
+    Кэшируется на процесс — credentials.json меняется редко (ротация секрета
+    в Google Cloud Console + ручное обновление файла).
+
+    Зачем не хранить в user-токене: client_secret — это секрет ПРИЛОЖЕНИЯ,
+    не пользователя; его правильное место — credentials.json. Дублирование
+    в каждом user-token усложняет ротацию.
+    """
+    global _client_secret_cache
+    if _client_secret_cache is not None:
+        return _client_secret_cache
+    import json as _json
+    with open(_credentials_path()) as f:
+        cfg = _json.load(f)
+    # Google credentials.json под верхним ключом "installed" (Desktop app)
+    # или "web" (Web app) в зависимости от типа OAuth client.
+    inner = cfg.get("installed") or cfg.get("web") or {}
+    client_id = inner.get("client_id", "")
+    client_secret = inner.get("client_secret", "")
+    if not client_id or not client_secret:
+        raise RuntimeError(
+            "credentials.json: не нашёл client_id/client_secret в 'installed'/'web' ключах"
+        )
+    _client_secret_cache = (client_id, client_secret)
+    return _client_secret_cache
+
+
 # ---------------------------------------------------------------------------
 # Хранение токенов
 # ---------------------------------------------------------------------------
@@ -270,11 +302,16 @@ def _get_drive_service(user_id: str):
         from google.auth.transport.requests import Request
         from googleapiclient.discovery import build
 
+        # client_id и client_secret — из credentials.json (Google требует ВСЕ ЧЕТЫРЕ
+        # поля для refresh). Без client_secret рефреш падает с ошибкой
+        # «The credentials do not contain the necessary fields ...».
+        cid, csec = _load_client_id_secret()
         creds = Credentials(
             token=token.get("access_token"),
             refresh_token=token["refresh_token"],
             token_uri=token.get("token_uri", "https://oauth2.googleapis.com/token"),
-            client_id=token.get("client_id"),
+            client_id=token.get("client_id") or cid,
+            client_secret=csec,
             scopes=token.get("scopes", SCOPES),
         )
 
@@ -561,11 +598,13 @@ def _get_calendar_service(user_id: str):
         from google.auth.transport.requests import Request
         from googleapiclient.discovery import build
 
+        cid, csec = _load_client_id_secret()
         creds = Credentials(
             token=token.get("access_token"),
             refresh_token=token["refresh_token"],
             token_uri=token.get("token_uri", "https://oauth2.googleapis.com/token"),
-            client_id=token.get("client_id"),
+            client_id=token.get("client_id") or cid,
+            client_secret=csec,
             scopes=token.get("scopes", SCOPES),
         )
 
@@ -755,11 +794,13 @@ def _get_sheets_service(user_id: str):
         from google.auth.transport.requests import Request
         from googleapiclient.discovery import build
 
+        cid, csec = _load_client_id_secret()
         creds = Credentials(
             token=token.get("access_token"),
             refresh_token=token["refresh_token"],
             token_uri=token.get("token_uri", "https://oauth2.googleapis.com/token"),
-            client_id=token.get("client_id"),
+            client_id=token.get("client_id") or cid,
+            client_secret=csec,
             scopes=token.get("scopes", SCOPES),
         )
 
