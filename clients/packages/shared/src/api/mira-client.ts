@@ -108,8 +108,13 @@ export class MiraClient {
   }
 
   async loadSession(): Promise<string | null> {
+    // КРИТИЧНО: загруженный токен сразу присваиваем this.session.
+    // Без этого connect()/fetchHistory()/uploadFile() будут строить URL
+    // с пустым ?session= (this.session = null, хотя в storage токен есть).
     if (this._sessionStorage) {
-      return await this._sessionStorage.get();
+      const stored = await this._sessionStorage.get();
+      if (stored) this.session = stored;
+      return stored;
     }
     return this.session;
   }
