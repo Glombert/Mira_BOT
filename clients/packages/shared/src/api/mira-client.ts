@@ -192,13 +192,13 @@ export class MiraClient {
 
       xhr.addEventListener('error', () => reject(new Error('Network error')));
 
-      xhr.open('POST', `${this.baseUrl}/upload?session=${this.session}`);
+      xhr.open('POST', `${this.baseUrl}/upload?session=${encodeURIComponent(this.session ?? '')}`);
       xhr.send(formData);
     });
   }
 
   fileUrl(dir: 'inbox' | 'output', filename: string): string {
-    return `${this.baseUrl}/files/${dir}/${encodeURIComponent(filename)}?session=${this.session}`;
+    return `${this.baseUrl}/files/${dir}/${encodeURIComponent(filename)}?session=${encodeURIComponent(this.session ?? '')}`;
   }
 
   // History
@@ -207,7 +207,7 @@ export class MiraClient {
       await this._delay(200);
       return FIXTURES.history as HistoryResult;
     }
-    const res = await fetch(`${this.baseUrl}/history?session=${this.session}&limit=${limit}`);
+    const res = await fetch(`${this.baseUrl}/history?session=${encodeURIComponent(this.session ?? '')}&limit=${limit}`);
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
@@ -229,7 +229,7 @@ export class MiraClient {
         return;
       }
 
-      const url = `${this.baseUrl.replace(/^http/, 'ws')}/ws?session=${this.session}`;
+      const url = `${this.baseUrl.replace(/^http/, 'ws')}/ws?session=${encodeURIComponent(this.session ?? '')}`;
       try {
         this.ws = new WebSocket(url);
       } catch (e) {
