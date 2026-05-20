@@ -2,9 +2,9 @@
 
 # 🌟 Mira
 
-### ИИ-агент с памятью, Конклавом и Telegram-интерфейсом
+### ИИ-агент с памятью, Конклавом и мультиплатформенными клиентами
 
-[![Version](https://img.shields.io/badge/version-1.6-brightgreen?style=for-the-badge)](https://github.com/Glombert/Mira_BOT)
+[![Version](https://img.shields.io/badge/version-2.0-brightgreen?style=for-the-badge)](https://github.com/Glombert/Mira_BOT/releases/tag/v2.0)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![Claude](https://img.shields.io/badge/Claude-Sonnet_4.6-D97757?style=for-the-badge)](https://anthropic.com)
 [![DeepSeek](https://img.shields.io/badge/DeepSeek-V4_Pro-4F46E5?style=for-the-badge)](https://deepseek.com)
@@ -43,6 +43,19 @@
 ```
 
 </div>
+
+---
+
+## 🆕 Что в v2.0
+
+- **Мобильное приложение** (React Native 0.85) — [github.com/Glombert/Mira_Mobile](https://github.com/Glombert/Mira_Mobile). One-tap Telegram-логин через `tg://resolve`. APK собирается CI.
+- **Веб-клиент** (Next.js 14) в `clients/apps/web/` — Telegram Login Widget + WebSocket + Markdown + Command Palette. Тот же бандл переиспользует Tauri-десктоп в `clients/apps/desktop/`.
+- **FCM push-уведомления** — Firebase Cloud Messaging. Каждый ответ Миры приходит push'ом если приложение закрыто. Scheduled reminders тоже идут в push.
+- **Mirror в Telegram** — каждая web/mobile-реплика дублируется в Telegram-чат, чтобы при переключении интерфейсов ничего не потерять.
+- **Автономный режим** — ритуалы (`agents/rituals/*.json`) с cron-расписанием: само-ревью кода, server health, weekly summary. Запускают `alpha.run` с TOOL_SCHEMAS — Мира может читать свой код, проверять метрики, искать.
+- **Scheduled tasks** (`/task завтра 8:00 ...`) — в назначенное время Мира получает виртуальное user-сообщение и обрабатывает его как обычный диалог.
+- **Прикрепления файлов** — upload-on-select + чип в инпуте + Мира видит `[Прикреплён файл: ...]` в контексте.
+- **Owner-команды через WS** — `/stats`, `/users`, `/versions`, `/evolution_count`, `/blacklist` теперь доступны и в приложениях, не только в Telegram.
 
 ---
 
