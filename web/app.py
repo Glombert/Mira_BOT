@@ -997,6 +997,68 @@ async def chat(websocket: WebSocket, session: str = ""):
                             else:
                                 await websocket.send_json({"type": "system", "content": f"Ошибка: {result.get('error')}"})
 
+                # ---------- Owner-only команды (read-only) ----------
+                # is_owner здесь = тот же критерий что в Telegram (OWNER_TELEGRAM_ID).
+                # Деструктивные (/evolve, /rollback, /release, /git, /restart) НЕ
+                # пробрасываются в WS — они требуют интерактивных подтверждений
+                # и контекста, оставлены только в Telegram.
+                elif cmd in ("stats", "users", "versions", "evolution_count", "blacklist"):
+                    is_owner_ws = OWNER_TG_ID and tg_id == OWNER_TG_ID
+                    if not is_owner_ws:
+                        await websocket.send_json({"type": "system", "content": "Команда доступна только владельцу."})
+                    elif cmd == "stats":
+                        try:
+                            from tools.access_tools import metrics_read
+                            result = metrics_read(1)
+                            await websocket.send_json({"type": "system", "content": result.get("text") or str(result)[:1500]})
+                        except Exception as e:
+                            await websocket.send_json({"type": "system", "content": f"stats: {e}"})
+                    elif cmd == "users":
+                        try:
+                            from tools.access_tools import list_users
+                            users = list_users()
+                            icons = {"owner": "👑", "regular": "✅", "guest": "👤", "rejected": "❌", "blacklisted": "🚫", "blocked": "🚫"}
+                            lines = [f"Пользователи ({len(users)}):"]
+                            for u in users:
+                                ico = icons.get(u.get("status"), "?")
+                                lines.append(f"{ico} {u.get('name') or u.get('id')} [{u.get('status')}]")
+                            await websocket.send_json({"type": "system", "content": "\n".join(lines)})
+                        except Exception as e:
+                            await websocket.send_json({"type": "system", "content": f"users: {e}"})
+                    elif cmd == "versions":
+                        try:
+                            import io as _io, sys as _sys
+                            from agent import list_backups
+                            buf = _io.StringIO(); old = _sys.stdout
+                            try:
+                                _sys.stdout = buf
+                                list_backups()
+                            finally:
+                                _sys.stdout = old
+                            await websocket.send_json({"type": "system", "content": buf.getvalue() or "Резервных копий нет."})
+                        except Exception as e:
+                            await websocket.send_json({"type": "system", "content": f"versions: {e}"})
+                    elif cmd == "evolution_count":
+                        try:
+                            from tools import db
+                            cnt = db.get_evolution_count() if hasattr(db, "get_evolution_count") else None
+                            await websocket.send_json({"type": "system", "content": f"Эволюций: {cnt}" if cnt is not None else "Счётчик эволюций не доступен."})
+                        except Exception as e:
+                            await websocket.send_json({"type": "system", "content": f"evolution_count: {e}"})
+                    elif cmd == "blacklist":
+                        try:
+                            from tools.access_tools import list_users
+                            users = [u for u in list_users() if u.get("status") in ("blacklisted", "blocked")]
+                            if not users:
+                                await websocket.send_json({"type": "system", "content": "Чёрный список пуст."})
+                            else:
+                                lines = [f"Чёрный список ({len(users)}):"]
+                                for u in users:
+                                    lines.append(f"🚫 {u.get('name') or u.get('id')} — {u.get('last_seen', '?')}")
+                                await websocket.send_json({"type": "system", "content": "\n".join(lines)})
+                        except Exception as e:
+                            await websocket.send_json({"type": "system", "content": f"blacklist: {e}"})
+
                 continue
 
             text = data.get("content", "").strip()
