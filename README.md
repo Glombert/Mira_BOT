@@ -2,88 +2,155 @@
 
 # 🌟 Mira
 
-### ИИ-агент с памятью, Конклавом и мультиплатформенными клиентами
+### Личный AI-ассистент, который живёт сразу в Telegram, в браузере и в твоём телефоне
 
 [![Version](https://img.shields.io/badge/version-2.0-brightgreen?style=for-the-badge)](https://github.com/Glombert/Mira_BOT/releases/tag/v2.0)
+[![Mobile](https://img.shields.io/badge/Mobile-Android_APK-FF8C42?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Glombert/Mira_Mobile/releases/latest)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![Claude](https://img.shields.io/badge/Claude-Sonnet_4.6-D97757?style=for-the-badge)](https://anthropic.com)
-[![DeepSeek](https://img.shields.io/badge/DeepSeek-V4_Pro-4F46E5?style=for-the-badge)](https://deepseek.com)
-[![Gemini](https://img.shields.io/badge/Gemini-Flash_1.5-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://ai.google.dev)
-[![OpenRouter](https://img.shields.io/badge/OpenRouter-Ready-6366F1?style=for-the-badge)](https://openrouter.ai)
-[![Google Drive](https://img.shields.io/badge/Google_Drive-OAuth-34A853?style=for-the-badge&logo=googledrive&logoColor=white)](https://developers.google.com/drive)
-[![Telegram](https://img.shields.io/badge/Telegram-Bot-26A5E4?style=for-the-badge&logo=telegram)](https://core.telegram.org/bots)
 [![License](https://img.shields.io/badge/License-MIT-22C55E?style=for-the-badge)](LICENSE)
 
-<br/>
-
-> *Названа в честь звезды Мира — переменной, пульсирующей, меняющейся в яркости.*
+<sub>**Модели:** Claude · DeepSeek · Gemini · OpenRouter &nbsp;·&nbsp; **Интеграции:** Telegram · Google Drive · Calendar · Sheets</sub>
 
 <br/>
 
-```
-Пользователь
-     │
-     │  один голос, один интерфейс
-     ▼
-┌─────────────────────────────────────┐
-│               МИРА (Альфа)          │
-│  • ведёт диалог                     │
-│  • держит контекст и память         │
-│  • классифицирует задачи            │
-│  • решает: сама или Конклав         │
-└──────────────┬──────────────────────┘
-               │  при сложных задачах
-       ┌───────┼──────────┬──────────┐
-       ▼       ▼          ▼          ▼
-   [Coder]  [Scout]   [Planner]  [Editor]
-       │                    │
-   [Critic]           [Reviewer]
-       │
-  [Excel Specialist]
-```
+> *«Что нужно сделать завтра в 8 утра?» — пишешь в любом интерфейсе, в 8 утра Мира сама присылает то что нужно.*
 
 </div>
 
 ---
 
-## 🆕 Что в v2.0
+## Что это такое (по-человечески)
 
-- **Мобильное приложение** (React Native 0.85) — [github.com/Glombert/Mira_Mobile](https://github.com/Glombert/Mira_Mobile). One-tap Telegram-логин через `tg://resolve`. APK собирается CI.
-- **Веб-клиент** (Next.js 14) в `clients/apps/web/` — Telegram Login Widget + WebSocket + Markdown + Command Palette. Тот же бандл переиспользует Tauri-десктоп в `clients/apps/desktop/`.
-- **FCM push-уведомления** — Firebase Cloud Messaging. Каждый ответ Миры приходит push'ом если приложение закрыто. Scheduled reminders тоже идут в push.
-- **Mirror в Telegram** — каждая web/mobile-реплика дублируется в Telegram-чат, чтобы при переключении интерфейсов ничего не потерять.
-- **Автономный режим** — ритуалы (`agents/rituals/*.json`) с cron-расписанием: само-ревью кода, server health, weekly summary. Запускают `alpha.run` с TOOL_SCHEMAS — Мира может читать свой код, проверять метрики, искать.
-- **Scheduled tasks** (`/task завтра 8:00 ...`) — в назначенное время Мира получает виртуальное user-сообщение и обрабатывает его как обычный диалог.
-- **Прикрепления файлов** — upload-on-select + чип в инпуте + Мира видит `[Прикреплён файл: ...]` в контексте.
-- **Owner-команды через WS** — `/stats`, `/users`, `/versions`, `/evolution_count`, `/blacklist` теперь доступны и в приложениях, не только в Telegram.
+Mira — это **твой собственный AI-ассистент**, к которому ты можешь обратиться через любое удобное окно: Telegram-бот, приложение на телефоне, веб-сайт или десктоп. **Один и тот же диалог, один и тот же контекст** — всё синхронизируется.
+
+В отличие от ChatGPT, Мира:
+
+- 🧠 **Помнит тебя** между сессиями — твоё имя, проекты, привычки, разговоры неделями назад
+- 🔧 **Делает дела сама** — не просто отвечает, а реально лезет в твои файлы, открывает календарь, читает Google Sheets, скачивает с диска
+- ⏰ **Работает в фоне** — задаёшь задачу «завтра в 8:00 подготовь отчёт по продажам» — в 8:00 уходишь в push с готовым результатом
+- 🤖 **Проверяет себя** — раз в несколько часов сама находит баги в собственном коде, мониторит сервер, шлёт алерты
+- 🔄 **Не падает на одном провайдере** — Claude недоступен → DeepSeek → Gemini, всё прозрачно
+- 🛡 **Твоя** — крутится на твоём VPS, никаких облачных подписок, ключи API только у тебя
+
+## Примеры из жизни
+
+```
+ты:    «Привет, что сегодня было важного?»
+Мира:  Смотрит твою историю, calendar, последние сообщения → выдаёт сводку.
+
+ты:    [прикрепляешь PDF] «Что тут?»
+Мира:  Читает, выдает резюме, при желании создаёт Excel с ключевыми данными.
+
+ты:    «/task в пятницу 15:00 проверь статус задач у команды и подготовь отчёт»
+Мира:  В пятницу 15:00 — push на твой телефон с готовым отчётом.
+
+ты:    «Поищи в интернете последние новости по Python 3.13»
+Мира:  DuckDuckGo, выдержки, ссылки.
+
+ты:    «Создай Google Sheet с расходами за май»
+Мира:  Sheet создан, файл расшарен на твой email.
+```
+
+## Архитектура (для тех кому интересно)
+
+<div align="center">
+
+```
+                  ┌─────────────────────────────────────┐
+                  │      ТЫ — один голос, любое окно    │
+                  └──────────────┬──────────────────────┘
+       ┌──────────┬──────────────┼──────────────┬──────────┐
+       ▼          ▼              ▼              ▼          ▼
+   📱 Mobile   💻 Web        🖥 Desktop      💬 Telegram   🔧 CLI
+   (RN 0.85)  (Next.js)     (Tauri v2)      (бот)        (terminal)
+       │          │              │              │          │
+       └──────────┴──────┬───────┴──────────────┴──────────┘
+                         │ WebSocket / HTTP
+                         ▼
+              ┌─────────────────────────┐
+              │    МИРА (Альфа)         │
+              │  • диалог, контекст     │
+              │  • память пользователя  │
+              │  • роутинг к Конклаву   │
+              └────────────┬────────────┘
+                           │ сложные задачи
+              ┌────────────┴─────────────┐
+              ▼                          ▼
+       ╔═════════════╗           ╔═══════════════╗
+       ║   КОНКЛАВ   ║           ║  АВТОНОМИЯ    ║
+       ╠═════════════╣           ╠═══════════════╣
+       ║ Coder       ║           ║ Ритуалы       ║
+       ║ Scout       ║           ║ (cron + LLM)  ║
+       ║ Artist      ║           ║ Scheduled     ║
+       ║ Critic      ║           ║   tasks       ║
+       ║ Reviewer    ║           ║ Self-review   ║
+       ╚═════════════╝           ╚═══════════════╝
+```
+
+</div>
+
+**Один голос — Мира.** Сложность скрыта: внутри она сама решает, отвечать ли коротко из памяти или дёргать Конклав специалистов. Пользователь даже не знает что было.
+
+## Что под капотом
+
+| Слой | Технологии |
+|---|---|
+| **LLM-стек** | Claude Sonnet 4.6 (Anthropic) · DeepSeek V4 · Gemini Flash · OpenRouter (failover chain) |
+| **Бэкенд** | Python 3.12 · FastAPI · WebSocket · python-telegram-bot · SQLite (WAL) · Fernet-шифрование памяти |
+| **Память** | Структурированное резюме · профили · ChromaDB (семантический поиск) |
+| **Клиенты** | React Native 0.85 (мобайл) · Next.js 14 (веб) · Tauri v2 (десктоп) |
+| **Push** | Firebase Cloud Messaging (FCM) |
+| **Интеграции** | Google Drive · Calendar · Sheets · rclone · DuckDuckGo Search · Claude Vision |
+| **Безопасность** | firejail-изоляция Python · workspace per user · path traversal protection · HMAC сессии |
+| **Самоэволюция** | `/evolve` — Мира сама правит свой код через 5-слойную валидацию (whitelist → syntax → smoke test → atomic rollback) |
+
+## Что в v2.0 нового
+
+| Категория | Фичи |
+|---|---|
+| 📱 **Клиенты** | Mobile (RN), Web (Next.js), Desktop (Tauri), one-tap Telegram-логин |
+| 🔔 **Уведомления** | FCM push на ответы и напоминания · mirror в Telegram |
+| 🤖 **Автономия** | Ритуалы по cron (self-review каждые 4ч, server health daily) · Scheduled tasks |
+| 📎 **Файлы** | Прикрепления через скрепку · upload-on-select · download через тап на чип |
+| 🔧 **Owner-команды** | `/stats`, `/users`, `/versions`, `/rituals` теперь и в приложениях |
+| 🛡 **Инфра** | Pre-commit hook, SSH deploy keys, 227 тестов, nginx 25MB lim |
+
+[**→ Полные release notes v2.0**](https://github.com/Glombert/Mira_BOT/releases/tag/v2.0)
 
 ---
 
-## Что это
+## Скриншоты
 
-Mira — агентная система с многоагентной оркестрацией, памятью пользователей, Telegram- и веб-интерфейсами. Пользователь всегда говорит с одним голосом — Мирой. Сложность скрыта внутри.
+<div align="center">
 
-**Что умеет:**
+| Mobile login | Mobile chat | Web (browser) |
+|:---:|:---:|:---:|
+| <sub>Telegram one-tap auth</sub> | <sub>Звезда-логотип, typewriter, attachments</sub> | <sub>Next.js + WebSocket</sub> |
 
-- **Думать** — классифицирует задачи: простые решает сама, сложные передаёт Конклаву
-- **Помнить** — структурированное резюме разговора (КТО/ПРОЕКТЫ/ФАКТЫ/ТЕКУЩЕЕ), профиль пользователя, **семантический поиск по всей истории** через ChromaDB
-- **Искать** — веб-поиск через DuckDuckGo (ddgs, без ключей)
-- **Видеть** — анализирует фото и изображения через Claude Vision
-- **Работать с файлами** — читает, пишет, обрабатывает Excel; workspace изолирован на каждого пользователя; синхронизация с Google Drive
-- **Работать с Google Календарём** — просмотр, создание событий, быстрое добавление через естественный язык (`gcal_list`, `gcal_create`, `gcal_quick_add`)
-- **Работать с Google Таблицами** — чтение, запись, создание таблиц (`gsheet_read`, `gsheet_write`, `gsheet_create`)
-- **Напоминать** — отложенные напоминания: Мира САМА пишет пользователю в Telegram в заданное время (`schedule_reminder`, `list_reminders`, `cancel_reminder`)
-- **Запускать код** — Python в подпроцессе с изоляцией через firejail (`--net=none`)
-- **Защищаться от перегрузки** — sliding-window rate limit (60 сообщ/мин, 20 файлов/мин); Мира предупреждает голосом, а не молчит
-- **Резервироваться** — при сбое одного LLM-провайдера переключается на следующий по цепочке (OpenRouter → DeepSeek direct → Anthropic direct)
-- **Понимать себя** — читает собственный код и конфиги (`list_self`, `read_self`), смотрит историю изменений (`git_log`), обновляет персону через `write_persona`
-- **Создавать агентов** — `write_agent_config` записывает конфиг в `agents/`, валидирует, создаёт бэкап, уведомляет владельца
-- **Управлять пользователями** — guest/regular/rejected/blacklisted, уведомления с кнопками, карточки
-- **Меняться безопасно** — `/evolve` предлагает diff, проверяет принципы, делает бэкап, требует подтверждения; счётчик успешных эволюций
-- **Работать через веб** — FastAPI + WebSocket интерфейс с Telegram Login Widget, загрузкой файлов и полным доступом к Конклаву
-- **Знать время** — осознаёт текущую дату и время, не теряется в хронологии
+</div>
 
-Всего **28 инструментов**: `list_files`, `read_file`, `write_file`, `run_python`, `excel_read`, `excel_write`, `save_template`, `list_templates`, `list_self`, `recall`, `git_log`, `read_self`, `write_persona`, `write_agent_config`, `web_search`, `gdrive_list`, `gdrive_read`, `gdrive_write`, `gcal_list`, `gcal_create`, `gcal_quick_add`, `gsheet_read`, `gsheet_write`, `gsheet_create`, `schedule_reminder`, `list_reminders`, `cancel_reminder`, `metrics_read`.
+> *Скриншоты добавь сам через PR — рекомендуемое разрешение 1080×2400 для mobile, 1440×900 для web/desktop.*
+
+---
+
+## 28 инструментов в одном тулбоксе
+
+<details>
+<summary>Развернуть полный список</summary>
+
+| Категория | Инструменты |
+|---|---|
+| Файлы | `list_files`, `read_file`, `write_file`, `excel_read`, `excel_write`, `save_template`, `list_templates` |
+| Само-рефлексия | `list_self`, `read_self`, `recall`, `git_log`, `write_persona`, `write_agent_config` |
+| Веб + поиск | `web_search` (DuckDuckGo) |
+| Google Drive | `gdrive_list`, `gdrive_read`, `gdrive_write` |
+| Google Calendar | `gcal_list`, `gcal_create`, `gcal_quick_add` |
+| Google Sheets | `gsheet_read`, `gsheet_write`, `gsheet_create` |
+| Напоминания | `schedule_reminder`, `list_reminders`, `cancel_reminder` |
+| Метрики | `metrics_read` |
+| Код | `run_python` (firejail-изоляция) |
+
+</details>
 
 ---
 
