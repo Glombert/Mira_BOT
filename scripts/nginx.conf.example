@@ -17,6 +17,11 @@ server {
     ssl_protocols       TLSv1.2 TLSv1.3;
     ssl_ciphers         HIGH:!aNULL:!MD5;
 
+    # Лимит размера загружаемых файлов. По умолчанию nginx режет до 1MB,
+    # из-за чего телефонные фотки (3-5 MB) не проходят. Сервер сам разрешает
+    # до 20 MB (см. UPLOAD_MAX_BYTES в web/app.py), nginx нужно поднимать тоже.
+    client_max_body_size 25m;
+
     location / {
         proxy_pass         http://127.0.0.1:8000;
         proxy_http_version 1.1;
