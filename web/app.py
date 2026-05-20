@@ -1008,9 +1008,23 @@ async def chat(websocket: WebSocket, session: str = ""):
                         await websocket.send_json({"type": "system", "content": "Команда доступна только владельцу."})
                     elif cmd == "stats":
                         try:
-                            from tools.access_tools import metrics_read
-                            result = metrics_read(1)
-                            await websocket.send_json({"type": "system", "content": result.get("text") or str(result)[:1500]})
+                            from tools.metrics_tools import metrics_read
+                            m = metrics_read(1)
+                            if not m.get("ok"):
+                                await websocket.send_json({"type": "system", "content": f"stats: {m.get('error', 'нет данных')}"})
+                            else:
+                                lines = [
+                                    f"Метрики за {m.get('days')} д.",
+                                    f"Вызовов: {m.get('total_calls')}",
+                                    f"Токенов: {m.get('total_tokens')}",
+                                    f"Оценка: ${m.get('cost_est', 0):.3f}",
+                                ]
+                                by_model = m.get("by_model") or {}
+                                if by_model:
+                                    lines.append("\nПо моделям:")
+                                    for model, stat in list(by_model.items())[:10]:
+                                        lines.append(f"  {model}: {stat.get('calls')} вызовов, {stat.get('tokens')} токенов")
+                                await websocket.send_json({"type": "system", "content": "\n".join(lines)})
                         except Exception as e:
                             await websocket.send_json({"type": "system", "content": f"stats: {e}"})
                     elif cmd == "users":
