@@ -392,12 +392,22 @@ async def history(session: str = "", limit: int = 50):
     user_id = _web_user_id(tg_id)
     msgs = _load_session(user_id)
     limit = max(1, min(limit, 200))
-    visible = [
-        {"role": m["role"], "content": m["content"]}
-        for m in msgs
-        if m.get("role") in ("user", "assistant") and isinstance(m.get("content"), str)
-    ][-limit:]
-    return {"messages": visible}
+    # Включаем user/assistant + системные пометки про загруженные файлы.
+    # Прочие system-сообщения (главный prompt) клиенту не нужны.
+    def _is_file_note(m: dict) -> bool:
+        c = m.get("content", "")
+        return isinstance(c, str) and c.startswith("[Пользователь загрузил файл:")
+    visible = []
+    for m in msgs:
+        role = m.get("role")
+        content = m.get("content")
+        if not isinstance(content, str):
+            continue
+        if role in ("user", "assistant"):
+            visible.append({"role": role, "content": content, "ts": m.get("ts")})
+        elif role == "system" and _is_file_note(m):
+            visible.append({"role": "system", "content": content, "ts": m.get("ts")})
+    return {"messages": visible[-limit:]}
 
 
 @app.get("/oauth/google/callback")
@@ -518,6 +528,11 @@ async def upload_file(file: UploadFile = File(...), session: str = ""):
     with open(dest, "wb") as f:
         f.write(content)
     logger.info(f"upload: {user_id} → {filename} ({len(content)} bytes)")
+    # Системную пометку в сессию НЕ добавляем — иначе Мира начнёт
+    # анализировать файл, ещё не получив задание от пользователя.
+    # Привязка к ходу делается в WS-обработчике: клиент шлёт
+    # {content: "...", attachment: "filename"} — там и подкладываем
+    # маркер «[Прикреплён: ...]» к тексту пользователя.
     return {"ok": True, "filename": filename, "size": len(content)}
 
 
@@ -1106,6 +1121,16 @@ async def chat(websocket: WebSocket, session: str = ""):
                 continue
 
             text = data.get("content", "").strip()
+            # Прикреплённый файл (если есть) — клиент шлёт его имя,
+            # сервер уже сохранил файл в workspace/inbox/ через /upload.
+            # Валидируем что файл реально существует и принадлежит
+            # этому пользователю — иначе игнорируем attachment-поле.
+            attached_name = (data.get("attachment") or "").strip()
+            if attached_name:
+                _att_safe = _safe_filename(attached_name)
+                _att_path = _resolve_under(os.path.join(WORKSPACE_DIR, user_id), "inbox", _att_safe) if _att_safe else None
+                if _att_path and os.path.isfile(_att_path):
+                    text = (text + "\n\n" if text else "") + f"[Прикреплён файл: workspace/inbox/{_att_safe}]"
             if not text:
                 continue
 
@@ -1167,19 +1192,33 @@ async def chat(websocket: WebSocket, session: str = ""):
                 })
                 continue
 
-            msgs.append({"role": "user", "content": text})
+            msgs.append({"role": "user", "content": text, "ts": time.time()})
             system   = [m for m in msgs if m["role"] == "system"]
             the_rest = [m for m in msgs if m["role"] != "system"]
             msgs     = system + the_rest[-MAX_HISTORY:]
 
-            # Семантический поиск — augment только для LLM, не сохраняем
+            # Снимок output/ до хода — чтобы потом сравнить и автоматически
+            # приложить к ответу Миры файлы, которые она создала за этот ход.
+            # Это надёжнее регексов по тексту: ловим именно факт изменения
+            # файлов на диске.
+            _output_dir = os.path.join(WORKSPACE_DIR, user_id, "output")
+            _output_before: dict[str, float] = {}
+            if os.path.isdir(_output_dir):
+                for _f in os.listdir(_output_dir):
+                    _fp = os.path.join(_output_dir, _f)
+                    if os.path.isfile(_fp) and not _f.startswith("."):
+                        _output_before[_f] = os.path.getmtime(_fp)
+
+            # Семантический поиск — augment только для LLM, не сохраняем.
+            # Также: чистим лишние поля (ts) из llm_msgs — некоторые провайдеры
+            # строги к схеме message.
             augment = ""
             try:
                 matches = semantic_memory.search(user_id, text, top_k=5)
                 augment = semantic_memory.format_for_prompt(matches)
             except Exception as e:
                 logger.warning(f"semantic_memory search: {e}")
-            llm_msgs = list(msgs)
+            llm_msgs = [{k: v for k, v in m.items() if k != "ts"} for m in msgs]
             if augment and llm_msgs and llm_msgs[0].get("role") == "system":
                 llm_msgs[0] = {**llm_msgs[0], "content": llm_msgs[0]["content"] + "\n\n" + augment}
 
@@ -1219,14 +1258,55 @@ async def chat(websocket: WebSocket, session: str = ""):
                 await websocket.send_json({"type": "error", "content": "Что-то пошло не так. Попробуй ещё раз."})
                 continue
 
+            # Снимок output/ ПОСЛЕ хода — diff с _output_before даёт список
+            # файлов, созданных/обновлённых Мирой за этот ход. Прикладываем
+            # к ответу как attachments — клиент рисует кнопки-чипы для скачивания.
+            attachments: list[dict] = []
+            if os.path.isdir(_output_dir):
+                for _f in os.listdir(_output_dir):
+                    _fp = os.path.join(_output_dir, _f)
+                    if not os.path.isfile(_fp) or _f.startswith("."):
+                        continue
+                    _mtime = os.path.getmtime(_fp)
+                    if _f not in _output_before or _mtime > _output_before[_f] + 0.5:
+                        attachments.append({
+                            "name": _f,
+                            "dir":  "output",
+                            "size": os.path.getsize(_fp),
+                        })
+
             # Сохраняем ответ в постоянную историю. И Конклав-путь (alpha_msgs —
             # отдельный список), и alpha.run (llm_msgs — копия c augment) не пишут
             # в основной msgs. Без этого следующий ход видит чат без её ответов
             # и Мира «забывает» что уже отвечала.
-            msgs.append({"role": "assistant", "content": answer})
+            assistant_msg = {"role": "assistant", "content": answer, "ts": time.time()}
+            if attachments:
+                assistant_msg["attachments"] = attachments
+            msgs.append(assistant_msg)
 
-            await websocket.send_json({"type": "message", "content": answer})
+            ws_payload: dict = {"type": "message", "content": answer}
+            if attachments:
+                ws_payload["attachments"] = attachments
+            await websocket.send_json(ws_payload)
             _save_session(user_id, msgs)
+
+            # Mirror в Telegram-чат: чтобы при переключении интерфейсов
+            # пользователь увидел всё в одном месте. Шлём асинхронно через
+            # threading, чтобы не блокировать WS-обработчик. tg_id уже из
+            # верифицированной сессии — никакого подделанного chat_id.
+            if BOT_TOKEN and tg_id:
+                def _mirror_to_telegram(uid: int, q: str, a: str):
+                    try:
+                        import urllib.request, urllib.parse as _up
+                        for _txt in (f"📲 {q}", a):
+                            _data = _up.urlencode({"chat_id": uid, "text": _txt[:4000]}).encode()
+                            urllib.request.urlopen(
+                                f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                                data=_data, timeout=8,
+                            )
+                    except Exception as e:
+                        logger.warning(f"mirror_to_telegram: {e}")
+                threading.Thread(target=_mirror_to_telegram, args=(tg_id, text, answer), daemon=True).start()
 
             snap = list(msgs)
             user_text  = text
