@@ -37,6 +37,7 @@ export function ChatPage() {
   const [driveOpen, setDriveOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [pendingAttachment, setPendingAttachment] = useState<{ name: string; size: number } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const unsubscribersRef = useRef<(() => void)[]>([]);
@@ -190,13 +191,34 @@ export function ChatPage() {
   handleAuthRef.current = handleAuth;
 
   const handleSend = useCallback(
-    (text: string) => {
+    async (text: string) => {
       if (!client || !session) return;
-      addMessage({ id: generateId(), type: 'user', content: text, timestamp: Date.now() });
-      client.sendMessage(text);
+      if (pendingAttachment) {
+        setUploadProgress(0);
+        try {
+          // File + text: upload first, then send message referencing it
+          const file = (window as any).__pendingFile as File;
+          if (file) {
+            const result = await client.uploadFile(file, (pct) => setUploadProgress(pct));
+            addMessage({ id: generateId(), type: 'system', content: `Загружено: ${result.filename} (${formatBytes(result.size)})`, timestamp: Date.now() });
+          }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Ошибка загрузки';
+          addMessage({ id: generateId(), type: 'error', content: msg, timestamp: Date.now() });
+        } finally {
+          setUploadProgress(null);
+          setPendingAttachment(null);
+          delete (window as any).__pendingFile;
+        }
+      }
+      const trimmed = text.trim();
+      if (trimmed) {
+        addMessage({ id: generateId(), type: 'user', content: trimmed, timestamp: Date.now() });
+        client.sendMessage(trimmed);
+      }
       setAutoScroll(true);
     },
-    [client, session, addMessage]
+    [client, session, addMessage, pendingAttachment]
   );
 
   const handleClear = useCallback(() => {
@@ -237,37 +259,18 @@ export function ChatPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const handleUpload = useCallback(
-    async (file: File) => {
-      if (!client || !session) return;
-      setUploadProgress(0);
-      try {
-        const result = await client.uploadFile(file, (pct) => setUploadProgress(pct));
-        addMessage({
-          id: generateId(),
-          type: 'system',
-          content: `Загружено: ${result.filename} (${formatBytes(result.size)})`,
-          timestamp: Date.now(),
-        });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Ошибка загрузки';
-        if (msg === 'Unauthorized') {
-          setConnectionStatus('offline');
-          setShowAuth(true);
-        } else {
-          addMessage({
-            id: generateId(),
-            type: 'error',
-            content: msg,
-            timestamp: Date.now(),
-          });
-        }
-      } finally {
-        setUploadProgress(null);
-      }
+  const handleFileSelect = useCallback(
+    (file: File) => {
+      setPendingAttachment({ name: file.name, size: file.size });
+      (window as any).__pendingFile = file;
     },
-    [client, session, addMessage]
+    []
   );
+
+  const handleClearAttachment = useCallback(() => {
+    setPendingAttachment(null);
+    delete (window as any).__pendingFile;
+  }, []);
 
   // Drag & drop
   const handleDragEnter = useCallback((e: React.DragEvent) => {
@@ -416,7 +419,14 @@ export function ChatPage() {
           </div>
 
           <div className="px-4 py-3 border-t border-border-subtle bg-bg-base">
-            <ChatInput onSend={handleSend} onFileSelect={handleUpload} disabled={!session || connectionStatus === 'offline'} />
+            <ChatInput
+              onSend={handleSend}
+              onFileSelect={handleFileSelect}
+              disabled={!session || connectionStatus === 'offline'}
+              pendingAttachment={pendingAttachment}
+              onClearAttachment={handleClearAttachment}
+              uploading={uploadProgress !== null}
+            />
           </div>
         </>
       )}
