@@ -389,7 +389,6 @@ def _run_scheduled_task(user_id: str, prompt: str) -> str:
 
 def _run_ritual_background(ritual: dict, user_id: str) -> None:
     """Выполняет один ритуал в фоне и шлёт notify_owner если IMPORTANCE ≥ порога."""
-    import providers as _prov
     from agent import Agent, Profile
     from tools import db as _db
     from tools.access_tools import notify_owner as _notify
@@ -403,18 +402,19 @@ def _run_ritual_background(ritual: dict, user_id: str) -> None:
         logger.error(f"rituals: alpha config не найден")
         return
 
-    messages = [
+    # Эфемерная сессия: ритуал не должен загрязнять основную историю.
+    # Собираем system + промпт ритуала = стартовый контекст для alpha.run.
+    msgs = [
         {"role": "system", "content": _system_prompt_for(user_id)},
-        {"role": "user", "content": ritual["prompt"]},
+        {"role": "user",   "content": ritual["prompt"]},
     ]
 
     try:
-        import providers as _providers
-        response = _providers.call(alpha.model_chain, messages, temperature=0.3,
-                                   user_id=user_id, agent_name="ritual")
-        answer = response.choices[0].message.content or ""
+        # alpha.run() — встроенный agent-loop с TOOL_SCHEMAS.
+        # Мира может вызывать read_self, list_self, web_search и др.
+        answer = alpha.run(msgs)
     except Exception as e:
-        logger.error(f"rituals: '{ritual['name']}' API error: {e}")
+        logger.error(f"rituals: '{ritual['name']}' agent error: {e}")
         _db.save_ritual_run(ritual["name"], datetime.now().isoformat(), f"ERROR: {e}")
         return
 
@@ -424,7 +424,6 @@ def _run_ritual_background(ritual: dict, user_id: str) -> None:
     importance = parse_importance(answer)
     threshold = ritual.get("notify_threshold", "MAJOR")
     if should_notify(importance, threshold):
-        owner_id = f"tg_{OWNER_TG_ID}" if OWNER_TG_ID else ""
         title = f"🔔 Ритуал: {ritual['name']} [{importance}]"
         body = answer[:500]
         _notify(title + "\n" + body)
@@ -1169,16 +1168,15 @@ async def chat(websocket: WebSocket, session: str = ""):
                         await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
                     else:
                         rest = cmd[5:].strip()
-                        # Парсим "когда" и "промпт"
-                        m = rest.split(maxsplit=1)
-                        if len(m) < 2:
+                        if not rest:
                             await websocket.send_json({"type": "system", "content": "Формат: task <когда> <задача>\nПример: task завтра 8:00 проверь календарь"})
                         else:
-                            ok_parsed, trigger_or_err = parse_time(m[0])
+                            from tools.time_parse import extract_time_and_rest
+                            ok_parsed, trigger_or_err, prompt = extract_time_and_rest(rest)
                             if not ok_parsed:
                                 await websocket.send_json({"type": "system", "content": trigger_or_err})
                             else:
-                                r = schedule_reminder(user_id, trigger_or_err, m[1], kind="task")
+                                r = schedule_reminder(user_id, trigger_or_err, prompt, kind="task")
                                 if r.get("ok"):
                                     t = r["task"]
                                     await websocket.send_json({"type": "system", "content": f"Задача создана!\nID: {t['id']}\nКогда: {t['trigger_at']}\nЧто: {t['message'][:120]}"})

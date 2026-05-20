@@ -18,8 +18,6 @@ function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-import { formatBytes } from '@/lib/utils';
-
 const BOT_USERNAME = process.env.NEXT_PUBLIC_BOT_USERNAME || 'MiraTestBot';
 const BASE_URL = process.env.NEXT_PUBLIC_MIRA_URL || 'http://localhost:8000';
 const IS_MOCK = process.env.NEXT_PUBLIC_MIRA_MOCK === 'true';
@@ -36,20 +34,18 @@ export function ChatPage() {
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [driveOpen, setDriveOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [pendingAttachment, setPendingAttachment] = useState<{ name: string; size: number } | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const unsubscribersRef = useRef<(() => void)[]>([]);
   const pendingWhoamiRef = useRef(false);
   const historyLoadedRef = useRef(false);
   const dragCounterRef = useRef(0);
+  const pendingFileRef = useRef<File | null>(null);
+  const uploadResultRef = useRef<{ filename: string; size: number } | null>(null);
   const [autoScroll, setAutoScroll] = useState(true);
 
-  // Initialize client.
-  // Зависимостей нет — это единоразовый init на mount. Если компонент
-  // размонтируется до завершения async — clientRef всё ещё undefined,
-  // optional chain ниже выполнит no-op.
   const clientRef = useRef<MiraClient | undefined>(undefined);
   useEffect(() => {
     (async () => {
@@ -88,7 +84,6 @@ export function ChatPage() {
   }, []);
 
   const connectClient = useCallback((c: MiraClient) => {
-    // Clean up previous listeners
     unsubscribersRef.current.forEach((u) => u());
     unsubscribersRef.current = [];
 
@@ -110,9 +105,7 @@ export function ChatPage() {
             }));
             setMessages(historyMsgs);
           }
-        }).catch(() => {
-          // history not available yet — fine for MVP
-        });
+        }).catch(() => {});
       }
     });
 
@@ -144,9 +137,7 @@ export function ChatPage() {
       addMessage({ id: generateId(), type: 'error', content: msg.content, timestamp: Date.now() });
     });
 
-    const unsubPong = c.on('pong', () => {
-      // keep alive
-    });
+    const unsubPong = c.on('pong', () => {});
 
     const unsubFiles = c.on('files', (msg) => {
       addMessage({ id: generateId(), type: 'files', files: msg.files, timestamp: Date.now() });
@@ -161,9 +152,7 @@ export function ChatPage() {
       unsubSystem, unsubError, unsubPong, unsubFiles, unsubGdrive,
     ];
 
-    c.connect().catch(() => {
-      setConnectionStatus('offline');
-    });
+    c.connect().catch(() => setConnectionStatus('offline'));
   }, [addMessage]);
 
   const handleAuth = useCallback(
@@ -176,12 +165,7 @@ export function ChatPage() {
         setUserName(result.name || '');
         connectClient(client);
       } else {
-        addMessage({
-          id: generateId(),
-          type: 'error',
-          content: result.error || 'Ошибка авторизации',
-          timestamp: Date.now(),
-        });
+        addMessage({ id: generateId(), type: 'error', content: result.error || 'Ошибка авторизации', timestamp: Date.now() });
       }
     },
     [client, connectClient, addMessage]
@@ -191,34 +175,35 @@ export function ChatPage() {
   handleAuthRef.current = handleAuth;
 
   const handleSend = useCallback(
-    async (text: string) => {
+    (text: string) => {
       if (!client || !session) return;
-      if (pendingAttachment) {
-        setUploadProgress(0);
-        try {
-          // File + text: upload first, then send message referencing it
-          const file = (window as any).__pendingFile as File;
-          if (file) {
-            const result = await client.uploadFile(file, (pct) => setUploadProgress(pct));
-            addMessage({ id: generateId(), type: 'system', content: `Загружено: ${result.filename} (${formatBytes(result.size)})`, timestamp: Date.now() });
-          }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : 'Ошибка загрузки';
-          addMessage({ id: generateId(), type: 'error', content: msg, timestamp: Date.now() });
-        } finally {
-          setUploadProgress(null);
-          setPendingAttachment(null);
-          delete (window as any).__pendingFile;
+      const trimmed = text.trim();
+      const att = uploadResultRef.current;
+
+      if (!trimmed && !att) return;
+
+      let displayContent = trimmed;
+      let attachmentName: string | undefined;
+
+      if (att) {
+        attachmentName = att.filename;
+        if (trimmed) {
+          displayContent = trimmed + '\n\n📎 ' + att.filename;
+        } else {
+          displayContent = '📎 ' + att.filename;
         }
       }
-      const trimmed = text.trim();
-      if (trimmed) {
-        addMessage({ id: generateId(), type: 'user', content: trimmed, timestamp: Date.now() });
-        client.sendMessage(trimmed);
-      }
+
+      addMessage({ id: generateId(), type: 'user', content: displayContent, timestamp: Date.now() });
+      client.sendMessage(trimmed, attachmentName);
       setAutoScroll(true);
+
+      // clear
+      uploadResultRef.current = null;
+      pendingFileRef.current = null;
+      setPendingAttachment(null);
     },
-    [client, session, addMessage, pendingAttachment]
+    [client, session, addMessage]
   );
 
   const handleClear = useCallback(() => {
@@ -259,17 +244,44 @@ export function ChatPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const doUpload = useCallback(
+    async (file: File) => {
+      if (!client || !session) return;
+      pendingFileRef.current = file;
+      setPendingAttachment({ name: file.name, size: file.size });
+      setUploadProgress(0);
+      try {
+        const result = await client.uploadFile(file, (pct) => setUploadProgress(pct));
+        uploadResultRef.current = { filename: result.filename, size: result.size };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Ошибка загрузки';
+        if (msg === 'Unauthorized') {
+          setConnectionStatus('offline');
+          setShowAuth(true);
+        } else {
+          addMessage({ id: generateId(), type: 'error', content: msg, timestamp: Date.now() });
+        }
+        pendingFileRef.current = null;
+        uploadResultRef.current = null;
+        setPendingAttachment(null);
+      } finally {
+        setUploadProgress(null);
+      }
+    },
+    [client, session, addMessage]
+  );
+
   const handleFileSelect = useCallback(
     (file: File) => {
-      setPendingAttachment({ name: file.name, size: file.size });
-      (window as any).__pendingFile = file;
+      doUpload(file);
     },
-    []
+    [doUpload]
   );
 
   const handleClearAttachment = useCallback(() => {
+    pendingFileRef.current = null;
+    uploadResultRef.current = null;
     setPendingAttachment(null);
-    delete (window as any).__pendingFile;
   }, []);
 
   // Drag & drop
@@ -298,9 +310,9 @@ export function ChatPage() {
       dragCounterRef.current = 0;
       setIsDragging(false);
       const file = e.dataTransfer.files?.[0];
-      if (file) handleUpload(file);
+      if (file) doUpload(file);
     },
-    [handleUpload]
+    [doUpload]
   );
 
   // Deep-link auth listener (desktop only)
@@ -388,10 +400,7 @@ export function ChatPage() {
               <div className="flex items-center justify-center gap-2 py-1">
                 <span className="text-sm text-text-secondary">Загрузка {uploadProgress}%</span>
                 <div className="w-32 h-1.5 bg-bg-overlay rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-accent transition-all duration-200"
-                    style={{ width: `${uploadProgress}%` }}
-                  />
+                  <div className="h-full bg-accent transition-all duration-200" style={{ width: `${uploadProgress}%` }} />
                 </div>
               </div>
             )}
@@ -404,10 +413,7 @@ export function ChatPage() {
                       <stop offset="1" stopColor="#FFB888" stopOpacity="0.2" />
                     </linearGradient>
                   </defs>
-                  <path
-                    d="M14 2L16.5 11.5H26L18.5 17L21 26L14 21L7 26L9.5 17L2 11.5H11.5L14 2Z"
-                    fill="url(#emptyStar)"
-                  />
+                  <path d="M14 2L16.5 11.5H26L18.5 17L21 26L14 21L7 26L9.5 17L2 11.5H11.5L14 2Z" fill="url(#emptyStar)" />
                 </svg>
                 <p className="text-sm">Напиши что-нибудь, чтобы начать</p>
               </div>

@@ -325,8 +325,8 @@ export class MiraClient {
   }
 
   // Sending
-  sendMessage(text: string): void {
-    this._send({ content: text });
+  sendMessage(text: string, attachment?: string): void {
+    this._send({ content: text, ...(attachment ? { attachment } : {}) });
     if (this.mock) {
       this._mockReply(text);
     }

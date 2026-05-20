@@ -1435,7 +1435,7 @@ async def cmd_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_approved(user_id):
         await _reply(update, "Требуется одобрение.")
         return
-    from tools.time_parse import parse_time as _parse_time
+    from tools.time_parse import extract_time_and_rest as _etr
     from tools.scheduler import schedule_reminder as _sched
     args = (update.message.text or "").strip()
     prefix = "/task"
@@ -1444,15 +1444,11 @@ async def cmd_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not args:
         await _reply(update, "Формат: /task <когда> <задача>\nПример: /task завтра 8:00 проверь календарь")
         return
-    parts = args.split(maxsplit=1)
-    if len(parts) < 2:
-        await _reply(update, "Нужны когда и задача: /task завтра 8:00 что сделать")
-        return
-    ok_p, trigger_or_err = _parse_time(parts[0])
+    ok_p, trigger_or_err, prompt = _etr(args)
     if not ok_p:
         await _reply(update, trigger_or_err)
         return
-    r = _sched(user_id, trigger_or_err, parts[1], kind="task")
+    r = _sched(user_id, trigger_or_err, prompt, kind="task")
     if r.get("ok"):
         t = r["task"]
         await _reply(update,

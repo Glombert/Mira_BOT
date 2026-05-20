@@ -98,3 +98,43 @@ def parse_time(raw: str) -> tuple[bool, str]:
             return True, target.strftime("%Y-%m-%dT%H:%M:%S")
 
     return False, f"не понял время, попробуй формат: завтра 8:00 ... или 2026-06-01T09:00:00 (получил: {raw!r})"
+
+
+def extract_time_and_rest(text: str) -> tuple[bool, str, str]:
+    """Извлекает time-фразу из начала строки. Возвращает (ok, iso, remainder).
+
+    Перебирает префиксы из 1, 2, 3, 4 слов, ищет ПОСЛЕДНИЙ ok-префикс.
+    Остаток — промпт для задачи.
+
+    Форматы на входе:
+      \"завтра 8:00 проверь календарь\"
+      \"через 2 часа сделай отчёт\"
+      \"в пятницу 14:00 напомни про звонок\"
+      \"сегодня 15:30 отзвонить Андрею\"
+    """
+    text = text.strip()
+    if not text:
+        return False, "пустая строка", ""
+
+    words = text.split()
+    best_iso = ""
+    best_end = 0  # конец time-фразы в исходной строке
+
+    for n in range(1, min(len(words) + 1, 5)):
+        candidate = " ".join(words[:n])
+        ok_p, iso_or_err = parse_time(candidate)
+        if ok_p:
+            # Найти эту фразу в исходном тексте и взять позицию после неё
+            idx = text.find(candidate)
+            if idx != -1:
+                best_iso = iso_or_err
+                best_end = idx + len(candidate)
+
+    if not best_iso:
+        return False, f"не понял время в начале строки, попробуй: завтра 8:00 твоя задача ... (получил: {text[:60]!r})", ""
+
+    remainder = text[best_end:].strip()
+    if not remainder:
+        return False, "после времени не указана задача (что сделать?)", ""
+
+    return True, best_iso, remainder
