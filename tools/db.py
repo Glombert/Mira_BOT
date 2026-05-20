@@ -120,7 +120,23 @@ def init_db(path: str | None = None) -> None:
                     updated_at   TEXT NOT NULL,
                     PRIMARY KEY (user_id, token)
                 );
+
+                CREATE TABLE IF NOT EXISTS ritual_runs (
+                    -- Хранит last_run и краткий вывод для каждого ритуала.
+                    name         TEXT PRIMARY KEY,
+                    last_run     TEXT,
+                    last_output  TEXT
+                );
             """)
+            # Миграция: добавляем колонку kind в reminders (v2.0).
+            # Идемпотентно — проверяем PRAGMA table_info перед ALTER.
+            try:
+                cols = {r["name"] for r in conn.execute("PRAGMA table_info(reminders)").fetchall()}
+                if "kind" not in cols:
+                    conn.execute("ALTER TABLE reminders ADD COLUMN kind TEXT NOT NULL DEFAULT 'reminder'")
+                    logger.info("db: миграция — reminders.kind добавлен")
+            except Exception as e:
+                logger.warning(f"db: миграция reminders.kind пропущена: {e}")
         finally:
             conn.close()
         _initialized = True
@@ -261,21 +277,23 @@ def get_session_updated_at(user_id: str) -> str | None:
 # Reminders
 # ---------------------------------------------------------------------------
 
-def add_reminder(user_id: str, trigger_at: str, message: str) -> dict:
+def add_reminder(user_id: str, trigger_at: str, message: str,
+                 kind: str = "reminder") -> dict:
     task = {
         "id": str(uuid.uuid4())[:8],
         "user_id": user_id,
         "trigger_at": trigger_at,
         "message": message,
         "status": "pending",
+        "kind": kind,
         "created_at": datetime.now().isoformat(),
     }
     conn = get_conn()
     with conn:
         conn.execute(
-            "INSERT INTO reminders (id, user_id, trigger_at, message, status, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (task["id"], user_id, trigger_at, message, "pending", task["created_at"]),
+            "INSERT INTO reminders (id, user_id, trigger_at, message, status, kind, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (task["id"], user_id, trigger_at, message, "pending", kind, task["created_at"]),
         )
     return task
 
@@ -431,3 +449,23 @@ def delete_push_token(user_id: str, token: str) -> bool:
             (user_id, token),
         )
     return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Ritual runs (хранение last_run для фоновых ритуалов)
+# ---------------------------------------------------------------------------
+
+def save_ritual_run(name: str, last_run: str, last_output: str = "") -> None:
+    conn = get_conn()
+    with conn:
+        conn.execute(
+            "INSERT INTO ritual_runs (name, last_run, last_output) VALUES (?, ?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET last_run=excluded.last_run, last_output=excluded.last_output",
+            (name, last_run, last_output),
+        )
+
+
+def load_ritual_runs() -> dict[str, dict]:
+    """Возвращает {name: {last_run, last_output}, ...} для всех ритуалов."""
+    rows = get_conn().execute("SELECT name, last_run, last_output FROM ritual_runs").fetchall()
+    return {r["name"]: {"last_run": r["last_run"], "last_output": r["last_output"]} for r in rows}

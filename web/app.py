@@ -59,8 +59,10 @@ from tools.gdrive_tools import (
     gcal_list, gcal_quick_add,
     gsheet_read, gsheet_create,
 )
-from tools.scheduler import schedule_reminder, list_reminders, cancel_reminder
+from tools.scheduler import schedule_reminder, list_reminders, cancel_reminder, list_tasks
 from tools import rate_limit
+from tools.time_parse import parse_time
+from tools.rituals import load_rituals, parse_importance, should_notify
 
 logger = logging.getLogger("MiraWeb")
 logger.setLevel(logging.INFO)
@@ -338,6 +340,97 @@ def _ensure_profile(user_id: str, tg_name: str = "") -> bool:
     if not is_owner:
         notify_new_user(user_id, tg_name, "web")
     return True
+
+
+# ---------------------------------------------------------------------------
+# Фоновые обработчики: scheduled tasks и rituals
+# ---------------------------------------------------------------------------
+
+def _run_scheduled_task(user_id: str, prompt: str) -> str:
+    """Выполняет отложенную задачу (kind='task') как симуляцию user message."""
+    import providers as _prov
+    from agent import Agent, Profile
+
+    msgs = _load_session(user_id)
+    is_appr = _is_approved(user_id)
+    if is_appr:
+        pdata = load_user_profile(user_id) or {}
+        if pdata.get("status") == "owner":
+            profile = Profile("dev")
+        else:
+            profile = Profile("default")
+        agent_name = "alpha"
+    else:
+        profile = Profile("guest")
+        agent_name = "alpha_guest"
+
+    try:
+        alpha = Agent.from_config_file(agent_name, profile, user_id, _system_prompt_for(user_id))
+    except FileNotFoundError:
+        return "Конфиг агента не найден."
+
+    msgs.append({"role": "user", "content": prompt, "ts": time.time()})
+    system = [m for m in msgs if m["role"] == "system"]
+    the_rest = [m for m in msgs if m["role"] != "system"]
+    msgs = system + the_rest[-MAX_HISTORY:]
+    llm_msgs = [{k: v for k, v in m.items() if k != "ts"} for m in msgs]
+
+    try:
+        answer = alpha.run(llm_msgs)
+        assistant_msg = {"role": "assistant", "content": answer, "ts": time.time()}
+        msgs.append(assistant_msg)
+        _save_session(user_id, msgs)
+        logger.info(f"_run_scheduled_task: {user_id} — ok ({len(answer)} символов)")
+        return answer
+    except Exception as e:
+        logger.error(f"_run_scheduled_task: {user_id} — ошибка: {e}")
+        return f"Ошибка: {e}"
+
+
+def _run_ritual_background(ritual: dict, user_id: str) -> None:
+    """Выполняет один ритуал в фоне и шлёт notify_owner если IMPORTANCE ≥ порога."""
+    import providers as _prov
+    from agent import Agent, Profile
+    from tools import db as _db
+    from tools.access_tools import notify_owner as _notify
+
+    logger.info(f"rituals: запуск '{ritual['name']}' для {user_id}")
+
+    profile = Profile("dev")  # ритуалы всегда от владельца
+    try:
+        alpha = Agent.from_config_file("alpha", profile, user_id, _system_prompt_for(user_id))
+    except FileNotFoundError:
+        logger.error(f"rituals: alpha config не найден")
+        return
+
+    messages = [
+        {"role": "system", "content": _system_prompt_for(user_id)},
+        {"role": "user", "content": ritual["prompt"]},
+    ]
+
+    try:
+        import providers as _providers
+        response = _providers.call(alpha.model_chain, messages, temperature=0.3,
+                                   user_id=user_id, agent_name="ritual")
+        answer = response.choices[0].message.content or ""
+    except Exception as e:
+        logger.error(f"rituals: '{ritual['name']}' API error: {e}")
+        _db.save_ritual_run(ritual["name"], datetime.now().isoformat(), f"ERROR: {e}")
+        return
+
+    now_iso = datetime.now().isoformat()
+    _db.save_ritual_run(ritual["name"], now_iso, answer[:300])
+
+    importance = parse_importance(answer)
+    threshold = ritual.get("notify_threshold", "MAJOR")
+    if should_notify(importance, threshold):
+        owner_id = f"tg_{OWNER_TG_ID}" if OWNER_TG_ID else ""
+        title = f"🔔 Ритуал: {ritual['name']} [{importance}]"
+        body = answer[:500]
+        _notify(title + "\n" + body)
+        logger.info(f"rituals: '{ritual['name']}' → notified ({importance})")
+    else:
+        logger.info(f"rituals: '{ritual['name']}' → ok ({importance}, below {threshold})")
 
 
 # ---------------------------------------------------------------------------
@@ -1041,6 +1134,88 @@ async def chat(websocket: WebSocket, session: str = ""):
                                 await websocket.send_json({"type": "system", "content": result["message"]})
                             else:
                                 await websocket.send_json({"type": "system", "content": f"Ошибка: {result.get('error')}"})
+
+                # --- Scheduled tasks (/task) ---
+                elif cmd.startswith("task_cancel "):
+                    if not _is_approved(user_id):
+                        await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    else:
+                        t = cmd[12:].strip()
+                        if not t:
+                            await websocket.send_json({"type": "system", "content": "Укажи ID: task_cancel <id>"})
+                        else:
+                            r = cancel_reminder(user_id, t)
+                            if r.get("ok"):
+                                await websocket.send_json({"type": "system", "content": r["message"]})
+                            else:
+                                await websocket.send_json({"type": "system", "content": f"Ошибка: {r.get('error')}"})
+
+                elif cmd == "tasks":
+                    if not _is_approved(user_id):
+                        await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    else:
+                        r = list_tasks(user_id)
+                        tasks = r.get("tasks", [])
+                        if not tasks:
+                            await websocket.send_json({"type": "system", "content": "Запланированных задач нет."})
+                        else:
+                            lines = [f"Задачи ({len(tasks)}):"]
+                            for t in tasks:
+                                lines.append(f"  {t['id']} — {t['trigger_at'][:16].replace('T', ' ')} — {t['message'][:80]}")
+                            await websocket.send_json({"type": "system", "content": "\n".join(lines)})
+
+                elif cmd.startswith("task "):
+                    if not _is_approved(user_id):
+                        await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    else:
+                        rest = cmd[5:].strip()
+                        # Парсим "когда" и "промпт"
+                        m = rest.split(maxsplit=1)
+                        if len(m) < 2:
+                            await websocket.send_json({"type": "system", "content": "Формат: task <когда> <задача>\nПример: task завтра 8:00 проверь календарь"})
+                        else:
+                            ok_parsed, trigger_or_err = parse_time(m[0])
+                            if not ok_parsed:
+                                await websocket.send_json({"type": "system", "content": trigger_or_err})
+                            else:
+                                r = schedule_reminder(user_id, trigger_or_err, m[1], kind="task")
+                                if r.get("ok"):
+                                    t = r["task"]
+                                    await websocket.send_json({"type": "system", "content": f"Задача создана!\nID: {t['id']}\nКогда: {t['trigger_at']}\nЧто: {t['message'][:120]}"})
+                                else:
+                                    await websocket.send_json({"type": "system", "content": f"Ошибка: {r.get('error')}"})
+
+                # --- Rituals ---
+                elif cmd == "rituals":
+                    is_owner_ws = OWNER_TG_ID and tg_id == OWNER_TG_ID
+                    if not is_owner_ws:
+                        await websocket.send_json({"type": "system", "content": "Команда доступна только владельцу."})
+                    else:
+                        from tools import db as _db
+                        rituals = load_rituals()
+                        runs = _db.load_ritual_runs()
+                        if not rituals:
+                            await websocket.send_json({"type": "system", "content": "Ритуалов не найдено."})
+                        else:
+                            lines = [f"Ритуалы ({len(rituals)}):"]
+                            for r in rituals:
+                                run = runs.get(r["name"], {})
+                                last = run.get("last_run", "—")[:16].replace("T", " ") if run.get("last_run") else "—"
+                                lines.append(f"  {r['name']} | расписание: {r['schedule']} | last: {last}")
+                            await websocket.send_json({"type": "system", "content": "\n".join(lines)})
+
+                elif cmd.startswith("ritual_run "):
+                    is_owner_ws = OWNER_TG_ID and tg_id == OWNER_TG_ID
+                    if not is_owner_ws:
+                        await websocket.send_json({"type": "system", "content": "Команда доступна только владельцу."})
+                    else:
+                        rname = cmd[11:].strip()
+                        rituals = {r["name"]: r for r in load_rituals()}
+                        if rname not in rituals:
+                            await websocket.send_json({"type": "system", "content": f"Ритуал '{rname}' не найден."})
+                        else:
+                            await websocket.send_json({"type": "system", "content": f"Запускаю ритуал '{rname}' в фоне..."})
+                            threading.Thread(target=_run_ritual_background, args=(rituals[rname], user_id), daemon=True).start()
 
                 # ---------- Owner-only команды (read-only) ----------
                 # is_owner здесь = тот же критерий что в Telegram (OWNER_TELEGRAM_ID).

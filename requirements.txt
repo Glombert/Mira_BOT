@@ -34,5 +34,8 @@ google-auth-httplib2>=0.2.0
 # Firebase Cloud Messaging (push в мобайл)
 firebase-admin>=6.5.0
 
+# Rituals scheduling
+croniter>=2.0.0
+
 # Тесты (dev)
 pytest>=8.0.0

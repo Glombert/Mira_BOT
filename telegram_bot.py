@@ -362,6 +362,11 @@ OWNER_COMMANDS = BASIC_COMMANDS + [
     BotCommand("users",           "Управление пользователями"),
     BotCommand("blacklist",       "Чёрный список"),
     BotCommand("kidmode",         "Детский режим: /kidmode <user_id> on|off"),
+    BotCommand("task",            "Отложить задачу Мире"),
+    BotCommand("tasks",           "Список задач"),
+    BotCommand("task_cancel",     "Отменить задачу"),
+    BotCommand("rituals",         "Список ритуалов"),
+    BotCommand("ritual_run",      "Запустить ритуал"),
     BotCommand("restart",         "Перезапустить бота"),
     BotCommand("evolution_count", "Статистика эволюций"),
     BotCommand("stats",           "Метрики использования LLM"),
@@ -1422,6 +1427,115 @@ async def cmd_kidmode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await _reply(update,f"Детский режим {state} для {uid}.")
 
 
+# --- Scheduled tasks Telegram handlers ---
+
+async def cmd_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    tg_id = update.effective_user.id
+    user_id = _user_id(tg_id)
+    if not _is_approved(user_id):
+        await _reply(update, "Требуется одобрение.")
+        return
+    from tools.time_parse import parse_time as _parse_time
+    from tools.scheduler import schedule_reminder as _sched
+    args = (update.message.text or "").strip()
+    prefix = "/task"
+    if args.startswith(prefix):
+        args = args[len(prefix):].strip()
+    if not args:
+        await _reply(update, "Формат: /task <когда> <задача>\nПример: /task завтра 8:00 проверь календарь")
+        return
+    parts = args.split(maxsplit=1)
+    if len(parts) < 2:
+        await _reply(update, "Нужны когда и задача: /task завтра 8:00 что сделать")
+        return
+    ok_p, trigger_or_err = _parse_time(parts[0])
+    if not ok_p:
+        await _reply(update, trigger_or_err)
+        return
+    r = _sched(user_id, trigger_or_err, parts[1], kind="task")
+    if r.get("ok"):
+        t = r["task"]
+        await _reply(update,
+            f"Задача создана!\nID: `{t['id']}`\nКогда: {t['trigger_at']}\nЧто: {t['message'][:120]}",
+            parse_mode="Markdown",
+        )
+    else:
+        await _reply(update, f"Ошибка: {r.get('error')}")
+
+
+async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    tg_id = update.effective_user.id
+    user_id = _user_id(tg_id)
+    if not _is_approved(user_id):
+        await _reply(update, "Требуется одобрение.")
+        return
+    from tools.scheduler import list_tasks as _lt
+    r = _lt(user_id)
+    tasks = r.get("tasks", [])
+    if not tasks:
+        await _reply(update, "Запланированных задач нет.")
+        return
+    lines = [f"Задачи ({len(tasks)}):"]
+    for t in tasks:
+        lines.append(f"  `{t['id']}` — {t['trigger_at'][:16].replace('T', ' ')} — {t['message'][:80]}")
+    await _reply(update, "\n".join(lines), parse_mode="Markdown")
+
+
+async def cmd_task_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    tg_id = update.effective_user.id
+    user_id = _user_id(tg_id)
+    if not _is_approved(user_id):
+        await _reply(update, "Требуется одобрение.")
+        return
+    from tools.scheduler import cancel_reminder as _cancel
+    args = (update.message.text or "").replace("/task_cancel", "").strip()
+    if not args:
+        await _reply(update, "Укажи ID задачи: /task_cancel <id>")
+        return
+    r = _cancel(user_id, args)
+    if r.get("ok"):
+        await _reply(update, r["message"])
+    else:
+        await _reply(update, f"Ошибка: {r.get('error')}")
+
+
+async def cmd_rituals_tg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user.id):
+        return
+    from tools.rituals import load_rituals as _lr
+    from tools import db as _db
+    rituals = _lr()
+    runs = _db.load_ritual_runs()
+    if not rituals:
+        await _reply(update, "Ритуалов не найдено.")
+        return
+    lines = [f"Ритуалы ({len(rituals)}):"]
+    for r in rituals:
+        run = runs.get(r["name"], {})
+        last = run.get("last_run", "—")[:16].replace("T", " ") if run.get("last_run") else "—"
+        lines.append(f"  {r['name']} | schedule: {r['schedule']} | last: {last}")
+    await _reply(update, "\n".join(lines))
+
+
+async def cmd_ritual_run_tg(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_owner(update.effective_user.id):
+        return
+    import threading
+    from web.app import _run_ritual_background as _rrb
+    rname = " ".join(context.args) if context.args else ""
+    if not rname:
+        await _reply(update, "Укажи имя ритуала: /ritual_run <name>")
+        return
+    from tools.rituals import load_rituals as _lr
+    rituals = {r["name"]: r for r in _lr()}
+    if rname not in rituals:
+        await _reply(update, f"Ритуал '{rname}' не найден.")
+        return
+    user_id = f"tg_{OWNER_TG_ID}" if OWNER_TG_ID else _user_id(update.effective_user.id)
+    await _reply(update, f"Запускаю ритуал '{rname}' в фоне...")
+    threading.Thread(target=_rrb, args=(rituals[rname], user_id), daemon=True).start()
+
+
 # ---------------------------------------------------------------------------
 # Callback-кнопки (inline keyboards)
 # ---------------------------------------------------------------------------
@@ -2083,44 +2197,102 @@ async def post_init(app: Application) -> None:
     _scheduler_loop_ref = asyncio.get_running_loop()
 
     def _scheduler_loop() -> None:
-        # Даём боту время на инициализацию перед первым запуском
         _time.sleep(5)
         while True:
             try:
                 due = get_due_tasks()
                 for task in due:
                     try:
-                        raw_uid = task["user_id"].replace("tg_", "")
-                        if raw_uid.isdigit():
-                            chat_id = int(raw_uid)
-                            text = f"⏰ Напоминание:\n{task['message']}"
-                            # FCM push в мобайл (если зарегистрировано устройство).
-                            # Параллельно с Telegram — пользователь увидит хоть где-то.
-                            try:
-                                from tools import fcm_tools
-                                fcm_tools.send_push(
-                                    user_id=task["user_id"],
-                                    title="⏰ Напоминание",
-                                    body=task["message"][:240],
-                                    data={"reminder_id": task["id"]},
+                        kind = task.get("kind", "reminder")
+                        if kind == "task":
+                            # Scheduled task: симулируем user message через _run_scheduled_task
+                            def _run_task(t=task):
+                                from web.app import _run_scheduled_task as _rst
+                                answer = _rst(t["user_id"], t["message"])
+                                # Уведомление владельцу
+                                notify_owner(
+                                    f"⏰ Задача выполнена\n"
+                                    f"Пользователь: {t['user_id']}\n"
+                                    f"Задача: {t['message'][:120]}\n"
+                                    f"Ответ Миры: {answer[:240]}"
                                 )
-                            except Exception as e:
-                                logger.warning(f"Scheduler: FCM не сработал: {e}")
-                            # Telegram (основной канал)
-                            asyncio.run_coroutine_threadsafe(
-                                app.bot.send_message(chat_id=chat_id, text=text),
-                                _scheduler_loop_ref,
-                            )
+                                mark_done(t["id"])
+                            threading.Thread(target=_run_task, daemon=True).start()
+                        else:
+                            # Reminder: как раньше
+                            raw_uid = task["user_id"].replace("tg_", "")
+                            if raw_uid.isdigit():
+                                chat_id = int(raw_uid)
+                                text = f"⏰ Напоминание:\n{task['message']}"
+                                try:
+                                    from tools import fcm_tools
+                                    fcm_tools.send_push(
+                                        user_id=task["user_id"],
+                                        title="⏰ Напоминание",
+                                        body=task["message"][:240],
+                                        data={"reminder_id": task["id"]},
+                                    )
+                                except Exception as e:
+                                    logger.warning(f"Scheduler: FCM не сработал: {e}")
+                                asyncio.run_coroutine_threadsafe(
+                                    app.bot.send_message(chat_id=chat_id, text=text),
+                                    _scheduler_loop_ref,
+                                )
                             mark_done(task["id"])
                             logger.info(f"Scheduler: отправлено напоминание {task['id']} → {task['user_id']}")
                     except Exception as e:
-                        logger.warning(f"Scheduler: ошибка отправки {task['id']}: {e}")
-                        mark_done(task["id"])  # не застреваем на одной задаче
+                        logger.warning(f"Scheduler: ошибка обработки {task.get('id')}: {e}")
+                        mark_done(task["id"])
             except Exception as e:
                 logger.warning(f"Scheduler: ошибка цикла: {e}")
             _time.sleep(30)
 
     threading.Thread(target=_scheduler_loop, daemon=True).start()
+
+    # Rituals: фоновый поток проверяет cron-расписание ритуалов каждые 60 сек
+    _ritual_loop_ref = asyncio.get_running_loop()
+
+    def _ritual_loop() -> None:
+        _time.sleep(30)  # старт позже чтобы scheduler инициализировался
+        from tools.rituals import load_rituals
+        from tools import db as _db
+        from datetime import datetime as _dt
+        try:
+            from croniter import croniter
+        except ImportError:
+            logger.warning("Rituals: croniter не установлен. pip install croniter")
+            return
+        while True:
+            try:
+                rituals = load_rituals()
+                runs = _db.load_ritual_runs()
+                now = _dt.now()
+                for r in rituals:
+                    name = r["name"]
+                    cron = croniter(r["schedule"], now)
+                    next_run = cron.get_next(datetime)
+                    last_run_str = runs.get(name, {}).get("last_run")
+                    last_run = _dt.fromisoformat(last_run_str) if last_run_str else None
+                    should_run = False
+                    if last_run is None:
+                        should_run = True
+                    else:
+                        cron_past = croniter(r["schedule"], last_run)
+                        next_from_last = cron_past.get_next(datetime)
+                        if now >= next_from_last and (now - last_run).total_seconds() >= 60:
+                            should_run = True
+                    if should_run:
+                        owner_id = f"tg_{OWNER_TG_ID}" if OWNER_TG_ID else ""
+                        threading.Thread(
+                            target=_run_ritual_background, args=(r, owner_id),
+                            daemon=True
+                        ).start()
+                        logger.info(f"Rituals: запущен '{name}'")
+            except Exception as e:
+                logger.warning(f"Rituals: ошибка цикла: {e}")
+            _time.sleep(60)
+
+    threading.Thread(target=_ritual_loop, daemon=True).start()
 
     # Стартовое уведомление владельцу
     try:
@@ -2210,6 +2382,12 @@ def main() -> None:
     app.add_handler(CommandHandler("block",           cmd_block))
     app.add_handler(CommandHandler("unblock",         cmd_unblock))
     app.add_handler(CommandHandler("kidmode",         cmd_kidmode))
+    # Scheduled tasks & rituals
+    app.add_handler(CommandHandler("task",           cmd_task))
+    app.add_handler(CommandHandler("tasks",          cmd_tasks))
+    app.add_handler(CommandHandler("task_cancel",    cmd_task_cancel))
+    app.add_handler(CommandHandler("rituals",        cmd_rituals_tg))
+    app.add_handler(CommandHandler("ritual_run",     cmd_ritual_run_tg))
 
     # Файлы и сообщения
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))

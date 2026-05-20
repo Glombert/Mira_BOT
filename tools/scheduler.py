@@ -8,17 +8,25 @@
 from tools import db
 
 
-def schedule_reminder(user_id: str, trigger_at: str, message: str) -> dict:
+def schedule_reminder(user_id: str, trigger_at: str, message: str,
+                      kind: str = "reminder") -> dict:
     """
-    Создаёт отложенное напоминание.
+    Создаёт отложенное напоминание/задачу.
 
     trigger_at — ISO-дата/время: '2026-05-13T05:10:00'
-    message   — текст который Мира отправит пользователю
+    message   — текст сообщения / промпт для задачи
+    kind      — 'reminder' (просто текст) или 'task' (симуляция user message)
 
     Возвращает id созданной задачи.
     """
-    task = db.add_reminder(user_id, trigger_at, message)
+    task = db.add_reminder(user_id, trigger_at, message, kind=kind)
     return {"ok": True, "task": task}
+
+def list_tasks(user_id: str) -> dict:
+    """Возвращает задачи (kind='task') пользователя."""
+    all_items = db.list_user_reminders(user_id)
+    tasks = [r for r in all_items if r.get("kind") == "task"]
+    return {"ok": True, "tasks": tasks, "count": len(tasks)}
 
 
 def list_reminders(user_id: str) -> dict:

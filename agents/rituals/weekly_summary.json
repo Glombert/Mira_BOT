@@ -1,0 +1,8 @@
+{
+  "name": "weekly_summary",
+  "schedule": "0 9 * * 1",
+  "prompt": "Сводка за неделю: сколько напоминаний выполнено, какие пользователи были активны (последний seen, число сессий), статистика эволюций из evolution_counter.json, общая стоимость LLM за неделю через metrics_read(7). Сжато, сухо, цифры. В конце ответа добавь строку вида #IMPORTANCE: NONE|MINOR|MAJOR|CRITICAL.",
+  "agent": "alpha",
+  "owner_only": true,
+  "notify_threshold": "NONE"
+}
