@@ -3,6 +3,9 @@
 credentials.json
 token.json
 client_secret*.json
+# Firebase Admin SDK service account JSON — закрытый ключ для отправки FCM
+.firebase-service-account.json
+firebase-service-account*.json
 
 # История диалога (личные данные)
 chat_history.json

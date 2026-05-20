@@ -713,6 +713,36 @@ _MOBILE_REDIRECT_HTML = """<!DOCTYPE html>
 </html>"""
 
 
+@app.post("/m/register_push_token")
+async def register_push_token(request: Request):
+    """Регистрирует FCM-токен мобильного устройства за текущим пользователем.
+
+    Body (JSON): {"session": "<token>", "fcm_token": "<token>", "platform": "android"}
+    Возвращает {"ok": true} или 401.
+
+    Вызывается клиентом сразу после логина (когда есть и session,
+    и FCM-токен от Firebase SDK). Если устройство уже регистрировалось —
+    обновляется updated_at, дубликата не создаётся.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON")
+    session  = (body.get("session") or "").strip()
+    fcm_tok  = (body.get("fcm_token") or "").strip()
+    platform = (body.get("platform") or "android").strip().lower()
+    if not session or not fcm_tok:
+        raise HTTPException(status_code=400, detail="session и fcm_token обязательны")
+    tg_id = _verify_session(session)
+    if not tg_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    user_id = _web_user_id(tg_id)
+    from tools import db
+    db.save_push_token(user_id, fcm_tok, platform=platform)
+    logger.info(f"push_token registered: {user_id} ({platform}, {fcm_tok[:16]}…)")
+    return {"ok": True}
+
+
 @app.get("/m/auth")
 async def mobile_auth_redirect(token: str = ""):
     """Бот шлёт юзеру inline-кнопку с URL сюда → Telegram открывает страницу →

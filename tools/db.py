@@ -107,6 +107,19 @@ def init_db(path: str | None = None) -> None:
                     token_data   TEXT NOT NULL,
                     updated_at   TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS push_tokens (
+                    -- Одна строка = одно устройство пользователя.
+                    -- Хранится FCM-токен, который выдал Firebase данному
+                    -- устройству при регистрации. token может меняться при
+                    -- переустановке/чистке данных приложения — поэтому
+                    -- UNIQUE по (user_id, token) и обновление по updated_at.
+                    user_id      TEXT NOT NULL,
+                    token        TEXT NOT NULL,
+                    platform     TEXT NOT NULL,
+                    updated_at   TEXT NOT NULL,
+                    PRIMARY KEY (user_id, token)
+                );
             """)
         finally:
             conn.close()
@@ -376,4 +389,45 @@ def delete_gdrive_token(user_id: str) -> bool:
     conn = get_conn()
     with conn:
         cur = conn.execute("DELETE FROM gdrive_tokens WHERE user_id = ?", (user_id,))
+    return cur.rowcount > 0
+
+
+# ---------------------------------------------------------------------------
+# Push-токены устройств (FCM/APNs)
+# ---------------------------------------------------------------------------
+
+def save_push_token(user_id: str, token: str, platform: str = "android") -> None:
+    """Регистрирует/обновляет push-токен устройства пользователя.
+
+    Один пользователь может иметь несколько устройств (телефон, планшет) —
+    PRIMARY KEY (user_id, token) допускает мульти-токен. При повторной
+    регистрации того же токена обновляется только updated_at.
+    """
+    now = _now_iso()
+    conn = get_conn()
+    with conn:
+        conn.execute(
+            "INSERT INTO push_tokens (user_id, token, platform, updated_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(user_id, token) DO UPDATE SET updated_at=excluded.updated_at, platform=excluded.platform",
+            (user_id, token, platform, now),
+        )
+
+
+def list_push_tokens(user_id: str) -> list[dict]:
+    """Возвращает все активные push-токены пользователя."""
+    rows = get_conn().execute(
+        "SELECT token, platform, updated_at FROM push_tokens WHERE user_id = ? ORDER BY updated_at DESC",
+        (user_id,)
+    ).fetchall()
+    return [{"token": r["token"], "platform": r["platform"], "updated_at": r["updated_at"]} for r in rows]
+
+
+def delete_push_token(user_id: str, token: str) -> bool:
+    """Удаляет конкретный токен (вызывать при FCM 'invalid registration')."""
+    conn = get_conn()
+    with conn:
+        cur = conn.execute(
+            "DELETE FROM push_tokens WHERE user_id = ? AND token = ?",
+            (user_id, token),
+        )
     return cur.rowcount > 0

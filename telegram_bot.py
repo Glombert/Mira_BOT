@@ -2094,6 +2094,19 @@ async def post_init(app: Application) -> None:
                         if raw_uid.isdigit():
                             chat_id = int(raw_uid)
                             text = f"⏰ Напоминание:\n{task['message']}"
+                            # FCM push в мобайл (если зарегистрировано устройство).
+                            # Параллельно с Telegram — пользователь увидит хоть где-то.
+                            try:
+                                from tools import fcm_tools
+                                fcm_tools.send_push(
+                                    user_id=task["user_id"],
+                                    title="⏰ Напоминание",
+                                    body=task["message"][:240],
+                                    data={"reminder_id": task["id"]},
+                                )
+                            except Exception as e:
+                                logger.warning(f"Scheduler: FCM не сработал: {e}")
+                            # Telegram (основной канал)
                             asyncio.run_coroutine_threadsafe(
                                 app.bot.send_message(chat_id=chat_id, text=text),
                                 _scheduler_loop_ref,

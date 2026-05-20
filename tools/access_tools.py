@@ -217,14 +217,36 @@ def cleanup_expired_guests() -> int:
 
 def notify_owner(message: str, user_id: str = "", buttons: list | None = None) -> None:
     """
-    Отправляет уведомление владельцу в Telegram.
-    buttons — список кнопок [{"text": "...", "callback_data": "..."}]
+    Отправляет уведомление владельцу.
+    Дублирует в FCM (если у владельца есть зарегистрированные мобайл-токены)
+    И в Telegram. На двух экранах одновременно — нормально для уведомлений
+    важных событий; пользователь увидит хоть где-то.
+
+    buttons — список Telegram inline-кнопок [{"text": ..., "callback_data": ...}].
+    В FCM-вариант кнопки не пробрасываются (push-уведомления показывают
+    только title+body; интерактивные действия делаются в самом приложении).
     """
     logger.info(f"[OWNER NOTIFY] {message}")
     _log_decision("owner_notification", message)
 
-    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     owner = os.getenv("OWNER_TELEGRAM_ID", "")
+
+    # 1. FCM (push в мобильное приложение, если установлено и юзер залогинен)
+    if owner:
+        try:
+            from tools import fcm_tools
+            # user_id формата tg_<id> — совпадает с тем, что веб использует
+            # при сохранении push-токена через /m/register_push_token.
+            fcm_tools.send_push(
+                user_id=f"tg_{owner}",
+                title="Mira",
+                body=message[:240],
+            )
+        except Exception as e:
+            logger.warning(f"notify_owner: FCM не сработал: {e}")
+
+    # 2. Telegram (всегда — это основной канал и fallback)
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     if not token or not owner:
         return
 
