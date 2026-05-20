@@ -1290,6 +1290,20 @@ async def chat(websocket: WebSocket, session: str = ""):
             await websocket.send_json(ws_payload)
             _save_session(user_id, msgs)
 
+            # FCM push с текстом ответа. На foreground (приложение открыто, WS
+            # доставил) Android не покажет дубля — onMessage сработает, но
+            # notification из tray не выскочит. На background/killed —
+            # пользователь увидит push, особенно ценно для долгих задач.
+            try:
+                from tools import fcm_tools
+                fcm_tools.send_push(
+                    user_id=user_id,
+                    title="Mira",
+                    body=answer[:240] if answer else "ответила",
+                )
+            except Exception as e:
+                logger.warning(f"FCM push для ответа Миры: {e}")
+
             # Mirror в Telegram-чат: чтобы при переключении интерфейсов
             # пользователь увидел всё в одном месте. Шлём асинхронно через
             # threading, чтобы не блокировать WS-обработчик. tg_id уже из
