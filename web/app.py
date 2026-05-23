@@ -1272,9 +1272,15 @@ async def chat(websocket: WebSocket, session: str = ""):
                             await websocket.send_json({"type": "system", "content": f"versions: {e}"})
                     elif cmd == "evolution_count":
                         try:
-                            from tools import db
-                            cnt = db.get_evolution_count() if hasattr(db, "get_evolution_count") else None
-                            await websocket.send_json({"type": "system", "content": f"Эволюций: {cnt}" if cnt is not None else "Счётчик эволюций не доступен."})
+                            from tools.access_tools import get_evolution_stats
+                            evo = get_evolution_stats()
+                            total = evo.get("total", 0)
+                            success = evo.get("success", 0)
+                            failed = evo.get("failed", 0)
+                            rate = f"{round(success/total*100)}%" if total else "—"
+                            await websocket.send_json({"type": "system", "content":
+                                f"Счётчик эволюций:\nВсего: {total}\nУспешных: {success}\n"
+                                f"Неуспешных: {failed}\nУспешность: {rate}"})
                         except Exception as e:
                             await websocket.send_json({"type": "system", "content": f"evolution_count: {e}"})
                     elif cmd == "blacklist":
@@ -1294,16 +1300,28 @@ async def chat(websocket: WebSocket, session: str = ""):
                 continue
 
             text = data.get("content", "").strip()
-            # Прикреплённый файл (если есть) — клиент шлёт его имя,
-            # сервер уже сохранил файл в workspace/inbox/ через /upload.
-            # Валидируем что файл реально существует и принадлежит
-            # этому пользователю — иначе игнорируем attachment-поле.
-            attached_name = (data.get("attachment") or "").strip()
-            if attached_name:
-                _att_safe = _safe_filename(attached_name)
+            # Прикреплённые файлы — поддержка массивов (attachments) и одиночного (attachment).
+            # Клиент шлёт N POST'ов через /upload, потом одно WS-сообщение с массивом имён.
+            attached_raw = data.get("attachments") or []
+            if isinstance(attached_raw, str):
+                attached_raw = [attached_raw]
+            # Обратная совместимость: одиночное поле attachment
+            single_attach = (data.get("attachment") or "").strip()
+            if single_attach and not attached_raw:
+                attached_raw = [single_attach]
+
+            valid_files: list[str] = []
+            for name in attached_raw:
+                if not isinstance(name, str) or not name.strip():
+                    continue
+                _att_safe = _safe_filename(name.strip())
                 _att_path = _resolve_under(os.path.join(WORKSPACE_DIR, user_id), "inbox", _att_safe) if _att_safe else None
                 if _att_path and os.path.isfile(_att_path):
-                    text = (text + "\n\n" if text else "") + f"[Прикреплён файл: workspace/inbox/{_att_safe}]"
+                    valid_files.append(f"workspace/inbox/{_att_safe}")
+
+            if valid_files:
+                prefix = "[Прикреплены файлы:\n  " + "\n  ".join(valid_files) + "]\n\n"
+                text = prefix + text
             if not text:
                 continue
 

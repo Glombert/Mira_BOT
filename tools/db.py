@@ -135,8 +135,11 @@ def init_db(path: str | None = None) -> None:
                 if "kind" not in cols:
                     conn.execute("ALTER TABLE reminders ADD COLUMN kind TEXT NOT NULL DEFAULT 'reminder'")
                     logger.info("db: миграция — reminders.kind добавлен")
+                if "dedup_key" not in cols:
+                    conn.execute("ALTER TABLE reminders ADD COLUMN dedup_key TEXT")
+                    logger.info("db: миграция — reminders.dedup_key добавлен")
             except Exception as e:
-                logger.warning(f"db: миграция reminders.kind пропущена: {e}")
+                logger.warning(f"db: миграция reminders пропущена: {e}")
         finally:
             conn.close()
         _initialized = True
@@ -277,25 +280,65 @@ def get_session_updated_at(user_id: str) -> str | None:
 # Reminders
 # ---------------------------------------------------------------------------
 
+def _normalize_trigger(trigger_at: str) -> str:
+    """Гарантирует что trigger_at содержит tz-info. Без TZ → +03:00 (МСК)."""
+    trigger_at = trigger_at.strip()
+    # Уже с tz? (+03:00, +00:00, Z, etc.)
+    if '+' in trigger_at[10:] or trigger_at.endswith('Z'):
+        return trigger_at
+    return trigger_at + "+03:00"
+
+
+def _dedup_key(user_id: str, trigger_at: str, message: str) -> str:
+    """Хэш для дедупликации: (user_id, trigger, сообщение без эмодзи)."""
+    import re as _re, hashlib as _hl
+    normalized = _re.sub(r'[^\w\s]', '', message).strip().lower()
+    raw = f"{user_id}|{trigger_at[:19]}|{normalized[:80]}"
+    return _hl.sha256(raw.encode()).hexdigest()[:16]
+
+
 def add_reminder(user_id: str, trigger_at: str, message: str,
                  kind: str = "reminder") -> dict:
-    task = {
-        "id": str(uuid.uuid4())[:8],
+    trigger_at = _normalize_trigger(trigger_at)
+    dkey = _dedup_key(user_id, trigger_at, message)
+
+    conn = get_conn()
+    # Проверяем дубликат за последние 5 минут с тем же dedup_key + status=pending
+    existing = conn.execute(
+        "SELECT id, created_at FROM reminders "
+        "WHERE user_id=? AND dedup_key=? AND status='pending' "
+        "ORDER BY created_at DESC LIMIT 1",
+        (user_id, dkey),
+    ).fetchone()
+    if existing:
+        return {
+            "id": existing["id"],
+            "user_id": user_id,
+            "trigger_at": trigger_at,
+            "message": message,
+            "status": "pending",
+            "kind": kind,
+            "created_at": existing["created_at"],
+            "deduped": True,
+        }
+
+    task_id = str(uuid.uuid4())[:8]
+    now_iso = datetime.now().isoformat()
+    with conn:
+        conn.execute(
+            "INSERT INTO reminders (id, user_id, trigger_at, message, status, kind, created_at, dedup_key) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (task_id, user_id, trigger_at, message, "pending", kind, now_iso, dkey),
+        )
+    return {
+        "id": task_id,
         "user_id": user_id,
         "trigger_at": trigger_at,
         "message": message,
         "status": "pending",
         "kind": kind,
-        "created_at": datetime.now().isoformat(),
+        "created_at": now_iso,
     }
-    conn = get_conn()
-    with conn:
-        conn.execute(
-            "INSERT INTO reminders (id, user_id, trigger_at, message, status, kind, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (task["id"], user_id, trigger_at, message, "pending", kind, task["created_at"]),
-        )
-    return task
 
 
 def list_user_reminders(user_id: str) -> list[dict]:
@@ -327,22 +370,47 @@ def cancel_reminder(user_id: str, task_id: str) -> tuple[bool, str]:
 
 
 def get_due_reminders() -> list[dict]:
-    """Атомарно: помечает due-задачи как 'firing' и возвращает их."""
-    now = datetime.now().isoformat()
+    """Атомарно: помечает due-задачи как 'firing' и возвращает их.
+
+    TZ-aware сравнение: trigger_at хранится с tz-info (+03:00),
+    now берётся в UTC. fromisoformat корректно переводит +03:00 в UTC
+    для сравнения. Старые записи без TZ интерпретируются как МСК.
+    """
+    from datetime import timezone as _tz
+    now_utc = datetime.now(_tz.utc)
     conn = get_conn()
     with conn:
-        rows = conn.execute(
-            "SELECT * FROM reminders WHERE status = 'pending' AND trigger_at <= ?",
-            (now,),
+        all_pending = conn.execute(
+            "SELECT * FROM reminders WHERE status = 'pending'"
         ).fetchall()
-        if not rows:
+        due_ids = []
+        for row in all_pending:
+            trigger_str = row["trigger_at"]
+            try:
+                t = datetime.fromisoformat(trigger_str)
+            except ValueError:
+                continue
+            if t.tzinfo is None:
+                # Старая запись без TZ — считаем МСК
+                t = t.replace(tzinfo=_tz(timedelta(hours=3)))
+            if t <= now_utc:
+                due_ids.append(row["id"])
+        if not due_ids:
             return []
-        ids = [r["id"] for r in rows]
-        placeholders = ",".join("?" * len(ids))
+        placeholders = ",".join("?" * len(due_ids))
         conn.execute(
             f"UPDATE reminders SET status = 'firing' WHERE id IN ({placeholders})",
-            ids,
+            due_ids,
         )
+        logger.info(
+            f"db: get_due_reminders — {len(due_ids)} due "
+            f"(now_utc={now_utc.isoformat()})"
+        )
+    # Повторно читаем затронутые строки
+    rows = conn.execute(
+        f"SELECT * FROM reminders WHERE id IN ({placeholders})",
+        due_ids,
+    ).fetchall()
     return [dict(r) for r in rows]
 
 

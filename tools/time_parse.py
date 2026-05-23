@@ -9,9 +9,12 @@
                                 /task — пользователь пишет «завтра 8:00
                                 проверь календарь».
 
+ВСЕ возвращаемые ISO-строки содержат tz-info +03:00 (Europe/Moscow).
+Мира работает в московском времени.
+
 Поддерживаемые формы:
   ISO:           "2026-06-15T14:30:00"
-  дата:          "2026-12-01"           → дата + 09:00
+  дата:          "2026-12-01"           → дата + 09:00+03:00
   «завтра 8:00»  / «завтра в 8:00»     → завтра, время указано
   «завтра»                              → завтра 09:00 (без времени → default)
   «послезавтра 9:00»                    → послезавтра, время указано
@@ -22,7 +25,17 @@
 """
 
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+MOSCOW_TZ = timezone(timedelta(hours=3))
+
+def _msk_iso(dt: datetime) -> str:
+    """Возвращает ISO-строку с +03:00."""
+    return dt.replace(tzinfo=MOSCOW_TZ).isoformat()
+
+def _msk_now() -> datetime:
+    """datetime.now() в московской зоне."""
+    return datetime.now(MOSCOW_TZ)
 
 WEEKDAYS = {
     "понедельник": 0, "вторник": 1, "среда": 2, "среду": 2,
@@ -61,8 +74,10 @@ def parse_time(raw: str) -> tuple[bool, str]:
     # ISO pass-through (без .lower()!)
     if _ISO_RE.match(text):
         try:
-            datetime.fromisoformat(text)
-            return True, text
+            dt = datetime.fromisoformat(text)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=MOSCOW_TZ)
+            return True, dt.isoformat()
         except ValueError:
             pass
 
@@ -70,22 +85,22 @@ def parse_time(raw: str) -> tuple[bool, str]:
     if _DATE_RE.match(text):
         try:
             datetime.strptime(text, "%Y-%m-%d")
-            return True, text + "T09:00:00"
+            return True, text + "T09:00:00+03:00"
         except ValueError:
             pass
 
     text_lo = text.lower()
-    now = datetime.now()
+    now = _msk_now()
 
     # «через N часов»
     m = _REL_HOURS.match(text_lo)
     if m:
-        return True, (now + timedelta(hours=int(m.group(1)))).strftime("%Y-%m-%dT%H:%M:%S")
+        return True, _msk_iso(now + timedelta(hours=int(m.group(1))))
 
     # «через N минут»
     m = _REL_MINUTES.match(text_lo)
     if m:
-        return True, (now + timedelta(minutes=int(m.group(1)))).strftime("%Y-%m-%dT%H:%M:%S")
+        return True, _msk_iso(now + timedelta(minutes=int(m.group(1))))
 
     # «послезавтра [в] [hh:mm]»
     m = re.match(r"^послезавтра(?:\s+в)?(?:\s+(\d{1,2}):(\d{2}))?$", text_lo)
@@ -93,7 +108,7 @@ def parse_time(raw: str) -> tuple[bool, str]:
         h = int(m.group(1)) if m.group(1) else 9
         mi = int(m.group(2)) if m.group(2) else 0
         target = now + timedelta(days=2)
-        return True, target.strftime(f"%Y-%m-%dT{h:02d}:{mi:02d}:00")
+        return True, _msk_iso(target.replace(hour=h, minute=mi, second=0, microsecond=0))
 
     # «завтра [в] [hh:mm]»
     m = re.match(r"^завтра(?:\s+в)?(?:\s+(\d{1,2}):(\d{2}))?$", text_lo)
@@ -101,26 +116,25 @@ def parse_time(raw: str) -> tuple[bool, str]:
         h = int(m.group(1)) if m.group(1) else 9
         mi = int(m.group(2)) if m.group(2) else 0
         target = now + timedelta(days=1)
-        return True, target.strftime(f"%Y-%m-%dT{h:02d}:{mi:02d}:00")
+        return True, _msk_iso(target.replace(hour=h, minute=mi, second=0, microsecond=0))
 
     # «сегодня [в] hh:mm»  (без времени — нет смысла, отбрасываем)
     m = re.match(r"^сегодня(?:\s+в)?\s+(\d{1,2}):(\d{2})$", text_lo)
     if m:
         h = int(m.group(1)); mi = int(m.group(2))
         target = now.replace(hour=h, minute=mi, second=0, microsecond=0)
-        return True, target.strftime("%Y-%m-%dT%H:%M:%S")
+        return True, _msk_iso(target)
 
     # «[в] <день недели> [hh:mm]»
     for day_name, day_num in WEEKDAYS.items():
-        # «в пятницу 14:00» / «пятница 14:00» / «пятницу 14:00»
         pat = rf"^(?:в\s+)?{day_name}(?:\s+(\d{{1,2}}):(\d{{2}}))?$"
         m = re.match(pat, text_lo)
         if m:
             h = int(m.group(1)) if m.group(1) else 9
             mi = int(m.group(2)) if m.group(2) else 0
-            days_ahead = (day_num - now.weekday()) % 7 or 7  # сегодня этот день → след. неделя
+            days_ahead = (day_num - now.weekday()) % 7 or 7
             target = now + timedelta(days=days_ahead)
-            return True, target.strftime(f"%Y-%m-%dT{h:02d}:{mi:02d}:00")
+            return True, _msk_iso(target.replace(hour=h, minute=mi, second=0, microsecond=0))
 
     return False, f"не понял время, попробуй формат: завтра 8:00 ... или 2026-06-01T09:00:00 (получил: {raw!r})"
 
