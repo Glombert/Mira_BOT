@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 
 interface ChatInputProps {
   onSend: (text: string) => void;
-  onFileSelect?: (file: File) => void;
+  onFileSelect?: (files: File[]) => void;
   disabled?: boolean;
   placeholder?: string;
   pendingAttachment?: { name: string; size: number } | null;
@@ -52,9 +52,9 @@ export function ChatInput({
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && onFileSelect) {
-      onFileSelect(file);
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0 && onFileSelect) {
+      onFileSelect(files);
     }
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -80,7 +80,7 @@ export function ChatInput({
         >
           {uploading ? <span className="animate-spin text-accent">⟳</span> : <Paperclip size={18} />}
         </button>
-        <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
+        <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileChange} />
         <textarea
           ref={textareaRef}
           value={text}

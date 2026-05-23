@@ -1,7 +1,6 @@
 'use client';
 
 import { User, Trash2, Terminal, Bell, Cloud } from 'lucide-react';
-import { StarAvatar } from '@/components/ui/star-avatar';
 import { StatusDot, type ConnectionStatus } from '@/components/ui/status-dot';
 
 interface ChatHeaderProps {
@@ -18,7 +17,7 @@ export function ChatHeader({ userName, connectionStatus, onClear, onWhoami, onOp
   return (
     <header className="flex items-center justify-between px-4 py-3 border-b border-border-subtle bg-bg-base sticky top-0 z-10">
       <div className="flex items-center gap-3">
-        <StarAvatar size={40} />
+        <img src="/mira-avatar-full.png" alt="Мира" className="w-10 h-10 rounded-full object-cover" />
         <div>
           <h1 className="text-xl font-semibold text-text-primary leading-tight">Мира</h1>
           <div className="flex items-center gap-1.5">

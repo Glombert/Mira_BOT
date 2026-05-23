@@ -325,8 +325,12 @@ export class MiraClient {
   }
 
   // Sending
-  sendMessage(text: string, attachment?: string): void {
-    this._send({ content: text, ...(attachment ? { attachment } : {}) });
+  sendMessage(text: string, attachments?: string | string[]): void {
+    const payload: Record<string, unknown> = { content: text };
+    if (attachments) {
+      payload.attachments = Array.isArray(attachments) ? attachments : [attachments];
+    }
+    this._send(payload as ClientMessage);
     if (this.mock) {
       this._mockReply(text);
     }

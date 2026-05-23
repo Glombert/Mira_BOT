@@ -42,8 +42,8 @@ export function ChatPage() {
   const pendingWhoamiRef = useRef(false);
   const historyLoadedRef = useRef(false);
   const dragCounterRef = useRef(0);
-  const pendingFileRef = useRef<File | null>(null);
-  const uploadResultRef = useRef<{ filename: string; size: number } | null>(null);
+  const pendingFilesRef = useRef<File[]>([]);
+  const uploadResultsRef = useRef<Array<{ filename: string; size: number }>>([]);
   const [autoScroll, setAutoScroll] = useState(true);
 
   const clientRef = useRef<MiraClient | undefined>(undefined);
@@ -178,29 +178,25 @@ export function ChatPage() {
     (text: string) => {
       if (!client || !session) return;
       const trimmed = text.trim();
-      const att = uploadResultRef.current;
+      const atts = uploadResultsRef.current;
 
-      if (!trimmed && !att) return;
+      if (!trimmed && atts.length === 0) return;
 
       let displayContent = trimmed;
-      let attachmentName: string | undefined;
+      const names = atts.map((a) => a.filename);
 
-      if (att) {
-        attachmentName = att.filename;
-        if (trimmed) {
-          displayContent = trimmed + '\n\n📎 ' + att.filename;
-        } else {
-          displayContent = '📎 ' + att.filename;
-        }
+      if (atts.length > 0) {
+        const attLines = atts.map((a) => '📎 ' + a.filename).join('\n');
+        displayContent = trimmed ? trimmed + '\n\n' + attLines : attLines;
       }
 
       addMessage({ id: generateId(), type: 'user', content: displayContent, timestamp: Date.now() });
-      client.sendMessage(trimmed, attachmentName);
+      client.sendMessage(trimmed, names.length > 0 ? names : undefined);
       setAutoScroll(true);
 
       // clear
-      uploadResultRef.current = null;
-      pendingFileRef.current = null;
+      uploadResultsRef.current = [];
+      pendingFilesRef.current = [];
       setPendingAttachment(null);
     },
     [client, session, addMessage]
@@ -245,42 +241,54 @@ export function ChatPage() {
   }, []);
 
   const doUpload = useCallback(
-    async (file: File) => {
+    async (files: File[]) => {
       if (!client || !session) return;
-      pendingFileRef.current = file;
-      setPendingAttachment({ name: file.name, size: file.size });
-      setUploadProgress(0);
-      try {
-        const result = await client.uploadFile(file, (pct) => setUploadProgress(pct));
-        uploadResultRef.current = { filename: result.filename, size: result.size };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Ошибка загрузки';
-        if (msg === 'Unauthorized') {
-          setConnectionStatus('offline');
-          setShowAuth(true);
-        } else {
-          addMessage({ id: generateId(), type: 'error', content: msg, timestamp: Date.now() });
-        }
-        pendingFileRef.current = null;
-        uploadResultRef.current = null;
-        setPendingAttachment(null);
-      } finally {
-        setUploadProgress(null);
+      const current = uploadResultsRef.current.length;
+      if (current + files.length > 5) {
+        addMessage({ id: generateId(), type: 'system', content: 'Максимум 5 файлов за раз', timestamp: Date.now() });
+        return;
       }
+      pendingFilesRef.current = [...pendingFilesRef.current, ...files];
+      setUploadProgress(0);
+      const newResults: Array<{ filename: string; size: number }> = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        try {
+          const result = await client.uploadFile(file, (pct) => setUploadProgress(Math.round(((i + pct / 100) / files.length) * 100)));
+          newResults.push({ filename: result.filename, size: result.size });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Ошибка загрузки';
+          if (msg === 'Unauthorized') {
+            setConnectionStatus('offline');
+            setShowAuth(true);
+            uploadResultsRef.current = [];
+            pendingFilesRef.current = [];
+            setPendingAttachment(null);
+            setUploadProgress(null);
+            return;
+          }
+          addMessage({ id: generateId(), type: 'error', content: `${file.name}: ${msg}`, timestamp: Date.now() });
+        }
+      }
+      uploadResultsRef.current = [...uploadResultsRef.current, ...newResults];
+      if (newResults.length > 0) {
+        setPendingAttachment({ name: newResults.map((r) => r.filename).join(', '), size: newResults.reduce((s, r) => s + r.size, 0) });
+      }
+      setUploadProgress(null);
     },
     [client, session, addMessage]
   );
 
   const handleFileSelect = useCallback(
-    (file: File) => {
-      doUpload(file);
+    (files: File[]) => {
+      doUpload(files);
     },
     [doUpload]
   );
 
   const handleClearAttachment = useCallback(() => {
-    pendingFileRef.current = null;
-    uploadResultRef.current = null;
+    pendingFilesRef.current = [];
+    uploadResultsRef.current = [];
     setPendingAttachment(null);
   }, []);
 
@@ -309,8 +317,8 @@ export function ChatPage() {
       e.preventDefault();
       dragCounterRef.current = 0;
       setIsDragging(false);
-      const file = e.dataTransfer.files?.[0];
-      if (file) doUpload(file);
+      const files = Array.from(e.dataTransfer.files || []);
+      if (files.length > 0) doUpload(files);
     },
     [doUpload]
   );
