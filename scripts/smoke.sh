@@ -21,13 +21,26 @@ VENV_PY="/root/mira_agent/venv/bin/python"
 
 WITH_LLM=0
 QUIET=0
+LOCAL=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --with-llm) WITH_LLM=1; shift ;;
         --quiet) QUIET=1; shift ;;
+        --local) LOCAL=1; shift ;;
         *) echo "unknown: $1" >&2; exit 2 ;;
     esac
 done
+
+# При --local пропускаем SSH — все «remote» команды исполняются на этой же машине.
+# Используется в cron-обёртке на VPS.
+run_remote() {
+    if [[ "$LOCAL" -eq 1 ]]; then
+        # Работаем в /root/mira_agent (для venv относительных путей)
+        ( cd /root/mira_agent 2>/dev/null || true; bash -c "$1" )
+    else
+        ssh "$SSH" "$1"
+    fi
+}
 
 PASS=0; FAIL=0; FAIL_NAMES=()
 
@@ -121,7 +134,7 @@ fi
 yellow "▸ Session + WS"
 
 # Получаем валидную сессию через make_session с реальным BOT_TOKEN на VPS
-SESSION=$(ssh "$SSH" "cd /root/mira_agent && $VENV_PY -c '
+SESSION=$(run_remote "cd /root/mira_agent && $VENV_PY -c '
 import os; from dotenv import load_dotenv; load_dotenv(\".env\")
 from web.security import make_session
 tok = os.getenv(\"TELEGRAM_BOT_TOKEN\", \"\")
@@ -147,7 +160,7 @@ fi
 # WS-сессия + первые сообщения. Используем python+websockets на VPS,
 # так избегаем установки зависимостей локально.
 if [[ -n "$SESSION" ]]; then
-    WS_OUT=$(ssh "$SSH" "$VENV_PY -c '
+    WS_OUT=$(run_remote "$VENV_PY -c '
 import asyncio, json, sys, websockets
 async def main():
     uri = \"ws://127.0.0.1:8000/ws?session=$SESSION\"
@@ -221,7 +234,7 @@ fi
 # ----------------------------------------------------------------------
 yellow "▸ Storage + autonomy"
 
-DB_INFO=$(ssh "$SSH" "cd /root/mira_agent && $VENV_PY -c '
+DB_INFO=$(run_remote "cd /root/mira_agent && $VENV_PY -c '
 from dotenv import load_dotenv; load_dotenv(\".env\")
 import memory_crypto; memory_crypto.init()
 from tools import db
@@ -242,7 +255,7 @@ check_contains "push_tokens table" "$DB_INFO" "push_tokens:"
 check_contains "ritual_runs table" "$DB_INFO" "ritual_runs:"
 
 # Ритуалы
-RITUALS=$(ssh "$SSH" "cd /root/mira_agent && $VENV_PY -c '
+RITUALS=$(run_remote "cd /root/mira_agent && $VENV_PY -c '
 from tools.rituals import load_rituals
 r = load_rituals()
 print(\"count:\", len(r))
@@ -252,7 +265,7 @@ print(\"names:\", [x[\"name\"] for x in r])
 check_contains "≥3 ритуала загружены" "$RITUALS" "count: 3"
 
 # Time-парсер с TZ
-TP=$(ssh "$SSH" "cd /root/mira_agent && $VENV_PY -c '
+TP=$(run_remote "cd /root/mira_agent && $VENV_PY -c '
 from tools.time_parse import parse_time
 ok, iso = parse_time(\"завтра 8:00\")
 print(\"завтра 8:00 ok=\" + str(ok), \"+03:00 in iso:\", \"+03:00\" in iso)
@@ -264,7 +277,7 @@ check_contains "parse_time tz-aware" "$TP" "+03:00 in iso: True"
 check_contains "extract_time_and_rest корректный" "$TP" "rest=проверь календарь"
 
 # attach_file tool
-AF=$(ssh "$SSH" "cd /root/mira_agent && $VENV_PY -c '
+AF=$(run_remote "cd /root/mira_agent && $VENV_PY -c '
 import os, tempfile
 from tools.file_tools import attach_file, pop_pending_attachments
 # создадим временный файл в inbox владельца
@@ -285,7 +298,7 @@ check_contains "attach_file работает" "$AF" "attach ok: True"
 check_contains "pending очищается после pop" "$AF" "second pop: 0"
 
 # FCM-инициализация
-FCM=$(ssh "$SSH" "cd /root/mira_agent && $VENV_PY -c '
+FCM=$(run_remote "cd /root/mira_agent && $VENV_PY -c '
 from dotenv import load_dotenv; load_dotenv(\".env\")
 from tools import fcm_tools
 ok = fcm_tools._ensure_init()
@@ -295,7 +308,7 @@ print(\"fcm init:\", ok, \"reason:\", fcm_tools._disabled_reason)
 check_contains "FCM Admin SDK инициализирован" "$FCM" "fcm init: True"
 
 # Google API доступность (gdrive list + gcal list — только если токен есть)
-GAPI=$(ssh "$SSH" "cd /root/mira_agent && $VENV_PY -c '
+GAPI=$(run_remote "cd /root/mira_agent && $VENV_PY -c '
 from dotenv import load_dotenv; load_dotenv(\".env\")
 import os, memory_crypto; memory_crypto.init()
 from tools.gdrive_tools import gdrive_list, gcal_list
@@ -314,7 +327,7 @@ check_contains "Google Calendar live" "$GAPI" "gcal ok: True"
 # ----------------------------------------------------------------------
 if [[ "$WITH_LLM" -eq 1 ]] && [[ -n "$SESSION" ]]; then
     yellow "▸ LLM round-trip (--with-llm)"
-    LLM=$(ssh "$SSH" "$VENV_PY -c '
+    LLM=$(run_remote "$VENV_PY -c '
 import asyncio, json, websockets
 async def main():
     uri = \"ws://127.0.0.1:8000/ws?session=$SESSION\"
