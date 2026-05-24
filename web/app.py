@@ -1446,7 +1446,10 @@ async def chat(websocket: WebSocket, session: str = ""):
                     if not is_owner_ws:
                          await websocket.send_json({"type": "system", "content": "Только для владельца."})
                     else:
-                         from agent import load_principles, Agent, Profile
+                         # Agent и Profile уже импортированы на верху файла (строка 48).
+                         # Локальный import шадовил бы Profile как локальную для всей
+                         # функции chat() → UnboundLocalError в обычной ветке сообщений.
+                         from agent import load_principles
                          msgs = _load_session(user_id)
                          prompt = (
                              "Проанализируй свой код (agent.py, conclave.py, providers.py, router.py, "
