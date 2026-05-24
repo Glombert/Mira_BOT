@@ -185,6 +185,39 @@ def mark_blacklist_notified(user_id: str) -> None:
         _save_profile(user_id, profile)
 
 
+def get_user_timezone(user_id: str) -> str:
+    """Возвращает IANA-зону пользователя из профиля. Default 'UTC'.
+
+    Используется time_context (что показать как «сейчас») и parse_time
+    (как интерпретировать «завтра 8:00» от пользователя).
+    """
+    profile = _load_profile(user_id)
+    if not profile:
+        return "UTC"
+    return profile.get("timezone") or "UTC"
+
+
+def set_user_timezone(user_id: str, tz: str) -> tuple[bool, str]:
+    """Валидирует и сохраняет IANA-зону. Возвращает (ok, message)."""
+    try:
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        try:
+            ZoneInfo(tz)
+        except ZoneInfoNotFoundError:
+            return False, f"Неизвестная зона: {tz}. Примеры: Europe/Moscow, Asia/Khabarovsk, UTC"
+    except ImportError:
+        # Python < 3.9 — отказ
+        return False, "zoneinfo недоступна — обновите Python до 3.9+"
+
+    profile = _load_profile(user_id)
+    if profile is None:
+        return False, "Профиль не найден"
+    profile["timezone"] = tz
+    if _save_profile(user_id, profile):
+        return True, f"Зона установлена: {tz}"
+    return False, "Ошибка записи"
+
+
 def increment_guest_counter(user_id: str, profile: dict) -> tuple[int, int]:
     count = profile.get("guest_message_count", 0) + 1
     profile["guest_message_count"] = count

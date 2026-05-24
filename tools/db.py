@@ -281,12 +281,18 @@ def get_session_updated_at(user_id: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 def _normalize_trigger(trigger_at: str) -> str:
-    """Гарантирует что trigger_at содержит tz-info. Без TZ → +03:00 (МСК)."""
+    """Гарантирует что trigger_at содержит tz-info. Без TZ → +00:00 (UTC).
+
+    Дефолтная зона для naive-строк теперь UTC (storage convention).
+    Если parse_time на верхнем уровне получил `user_tz`, он уже отдал
+    ISO с правильным offset'ом — нам в DB остаётся только убедиться что
+    TZ-info есть. Голые naive здесь возможны только из ручного ввода
+    через прямой вызов (тесты, миграции).
+    """
     trigger_at = trigger_at.strip()
-    # Уже с tz? (+03:00, +00:00, Z, etc.)
-    if '+' in trigger_at[10:] or trigger_at.endswith('Z'):
+    if '+' in trigger_at[10:] or trigger_at.endswith('Z') or '-' in trigger_at[10:]:
         return trigger_at
-    return trigger_at + "+03:00"
+    return trigger_at + "+00:00"
 
 
 def _dedup_key(user_id: str, trigger_at: str, message: str) -> str:
@@ -390,8 +396,8 @@ def get_due_reminders() -> list[dict]:
             except ValueError:
                 continue
             if t.tzinfo is None:
-                # Старая запись без TZ — считаем МСК
-                t = t.replace(tzinfo=timezone(timedelta(hours=3)))
+                # Naive-запись (только из тестов / прямых вставок) — считаем UTC
+                t = t.replace(tzinfo=timezone.utc)
             if t <= now_utc:
                 due_ids.append(row["id"])
         if not due_ids:

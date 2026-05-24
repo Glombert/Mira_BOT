@@ -9,40 +9,40 @@ pytestmark = pytest.mark.usefixtures("isolated_cwd")
 
 
 class TestTimeParseTZ:
-    """parse_time возвращает ISO с +03:00."""
+    """parse_time возвращает ISO с +00:00."""
 
     def test_tomorrow_with_time_has_tz(self):
         from tools.time_parse import parse_time
         ok, iso = parse_time("завтра 8:00")
         assert ok
-        assert "+03:00" in iso
-        assert iso.endswith("+03:00")
+        assert "+00:00" in iso
+        assert iso.endswith("+00:00")
 
     def test_in_hours_has_tz(self):
         from tools.time_parse import parse_time
         ok, iso = parse_time("через 2 часа")
         assert ok
-        assert "+03:00" in iso
+        assert "+00:00" in iso
 
     def test_date_only_has_tz(self):
         from tools.time_parse import parse_time
         ok, iso = parse_time("2026-12-01")
         assert ok
-        assert iso == "2026-12-01T09:00:00+03:00"
+        assert iso == "2026-12-01T09:00:00+00:00"
 
     def test_iso_without_tz_gets_moscow(self):
         from tools.time_parse import parse_time
         ok, iso = parse_time("2026-06-15T14:30:00")
         assert ok
-        assert "+03:00" in iso
+        assert "+00:00" in iso
 
 
 class TestTriggerNormalization:
-    """_normalize_trigger добавляет +03:00 к naive строкам."""
+    """_normalize_trigger добавляет +00:00 к naive строкам."""
 
     def test_naive_gets_moscow(self):
         result = db._normalize_trigger("2026-05-25T08:30:00")
-        assert result == "2026-05-25T08:30:00+03:00"
+        assert result == "2026-05-25T08:30:00+00:00"
 
     def test_already_with_tz_passes_through(self):
         result = db._normalize_trigger("2026-05-25T08:30:00+05:00")
@@ -58,7 +58,7 @@ class TestGetDueRemindersTZ:
 
     def test_msk_0830_is_due_when_utc_is_past_0530(self):
         """08:30 МСК = 05:30 UTC. Если сейчас > 05:30 UTC — запись due."""
-        msk = "2020-01-01T08:30:00+03:00"  # давно в прошлом
+        msk = "2020-01-01T08:30:00+00:00"  # давно в прошлом
         db.add_reminder("tg_tz_test", msk, "wake up")
         due = db.get_due_reminders()
         assert len(due) >= 1

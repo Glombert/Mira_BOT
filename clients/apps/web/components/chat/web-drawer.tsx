@@ -16,6 +16,7 @@ interface DrawerCommand {
 const COMMANDS: DrawerCommand[] = [
   { cmd: 'clear', label: 'Очистить историю', icon: '🗑', category: 'ЧАТ' },
   { cmd: 'whoami', label: 'Профиль', icon: '👤', category: 'ЧАТ' },
+  { cmd: 'tz', label: 'Часовой пояс', icon: '🌍', category: 'ЧАТ', hasArgs: true },
   { cmd: 'forget', label: 'Забыть меня', icon: '🔁', category: 'ЧАТ' },
   { cmd: 'stop', label: 'Остановить Конклав', icon: '⏹', category: 'ЧАТ' },
   { cmd: 'files', label: 'Мои файлы', icon: '📂', category: 'ФАЙЛЫ' },
@@ -37,6 +38,7 @@ const COMMANDS: DrawerCommand[] = [
   { cmd: 'users', label: 'Пользователи', icon: '👥', category: 'ВЛАДЕЛЕЦ', requires: 'owner' },
   { cmd: 'versions', label: 'Резервные копии', icon: '📦', category: 'ВЛАДЕЛЕЦ', requires: 'owner' },
   { cmd: 'blacklist', label: 'Чёрный список', icon: '🚫', category: 'ВЛАДЕЛЕЦ', requires: 'owner' },
+  { cmd: 'rename', label: 'Переименовать пользователя', icon: '✏️', category: 'ВЛАДЕЛЕЦ', requires: 'owner', hasArgs: true },
   { cmd: 'help', label: 'Помощь', icon: '❓', category: 'ЧАТ' },
 ];
 

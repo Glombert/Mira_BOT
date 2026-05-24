@@ -177,7 +177,7 @@ def _profile_for(tg_id: int) -> Profile:
 def _system_prompt_for(user_id: str) -> str:
     """Возвращает системный промпт с учётом child_mode и накопленного резюме."""
     data = load_user_profile(user_id)
-    base = SYSTEM_PROMPT + f"\n\n{time_context()}"
+    base = SYSTEM_PROMPT + f"\n\n{time_context(user_id)}"
     if data and data.get("child_mode"):
         base += _CHILD_PROMPT_ADDON
 
@@ -341,6 +341,8 @@ BASIC_COMMANDS = [
     BotCommand("help",   "Список команд"),
     BotCommand("whoami", "Мой профиль"),
     BotCommand("login",  "Токен для веб/мобильного клиента"),
+    BotCommand("tz",     "Часовой пояс: /tz или /tz Asia/Khabarovsk"),
+    BotCommand("rename", "Переименовать пользователя (owner): /rename <id> <имя>"),
     BotCommand("files",  "Мои файлы"),
     BotCommand("gdrive", "Мои файлы на Google Drive"),
     BotCommand("gcal",   "Мой календарь"),
@@ -1429,6 +1431,57 @@ async def cmd_kidmode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 # --- Scheduled tasks Telegram handlers ---
 
+async def cmd_rename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/rename <user_id> <новое имя> — переименовать пользователя (owner-only).
+
+    Удобно для тестеров: видишь в /users понятные имена вместо подтянутых
+    из Telegram. На бизнес-логику не влияет — меняется display-name в профиле.
+    """
+    if not _is_owner(update.effective_user.id):
+        return
+    args = (update.message.text or "").strip()
+    if args.startswith("/rename"):
+        args = args[len("/rename"):].strip()
+    parts = args.split(maxsplit=1)
+    if len(parts) < 2:
+        await _reply(update, "Формат: /rename <user_id> <новое имя>\nПример: /rename tg_12345 Иван (тестер)")
+        return
+    target_id, new_name = parts[0].strip(), parts[1].strip()
+    p = load_user_profile(target_id)
+    if not p:
+        await _reply(update, f"Пользователь {target_id} не найден.")
+        return
+    old_name = p.get("name", "—")
+    p["name"] = new_name
+    save_user_profile(target_id, p)
+    await _reply(update, f"✓ {target_id}: «{old_name}» → «{new_name}»")
+
+
+async def cmd_tz(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/tz — показывает текущую зону. /tz <IANA-name> — устанавливает."""
+    from tools.access_tools import get_user_timezone, set_user_timezone
+    tg_id = update.effective_user.id
+    user_id = _user_id(tg_id)
+    args = (update.message.text or "").strip()
+    args = args[3:].strip() if args.startswith("/tz") else args
+    if not args:
+        cur = get_user_timezone(user_id)
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        try:
+            now = datetime.now(ZoneInfo(cur)) if cur != "UTC" else datetime.now()
+            sample = now.strftime("%H:%M")
+        except Exception:
+            sample = "?"
+        await _reply(update,
+            f"Твоя зона: `{cur}`\nСейчас по ней: `{sample}`\n\n"
+            f"Поменять: `/tz Asia/Khabarovsk` (или Europe/Moscow, UTC, Europe/Berlin и т.п.)",
+            parse_mode="Markdown")
+        return
+    ok, msg = set_user_timezone(user_id, args)
+    await _reply(update, ("✓ " if ok else "✗ ") + msg)
+
+
 async def cmd_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     tg_id = update.effective_user.id
     user_id = _user_id(tg_id)
@@ -1437,6 +1490,7 @@ async def cmd_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     from tools.time_parse import extract_time_and_rest as _etr
     from tools.scheduler import schedule_reminder as _sched
+    from tools.access_tools import get_user_timezone as _gut
     args = (update.message.text or "").strip()
     prefix = "/task"
     if args.startswith(prefix):
@@ -1444,7 +1498,7 @@ async def cmd_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not args:
         await _reply(update, "Формат: /task <когда> <задача>\nПример: /task завтра 8:00 проверь календарь")
         return
-    ok_p, trigger_or_err, prompt = _etr(args)
+    ok_p, trigger_or_err, prompt = _etr(args, _gut(user_id))
     if not ok_p:
         await _reply(update, trigger_or_err)
         return
@@ -2379,6 +2433,8 @@ def main() -> None:
     app.add_handler(CommandHandler("unblock",         cmd_unblock))
     app.add_handler(CommandHandler("kidmode",         cmd_kidmode))
     # Scheduled tasks & rituals
+    app.add_handler(CommandHandler("tz",             cmd_tz))
+    app.add_handler(CommandHandler("rename",         cmd_rename))
     app.add_handler(CommandHandler("task",           cmd_task))
     app.add_handler(CommandHandler("tasks",          cmd_tasks))
     app.add_handler(CommandHandler("task_cancel",    cmd_task_cancel))

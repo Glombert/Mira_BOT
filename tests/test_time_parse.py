@@ -12,27 +12,27 @@ from tools.time_parse import parse_time, extract_time_and_rest
 def test_iso_pass_through():
     ok, iso = parse_time("2026-06-15T14:30:00")
     assert ok
-    assert iso == "2026-06-15T14:30:00+03:00"
+    assert iso == "2026-06-15T14:30:00+00:00"
 
 
 def test_date_only_adds_default_time():
     ok, iso = parse_time("2026-12-01")
     assert ok
-    assert iso == "2026-12-01T09:00:00+03:00"
+    assert iso == "2026-12-01T09:00:00+00:00"
 
 
 def test_tomorrow_with_time():
     ok, iso = parse_time("завтра 8:00")
     assert ok
     tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    assert iso == f"{tomorrow}T08:00:00+03:00"
+    assert iso == f"{tomorrow}T08:00:00+00:00"
 
 
 def test_tomorrow_default_time():
     ok, iso = parse_time("завтра")
     assert ok
     tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    assert iso == f"{tomorrow}T09:00:00+03:00"
+    assert iso == f"{tomorrow}T09:00:00+00:00"
 
 
 def test_in_n_hours():
@@ -51,7 +51,7 @@ def test_today_with_time():
     ok, iso = parse_time("сегодня 15:30")
     assert ok
     today = datetime.now().strftime("%Y-%m-%d")
-    assert iso == f"{today}T15:30:00+03:00"
+    assert iso == f"{today}T15:30:00+00:00"
 
 
 def test_weekday_with_time():
@@ -74,7 +74,7 @@ def test_extract_tomorrow_with_time_and_prompt():
     ok, iso, rest = extract_time_and_rest("завтра 8:00 проверь календарь")
     assert ok
     tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    assert iso == f"{tomorrow}T08:00:00+03:00"
+    assert iso == f"{tomorrow}T08:00:00+00:00"
     assert rest == "проверь календарь"
 
 
@@ -95,7 +95,7 @@ def test_extract_today_with_prompt():
     ok, iso, rest = extract_time_and_rest("сегодня 15:30 отзвонить Андрею")
     assert ok
     today = datetime.now().strftime("%Y-%m-%d")
-    assert iso == f"{today}T15:30:00+03:00"
+    assert iso == f"{today}T15:30:00+00:00"
     assert rest == "отзвонить Андрею"
 
 
@@ -103,7 +103,7 @@ def test_extract_morrow_after_with_prompt():
     ok, iso, rest = extract_time_and_rest("послезавтра 9:00 собрать статистику")
     assert ok
     after_tomorrow = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
-    assert iso == f"{after_tomorrow}T09:00:00+03:00"
+    assert iso == f"{after_tomorrow}T09:00:00+00:00"
     assert rest == "собрать статистику"
 
 

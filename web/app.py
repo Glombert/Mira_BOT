@@ -297,7 +297,7 @@ def _save_session(user_id: str, msgs: list) -> None:
 
 
 def _system_prompt_for(user_id: str) -> str:
-    base      = SYSTEM_PROMPT + f"\n\n{time_context()}"
+    base      = SYSTEM_PROMPT + f"\n\n{time_context(user_id)}"
     summary   = memory_manager.get_summary(user_id, load_user_profile)
     templates = memory_manager.get_templates_prompt(user_id)
     if summary:
@@ -1211,6 +1211,45 @@ async def chat(websocket: WebSocket, session: str = ""):
                                 lines.append(f"  {t['id']} — {t['trigger_at'][:16].replace('T', ' ')} — {t['message'][:80]}")
                             await websocket.send_json({"type": "system", "content": "\n".join(lines)})
 
+                # --- /tz: показать или установить часовую зону ---
+                elif cmd == "tz" or cmd.startswith("tz "):
+                    from tools.access_tools import get_user_timezone, set_user_timezone
+                    arg = cmd[3:].strip() if cmd.startswith("tz ") else ""
+                    if not arg:
+                        cur = get_user_timezone(user_id)
+                        await websocket.send_json({
+                            "type": "system",
+                            "content": (
+                                f"Твоя зона: {cur}\n"
+                                f"Поменять: tz Asia/Khabarovsk (или Europe/Moscow, UTC, Europe/Berlin)"
+                            ),
+                        })
+                    else:
+                        ok, msg = set_user_timezone(user_id, arg)
+                        await websocket.send_json({"type": "system", "content": ("✓ " if ok else "✗ ") + msg})
+
+                # --- /rename (owner-only): переименовать другого пользователя ---
+                elif cmd.startswith("rename "):
+                    is_owner_ws = OWNER_TG_ID and tg_id == OWNER_TG_ID
+                    if not is_owner_ws:
+                        await websocket.send_json({"type": "system", "content": "Только для владельца."})
+                    else:
+                        rest = cmd[7:].strip()
+                        parts = rest.split(maxsplit=1)
+                        if len(parts) < 2:
+                            await websocket.send_json({"type": "system", "content": "Формат: rename <user_id> <новое имя>"})
+                        else:
+                            from agent import load_user_profile, save_user_profile
+                            target_id, new_name = parts[0].strip(), parts[1].strip()
+                            p = load_user_profile(target_id)
+                            if not p:
+                                await websocket.send_json({"type": "system", "content": f"Пользователь {target_id} не найден"})
+                            else:
+                                old_name = p.get("name", "—")
+                                p["name"] = new_name
+                                save_user_profile(target_id, p)
+                                await websocket.send_json({"type": "system", "content": f"✓ {target_id}: «{old_name}» → «{new_name}»"})
+
                 elif cmd.startswith("task "):
                     if not _is_approved(user_id):
                         await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
@@ -1220,7 +1259,8 @@ async def chat(websocket: WebSocket, session: str = ""):
                             await websocket.send_json({"type": "system", "content": "Формат: task <когда> <задача>\nПример: task завтра 8:00 проверь календарь"})
                         else:
                             from tools.time_parse import extract_time_and_rest
-                            ok_parsed, trigger_or_err, prompt = extract_time_and_rest(rest)
+                            from tools.access_tools import get_user_timezone
+                            ok_parsed, trigger_or_err, prompt = extract_time_and_rest(rest, get_user_timezone(user_id))
                             if not ok_parsed:
                                 await websocket.send_json({"type": "system", "content": trigger_or_err})
                             else:

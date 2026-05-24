@@ -117,19 +117,34 @@ WORKSPACE_DIR = "workspace"                # рабочие папки поль�
 # Параметры работы
 MAX_HISTORY   = 20    # сколько последних сообщений держать в контексте
 
-def time_context() -> str:
-    """Текущая дата и время для осознания Миры. Обновляется при каждом вызове.
+def time_context(user_id: str | None = None) -> str:
+    """Текущая дата и время в зоне пользователя.
 
-    Мира мыслит в Europe/Moscow — независимо от системной TZ сервера.
-    Без явной зоны на VPS (UTC) Мира думала бы что сейчас UTC и путалась
-    в разговоре с пользователями.
+    Сторадж и сравнения внутри агента — всегда UTC. Этот метод —
+    единственное место конверсии для показа пользователю. Если
+    user_id передан и в его профиле есть `timezone` — используется она;
+    иначе fallback на UTC.
     """
-    from datetime import timezone, timedelta
-    now = datetime.now(timezone(timedelta(hours=3)))
+    from datetime import timezone
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    tz_name = "UTC"
+    if user_id:
+        try:
+            from tools.access_tools import get_user_timezone
+            tz_name = get_user_timezone(user_id) or "UTC"
+        except Exception:
+            pass
+    try:
+        tz = ZoneInfo(tz_name) if tz_name != "UTC" else timezone.utc
+    except ZoneInfoNotFoundError:
+        tz = timezone.utc; tz_name = "UTC"
+    now = datetime.now(tz)
     months = ["января", "февраля", "марта", "апреля", "мая", "июня",
               "июля", "августа", "сентября", "октября", "ноября", "декабря"]
     days = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
-    return f"Сегодня {now.day} {months[now.month-1]} {now.year}, {days[now.weekday()]}, {now.hour:02d}:{now.minute:02d}"
+    return (f"Сегодня {now.day} {months[now.month-1]} {now.year}, "
+            f"{days[now.weekday()]}, {now.hour:02d}:{now.minute:02d} ({tz_name})")
 
 # Провайдеры моделей (заполняется из .env автоматически)
 MODELS_CONFIG: dict = {}
