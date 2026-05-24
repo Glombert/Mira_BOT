@@ -24,6 +24,7 @@ const COMMANDS: DrawerCommand[] = [
   { cmd: 'gdrive_status', label: 'Drive: статус', icon: '☁️', category: 'GOOGLE' },
   { cmd: 'gdrive_list', label: 'Файлы на Drive', icon: '📋', category: 'GOOGLE', requires: 'gdrive_authorized' },
   { cmd: 'gdrive_get', label: 'Скачать с Drive', icon: '⤓', category: 'GOOGLE', requires: 'gdrive_authorized', hasArgs: true },
+  { cmd: 'gdrive_toggle', label: 'Auto-upload', icon: '⚡', category: 'GOOGLE', requires: 'gdrive_authorized' },
   { cmd: 'gdrive_logout', label: 'Отвязать Drive', icon: '✂️', category: 'GOOGLE', requires: 'gdrive_authorized' },
   { cmd: 'gcal', label: 'Календарь', icon: '📅', category: 'GOOGLE', requires: 'gdrive_authorized' },
   { cmd: 'gcal_create', label: 'Создать событие', icon: '➕', category: 'GOOGLE', requires: 'gdrive_authorized', hasArgs: true },
@@ -38,6 +39,10 @@ const COMMANDS: DrawerCommand[] = [
   { cmd: 'users', label: 'Пользователи', icon: '👥', category: 'ВЛАДЕЛЕЦ', requires: 'owner' },
   { cmd: 'versions', label: 'Резервные копии', icon: '📦', category: 'ВЛАДЕЛЕЦ', requires: 'owner' },
   { cmd: 'blacklist', label: 'Чёрный список', icon: '🚫', category: 'ВЛАДЕЛЕЦ', requires: 'owner' },
+  { cmd: 'evolution_count', label: 'Счётчик /evolve', icon: '🧬', category: 'ВЛАДЕЛЕЦ', requires: 'owner' },
+  { cmd: 'rituals', label: 'Ритуалы', icon: '🤖', category: 'ВЛАДЕЛЕЦ', requires: 'owner' },
+  { cmd: 'reflect', label: 'Само-ревью', icon: '🔍', category: 'ВЛАДЕЛЕЦ', requires: 'owner' },
+  { cmd: 'kidmode', label: 'Детский режим', icon: '👶', category: 'ВЛАДЕЛЕЦ', requires: 'owner', hasArgs: true },
   { cmd: 'rename', label: 'Переименовать пользователя', icon: '✏️', category: 'ВЛАДЕЛЕЦ', requires: 'owner', hasArgs: true },
   { cmd: 'help', label: 'Помощь', icon: '❓', category: 'ЧАТ' },
 ];

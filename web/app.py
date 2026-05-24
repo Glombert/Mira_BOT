@@ -343,80 +343,133 @@ def _ensure_profile(user_id: str, tg_name: str = "") -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Фоновые обработчики: scheduled tasks и rituals
+# Общий helper: запускает alpha.run() для любого источника
 # ---------------------------------------------------------------------------
 
-def _run_scheduled_task(user_id: str, prompt: str) -> str:
-    """Выполняет отложенную задачу (kind='task') как симуляцию user message."""
-    import providers as _prov
-    from agent import Agent, Profile
+def _invoke_alpha(user_id: str, prompt: str,
+                  source: str = "user") -> tuple[str, list[dict]]:
+    """Запускает alpha.run с prompt, возвращает (answer, attachments).
 
-    msgs = _load_session(user_id)
+    source: "user" | "scheduled_task" | "ritual" — для логирования.
+    Не сохраняет сессию — caller решает.
+    """
+    from agent import Agent, Profile, SYSTEM_PROMPT, TOOL_SCHEMAS, execute_tool as _exec
+    from conclave import Conclave
+    from router import classify
+    from tools import semantic_memory as _sm
+
     is_appr = _is_approved(user_id)
     if is_appr:
-        pdata = load_user_profile(user_id) or {}
-        if pdata.get("status") == "owner":
-            profile = Profile("dev")
-        else:
-            profile = Profile("default")
+        pd = load_user_profile(user_id) or {}
+        profile = Profile("dev") if pd.get("status") == "owner" else Profile("default")
         agent_name = "alpha"
     else:
         profile = Profile("guest")
         agent_name = "alpha_guest"
 
+    sys_prompt = _system_prompt_for(user_id)
     try:
-        alpha = Agent.from_config_file(agent_name, profile, user_id, _system_prompt_for(user_id))
+        alpha = Agent.from_config_file(agent_name, profile, user_id, sys_prompt)
     except FileNotFoundError:
-        return "Конфиг агента не найден."
+        return "[конфиг агента не найден]", []
 
+    msgs = _load_session(user_id)
     msgs.append({"role": "user", "content": prompt, "ts": time.time()})
     system = [m for m in msgs if m["role"] == "system"]
     the_rest = [m for m in msgs if m["role"] != "system"]
     msgs = system + the_rest[-MAX_HISTORY:]
+
+    # Семантический augment
+    augment = ""
+    try:
+        matches = _sm.search(user_id, prompt, top_k=5)
+        augment = _sm.format_for_prompt(matches)
+    except Exception:
+        pass
+
     llm_msgs = [{k: v for k, v in m.items() if k != "ts"} for m in msgs]
+    if augment and llm_msgs and llm_msgs[0].get("role") == "system":
+        llm_msgs[0] = {**llm_msgs[0], "content": llm_msgs[0]["content"] + "\n\n" + augment}
+
+    # Снимок output/ до
+    out_dir = os.path.join(WORKSPACE_DIR, user_id, "output")
+    out_before: dict[str, float] = {}
+    if os.path.isdir(out_dir):
+        for f in os.listdir(out_dir):
+            fp = os.path.join(out_dir, f)
+            if os.path.isfile(fp) and not f.startswith("."):
+                out_before[f] = os.path.getmtime(fp)
+
+    # Классификация + роутинг
+    task_type = classify(prompt, alpha.model_chain if alpha else [])
+    _EXECUTOR_FOR = {"search": "scout", "code": "coder", "complex": "coder", "image": "artist"}
 
     try:
-        answer = alpha.run(llm_msgs)
-        assistant_msg = {"role": "assistant", "content": answer, "ts": time.time()}
-        msgs.append(assistant_msg)
-        _save_session(user_id, msgs)
-        logger.info(f"_run_scheduled_task: {user_id} — ok ({len(answer)} символов)")
-        return answer
+        if task_type in _EXECUTOR_FOR and alpha:
+            conclave = Conclave(
+                system_prompt=SYSTEM_PROMPT, user_id=user_id,
+                profile=profile, tool_schemas=TOOL_SCHEMAS, execute_tool_fn=_exec,
+            )
+            executor = _EXECUTOR_FOR[task_type]
+            raw = conclave.run_with_qa(prompt, executor)
+            sys_with_aug = SYSTEM_PROMPT + ("\n\n" + augment if augment else "")
+            presentation = f"Специалисты выполнили задачу. Представь результат:\n\n{raw}"
+            recent = [m for m in msgs if m.get("role") != "system"][-12:]
+            alpha_msgs = [
+                {"role": "system", "content": sys_with_aug},
+                *recent,
+                {"role": "assistant", "content": "[передала специалистам]"},
+                {"role": "user", "content": presentation},
+            ]
+            answer = _providers.call(alpha.model_chain, alpha_msgs, temperature=0.7,
+                                     user_id=user_id, agent_name=alpha.name).choices[0].message.content
+        else:
+            answer = alpha.run(llm_msgs)
     except Exception as e:
-        logger.error(f"_run_scheduled_task: {user_id} — ошибка: {e}")
-        return f"Ошибка: {e}"
+        logger.error(f"_invoke_alpha: {source} error: {e}")
+        return f"Ошибка: {e}", []
+
+    # Снимок output/ после
+    attachments: list[dict] = []
+    if os.path.isdir(out_dir):
+        for f in os.listdir(out_dir):
+            fp = os.path.join(out_dir, f)
+            if not os.path.isfile(fp) or f.startswith("."):
+                continue
+            mt = os.path.getmtime(fp)
+            if f not in out_before or mt > out_before[f] + 0.5:
+                attachments.append({"name": f, "dir": "output", "size": os.path.getsize(fp)})
+
+    # Сливаем pending attachments (если есть)
+    from tools.file_tools import pop_pending_attachments
+    manual = pop_pending_attachments(user_id)
+    merged = list({(a["name"], a["dir"]): a for a in (attachments + manual)}.values())
+
+    logger.info(f"_invoke_alpha: {source} ok ({len(answer)} символов, {len(merged)} attachments)")
+    return answer, merged
+
+
+# ---------------------------------------------------------------------------
+# Фоновые обработчики: scheduled tasks и rituals
+# ---------------------------------------------------------------------------
+
+def _run_scheduled_task(user_id: str, prompt: str) -> str:
+    """Выполняет отложенную задачу (kind='task')."""
+    answer, _ = _invoke_alpha(user_id, prompt, source="scheduled_task")
+    # Сохраняем ответ в сессию
+    msgs = _load_session(user_id)
+    msgs.append({"role": "assistant", "content": answer, "ts": time.time()})
+    _save_session(user_id, msgs)
+    return answer
 
 
 def _run_ritual_background(ritual: dict, user_id: str) -> None:
-    """Выполняет один ритуал в фоне и шлёт notify_owner если IMPORTANCE ≥ порога."""
-    from agent import Agent, Profile
+    """Выполняет ритуал в фоне, сохраняет last_run, шлёт notify_owner если IMPORTANCE >= порога."""
     from tools import db as _db
     from tools.access_tools import notify_owner as _notify
 
     logger.info(f"rituals: запуск '{ritual['name']}' для {user_id}")
-
-    profile = Profile("dev")  # ритуалы всегда от владельца
-    try:
-        alpha = Agent.from_config_file("alpha", profile, user_id, _system_prompt_for(user_id))
-    except FileNotFoundError:
-        logger.error(f"rituals: alpha config не найден")
-        return
-
-    # Эфемерная сессия: ритуал не должен загрязнять основную историю.
-    # Собираем system + промпт ритуала = стартовый контекст для alpha.run.
-    msgs = [
-        {"role": "system", "content": _system_prompt_for(user_id)},
-        {"role": "user",   "content": ritual["prompt"]},
-    ]
-
-    try:
-        # alpha.run() — встроенный agent-loop с TOOL_SCHEMAS.
-        # Мира может вызывать read_self, list_self, web_search и др.
-        answer = alpha.run(msgs)
-    except Exception as e:
-        logger.error(f"rituals: '{ritual['name']}' agent error: {e}")
-        _db.save_ritual_run(ritual["name"], datetime.now().isoformat(), f"ERROR: {e}")
-        return
+    answer, _ = _invoke_alpha(user_id, ritual["prompt"], source="ritual")
 
     now_iso = datetime.now().isoformat()
     _db.save_ritual_run(ritual["name"], now_iso, answer[:300])
@@ -441,11 +494,53 @@ async def index():
     # Отдаём новый Next.js клиент если собран, иначе legacy vanilla-JS.
     new_index = CLIENT_DIST / "index.html"
     if new_index.is_file():
-        return FileResponse(str(new_index))
+        return FileResponse(str(new_index), headers={
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' wss:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'",
+        })
     legacy_index = LEGACY_STATIC_DIR / "index.html"
     if legacy_index.is_file():
-        return FileResponse(str(legacy_index))
+        return FileResponse(str(legacy_index), headers={
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' wss:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'",
+        })
     raise HTTPException(status_code=404, detail="Web client not built")
+
+
+# --- /mobile/version (кэш 10 мин) ---
+_VERSION_CACHE: dict = {"ts": 0.0, "data": {}}
+_VERSION_CACHE_TTL = 600
+
+
+@app.get("/mobile/version")
+async def mobile_version():
+    now = time.time()
+    if now - _VERSION_CACHE["ts"] < _VERSION_CACHE_TTL and _VERSION_CACHE.get("data"):
+        return _VERSION_CACHE["data"]
+    import urllib.request as _req, urllib.error as _err, json as _js
+    try:
+        rq = _req.Request(
+            "https://api.github.com/repos/Glombert/Mira_Mobile/releases/latest",
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "mira-web"},
+        )
+        with _req.urlopen(rq, timeout=5) as resp:
+            data = _js.loads(resp.read())
+        apk_url = ""
+        for asset in data.get("assets", []):
+            if asset.get("name", "").endswith(".apk"):
+                apk_url = asset.get("browser_download_url", "")
+                break
+        result = {
+            "version": data.get("tag_name", "").lstrip("v"),
+            "apk_url": apk_url,
+            "release_notes": (data.get("body") or "")[:2000],
+        }
+    except Exception as e:
+        logger.warning(f"/mobile/version: github api error: {e}")
+        result = {"version": "", "apk_url": "", "release_notes": ""}
+    _VERSION_CACHE["ts"] = now
+    _VERSION_CACHE["data"] = result
+    return result
 
 
 def _check_heartbeat(filename: str) -> bool:
@@ -942,6 +1037,13 @@ async def chat(websocket: WebSocket, session: str = ""):
                 break
 
             if data.get("type") == "ping":
+                # Session age check: каждые 5 минут проверяем не протухла ли сессия
+                if int(time.time() / 300) % 1 == 0:  # каждый ping — дешёво
+                    tg = _verify_session(session) if session else None
+                    if not tg:
+                        await websocket.send_json({"type": "auth_required", "bot": BOT_USERNAME})
+                        await websocket.close(code=4001)
+                        break
                 await websocket.send_json({"type": "pong"})
                 continue
 
