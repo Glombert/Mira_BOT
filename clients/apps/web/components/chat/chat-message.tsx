@@ -109,19 +109,23 @@ export function ChatMessageBubble({ message, getFileUrl }: ChatMessageProps) {
         <div className="flex-1 min-w-0">
           <span className="text-xs text-text-secondary mb-1 block">Мира</span>
           <div className="text-text-primary text-base leading-relaxed">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              className="mira-markdown"
-              components={{
-                a: ({ href, children }) => (
-                  <a href={href} target="_blank" rel="noopener noreferrer">
-                    {children}
-                  </a>
-                ),
-              }}
-            >
-              {isNew ? <TypewriterText content={content || ''} /> : (content || '')}
-            </ReactMarkdown>
+            {isNew ? (
+              <TypewriterText content={content || ''} />
+            ) : (
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                className="mira-markdown"
+                components={{
+                  a: ({ href, children }) => (
+                    <a href={href} target="_blank" rel="noopener noreferrer">
+                      {children}
+                    </a>
+                  ),
+                }}
+              >
+                {content || ''}
+              </ReactMarkdown>
+            )}
           </div>
           {message.attachments && message.attachments.length > 0 && (
             <div className="mt-2 space-y-1">
