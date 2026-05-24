@@ -1,0 +1,10 @@
+/root/mira_autosync.log {
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 root root
+    su root root
+}

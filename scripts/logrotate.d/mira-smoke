@@ -1,0 +1,10 @@
+/root/mira_smoke.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 root root
+    su root root
+}
