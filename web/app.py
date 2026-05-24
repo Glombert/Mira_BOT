@@ -1239,7 +1239,9 @@ async def chat(websocket: WebSocket, session: str = ""):
                         if len(parts) < 2:
                             await websocket.send_json({"type": "system", "content": "Формат: rename <user_id> <новое имя>"})
                         else:
-                            from agent import load_user_profile, save_user_profile
+                            # load_user_profile/save_user_profile уже на top-level (L48).
+                            # Локальный import шадовил бы их в ВСЕЙ функции chat() — то же
+                            # самое произошло с Profile в прошлый раз.
                             target_id, new_name = parts[0].strip(), parts[1].strip()
                             p = load_user_profile(target_id)
                             if not p:
