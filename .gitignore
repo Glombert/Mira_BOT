@@ -52,3 +52,4 @@ clients/**/.next/
 clients/**/target/
 clients/**/.env
 clients/**/.env.*
+clients/**/tsconfig.tsbuildinfo
