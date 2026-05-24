@@ -35,6 +35,10 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive.file',
     'https://www.googleapis.com/auth/calendar.events',
     'https://www.googleapis.com/auth/spreadsheets',
+    # userinfo.email нужен чтобы _get_user_email() мог подтянуть email
+    # сразу после OAuth — иначе callback-страница пишет «привязан: неизвестно».
+    'https://www.googleapis.com/auth/userinfo.email',
+    'openid',
 ]
 
 # Redirect URI: на VPS — веб-колбэк, локально — localhost
