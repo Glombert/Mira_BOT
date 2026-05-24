@@ -1502,19 +1502,42 @@ async def chat(websocket: WebSocket, session: str = ""):
             if single_attach and not attached_raw:
                 attached_raw = [single_attach]
 
+            # Разделяем прикрепления на image и non-image.
+            # Image-файлы должны лететь в LLM как vision-content-block (base64),
+            # иначе Мира видит только путь и не может посмотреть содержимое.
+            # Non-image (pdf/excel/txt и т.п.) остаются упоминанием в тексте —
+            # Мира может позвать read_file / excel_read / read_pdf для них.
+            import base64 as _b64, mimetypes as _mt
+            _IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
             valid_files: list[str] = []
+            image_blocks: list[dict] = []
             for name in attached_raw:
                 if not isinstance(name, str) or not name.strip():
                     continue
                 _att_safe = _safe_filename(name.strip())
                 _att_path = _resolve_under(os.path.join(WORKSPACE_DIR, user_id), "inbox", _att_safe) if _att_safe else None
-                if _att_path and os.path.isfile(_att_path):
+                if not (_att_path and os.path.isfile(_att_path)):
+                    continue
+                _mime = (_mt.guess_type(_att_safe)[0] or "").lower()
+                if _mime in _IMAGE_MIMES:
+                    try:
+                        with open(_att_path, "rb") as _f:
+                            _raw = _f.read()
+                        _b64s = _b64.b64encode(_raw).decode("ascii")
+                        image_blocks.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{_mime};base64,{_b64s}"},
+                        })
+                        valid_files.append(f"workspace/inbox/{_att_safe} (картинка)")
+                    except Exception as e:
+                        logger.warning(f"WS attachment image read failed: {_att_safe}: {e}")
+                else:
                     valid_files.append(f"workspace/inbox/{_att_safe}")
 
             if valid_files:
                 prefix = "[Прикреплены файлы:\n  " + "\n  ".join(valid_files) + "]\n\n"
                 text = prefix + text
-            if not text:
+            if not text and not image_blocks:
                 continue
 
             logger.info(f"WS message: {user_id} len={len(text)}")
@@ -1575,7 +1598,17 @@ async def chat(websocket: WebSocket, session: str = ""):
                 })
                 continue
 
-            msgs.append({"role": "user", "content": text, "ts": time.time()})
+            # Если есть картинки — content становится list с text + image_url
+            # блоками (формат OpenAI Vision / Anthropic Claude vision).
+            # Иначе — обычная строка.
+            if image_blocks:
+                content_blocks: list = []
+                if text:
+                    content_blocks.append({"type": "text", "text": text})
+                content_blocks.extend(image_blocks)
+                msgs.append({"role": "user", "content": content_blocks, "ts": time.time()})
+            else:
+                msgs.append({"role": "user", "content": text, "ts": time.time()})
             system   = [m for m in msgs if m["role"] == "system"]
             the_rest = [m for m in msgs if m["role"] != "system"]
             msgs     = system + the_rest[-MAX_HISTORY:]
