@@ -15,6 +15,9 @@ from datetime import datetime
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(REPO)
+# REPO нужен в sys.path, чтобы импортировать memory_crypto / tools.*
+if REPO not in sys.path:
+    sys.path.insert(0, REPO)
 
 # Подгружаем .env чтобы tools.access_tools.notify_owner смог отправить
 from dotenv import load_dotenv
