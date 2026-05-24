@@ -750,5 +750,26 @@ TOOL_SCHEMAS = [
                 "required": ["prompt"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "attach_file",
+            "description": (
+                "Прикрепляет существующий файл из workspace пользователя к следующему ответу Миры. "
+                "Используй когда пользователь просит прислать ранее загруженный или созданный файл, "
+                "а не создавать новый. Путь должен начинаться с inbox/ или output/."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Относительный путь к файлу. Например: 'inbox/report.pdf' или 'output/result.xlsx'."
+                    }
+                },
+                "required": ["path"]
+            }
+        }
     }
 ]

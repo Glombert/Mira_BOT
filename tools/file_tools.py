@@ -264,3 +264,40 @@ def list_undo(user_id: str) -> dict:
         return {"ok": True, "backups": []}
     entries = sorted(os.listdir(undo_dir))
     return {"ok": True, "backups": entries}
+
+
+# ---------------------------------------------------------------------------
+# attach_file — Мира может явно прикрепить файл к следующему ответу
+# ---------------------------------------------------------------------------
+
+import threading
+
+_PENDING_ATTACHMENTS: dict[str, list[dict]] = {}
+_PA_LOCK = threading.Lock()
+
+
+def attach_file(user_id: str, path: str) -> dict:
+    """Помечает файл для прикрепления к следующему ответу Миры.
+    path — относительно workspace/<user_id>/ (например 'inbox/report.pdf').
+    """
+    parts = path.replace("\\", "/").split("/", 1)
+    if len(parts) != 2 or parts[0] not in ("inbox", "output"):
+        return {"ok": False, "error": "путь должен начинаться с inbox/ или output/"}
+    # Безопасность: нормализуем имя файла
+    safe_name = os.path.basename(parts[1].replace("\\", "/")).replace("\x00", "")
+    if not safe_name or safe_name in (".", ".."):
+        return {"ok": False, "error": "недопустимое имя файла"}
+    full = os.path.join(WORKSPACE_ROOT, user_id, parts[0], safe_name)
+    if not os.path.isfile(full):
+        return {"ok": False, "error": f"файл не найден: {path}"}
+    with _PA_LOCK:
+        _PENDING_ATTACHMENTS.setdefault(user_id, []).append({
+            "name": safe_name, "dir": parts[0], "size": os.path.getsize(full),
+        })
+    return {"ok": True, "attached": safe_name}
+
+
+def pop_pending_attachments(user_id: str) -> list[dict]:
+    """Возвращает и очищает накопленные прикрепления для пользователя."""
+    with _PA_LOCK:
+        return _PENDING_ATTACHMENTS.pop(user_id, [])

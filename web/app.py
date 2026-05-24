@@ -886,12 +886,60 @@ async def chat(websocket: WebSocket, session: str = ""):
 
     user_id  = _web_user_id(tg_id)
     _ensure_profile(user_id)
-    await websocket.send_json({"type": "ready", "name": load_user_profile(user_id).get("name", "")})
-    logger.info(f"WS connect: {user_id}")
+    is_owner_ws = OWNER_TG_ID and tg_id == OWNER_TG_ID
+    is_approved_ws = _is_approved(user_id)
+
+    # Owner channel: регистрируем WS для push-уведомлений
+    import asyncio as _asyncio
+    from tools.owner_channel import register as _och_register, unregister as _och_unregister, init as _och_init
+    _och_init(asyncio.get_running_loop())
+    _ws_key = str(id(websocket))
+    _owner_queue: asyncio.Queue = asyncio.Queue(maxsize=64)
+    if is_owner_ws:
+        _och_register(_ws_key, _owner_queue)
+
+    # Формируем permissions для drawer-меню
+    _perms = ["chat", "files"]
+    if is_approved_ws:
+        _perms.extend(["reminders", "tasks"])
+        _perms.extend(["gcal", "gsheet", "gdrive"])
+        if is_owner_ws:
+            _perms.append("owner_admin")  # stats/users/versions/rituals/kidmode
+
+    # Готовим ws_ready с флагами доступности
+    _profile = load_user_profile(user_id) or {}
+    _gd_auth = gdrive_authorized(user_id) if is_approved_ws else False
+    await websocket.send_json({
+        "type": "ready",
+        "name": _profile.get("name", ""),
+        "is_owner": is_owner_ws,
+        "is_approved": is_approved_ws,
+        "gdrive_authorized": _gd_auth,
+        "gdrive_email": gdrive_status(user_id).get("email", "") if _gd_auth else "",
+        "permissions": _perms,
+    })
+    logger.info(f"WS connect: {user_id} owner={is_owner_ws} approved={is_approved_ws}")
+
+    # Фоновая задача: читаем _owner_queue и шлём в WS
+    async def _forward_owner_messages():
+        if not is_owner_ws:
+            return
+        while True:
+            try:
+                msg = await asyncio.wait_for(_owner_queue.get(), timeout=30)
+                await websocket.send_text(msg)
+            except asyncio.TimeoutError:
+                continue
+            except Exception:
+                break
+    _owner_task = asyncio.create_task(_forward_owner_messages())
 
     try:
         while True:
-            data = await websocket.receive_json()
+            try:
+                data = await websocket.receive_json()
+            except WebSocketDisconnect:
+                break
 
             if data.get("type") == "ping":
                 await websocket.send_json({"type": "pong"})
@@ -1297,6 +1345,147 @@ async def chat(websocket: WebSocket, session: str = ""):
                         except Exception as e:
                             await websocket.send_json({"type": "system", "content": f"blacklist: {e}"})
 
+                # --- User management WS-commands (owner-only) ---
+                elif cmd.startswith("approve "):
+                    if not is_owner_ws:
+                        await websocket.send_json({"type": "system", "content": "Только для владельца."})
+                    else:
+                        uid = cmd[8:].strip()
+                        if not uid: await websocket.send_json({"type": "system", "content": "approve <user_id>"})
+                        else:
+                            from tools.access_tools import approve as _approve
+                            ok = _approve(uid)
+                            await websocket.send_json({"type": "system", "content": "Одобрен." if ok else "Не найден."})
+
+                elif cmd.startswith("block "):
+                    if not is_owner_ws:
+                        await websocket.send_json({"type": "system", "content": "Только для владельца."})
+                    else:
+                        uid = cmd[6:].strip()
+                        if not uid: await websocket.send_json({"type": "system", "content": "block <user_id>"})
+                        else:
+                            from tools.access_tools import block as _block
+                            ok = _block(uid)
+                            await websocket.send_json({"type": "system", "content": "Заблокирован." if ok else "Не найден."})
+
+                elif cmd.startswith("unblock "):
+                    if not is_owner_ws:
+                        await websocket.send_json({"type": "system", "content": "Только для владельца."})
+                    else:
+                        uid = cmd[8:].strip()
+                        if not uid: await websocket.send_json({"type": "system", "content": "unblock <user_id>"})
+                        else:
+                            from tools.access_tools import unblock as _unblock
+                            ok = _unblock(uid)
+                            await websocket.send_json({"type": "system", "content": "Разблокирован." if ok else "Не найден."})
+
+                # --- GDrive lifecycle ---
+                elif cmd == "gdrive_login":
+                    if not is_approved_ws:
+                         await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    elif not gdrive_configured():
+                         await websocket.send_json({"type": "system", "content": "GDrive не настроен."})
+                    elif gdrive_authorized(user_id):
+                         await websocket.send_json({"type": "system", "content": "Drive уже привязан. gdrive_logout — отвязать."})
+                    else:
+                         url = get_auth_url(state=user_id)
+                         if url:
+                             await websocket.send_json({"type": "system", "content": f"Открой в браузере:\n{url}\nПосле авторизации вернись в приложение."})
+                         else:
+                             await websocket.send_json({"type": "system", "content": "Не удалось создать ссылку."})
+
+                elif cmd == "gdrive_logout":
+                    if not is_approved_ws:
+                         await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    else:
+                         from tools.gdrive_tools import _delete_token
+                         _delete_token(user_id)
+                         # Уведомить клиент о смене статуса Drive
+                         await websocket.send_json({"type": "permissions_update", "gdrive_authorized": False, "gdrive_email": ""})
+                         await websocket.send_json({"type": "system", "content": "Google Drive отвязан."})
+
+                elif cmd == "gdrive_toggle":
+                    if not is_approved_ws:
+                         await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    elif not gdrive_authorized(user_id):
+                         await websocket.send_json({"type": "system", "content": "Сначала привяжи Drive: gdrive_login."})
+                    else:
+                         pd = load_user_profile(user_id) or {}
+                         prefs = pd.get("preferences", {})
+                         cur = prefs.get("gdrive_auto_upload", False)
+                         new_val = not cur
+                         prefs["gdrive_auto_upload"] = new_val
+                         pd["preferences"] = prefs
+                         save_user_profile(user_id, pd)
+                         state = "включена" if new_val else "выключена"
+                         await websocket.send_json({"type": "system", "content": f"Авто-загрузка на Drive {state}."})
+
+                # --- Kidmode (owner-only) ---
+                elif cmd.startswith("kidmode "):
+                    if not is_owner_ws:
+                         await websocket.send_json({"type": "system", "content": "Только для владельца."})
+                    else:
+                         parts = cmd[8:].strip().split()
+                         if len(parts) < 2:
+                             await websocket.send_json({"type": "system", "content": "kidmode <user_id> on|off"})
+                         else:
+                             uid, toggle = parts[0], parts[1].lower()
+                             if toggle not in ("on", "off"):
+                                 await websocket.send_json({"type": "system", "content": "on или off."})
+                             else:
+                                 data = load_user_profile(uid)
+                                 if not data:
+                                     await websocket.send_json({"type": "system", "content": "Пользователь не найден."})
+                                 else:
+                                     data["child_mode"] = (toggle == "on")
+                                     save_user_profile(uid, data)
+                                     await websocket.send_json({"type": "system", "content": f"Детский режим {toggle} для {uid}."})
+
+                # --- Reflect (owner-only) ---
+                elif cmd == "reflect":
+                    if not is_owner_ws:
+                         await websocket.send_json({"type": "system", "content": "Только для владельца."})
+                    else:
+                         from agent import load_principles, Agent, Profile
+                         msgs = _load_session(user_id)
+                         prompt = (
+                             "Проанализируй свой код (agent.py, conclave.py, providers.py, router.py, "
+                             "telegram_bot.py, web/app.py, tools/) через read_self/list_self. "
+                             "Найди риски, баги, устаревший код, дублирование. Отвечай конкретно."
+                         )
+                         msgs.append({"role": "user", "content": prompt})
+                         profile_dev = Profile("dev")
+                         try:
+                             alpha_refl = Agent.from_config_file("alpha", profile_dev, user_id, _system_prompt_for(user_id))
+                             answer = await asyncio.to_thread(alpha_refl.run, msgs)
+                             await websocket.send_json({"type": "message", "content": answer})
+                             msgs.append({"role": "assistant", "content": answer})
+                             _save_session(user_id, msgs)
+                         except Exception as e:
+                             await websocket.send_json({"type": "error", "content": f"Reflect: {e}"})
+
+                # --- Image generation (approved) ---
+                elif cmd.startswith("image "):
+                    if not is_approved_ws:
+                         await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    else:
+                         prompt = cmd[6:].strip()
+                         if not prompt:
+                             await websocket.send_json({"type": "system", "content": "image <описание картинки>"})
+                         else:
+                             from tools import image_tools
+                             await websocket.send_json({"type": "thinking"})
+                             result = await asyncio.to_thread(image_tools.generate_image, user_id, prompt)
+                             if result.get("ok"):
+                                 fname = os.path.basename(result.get("path", ""))
+                                 await websocket.send_json({
+                                     "type": "message",
+                                     "content": f"Картинка готова: {fname}",
+                                     "attachments": [{"name": fname, "dir": "output", "size": result.get("size", 0)}],
+                                 })
+                             else:
+                                 await websocket.send_json({"type": "error", "content": result.get("error", "Ошибка генерации")})
+
                 continue
 
             text = data.get("content", "").strip()
@@ -1450,8 +1639,11 @@ async def chat(websocket: WebSocket, session: str = ""):
                 continue
 
             # Снимок output/ ПОСЛЕ хода — diff с _output_before даёт список
-            # файлов, созданных/обновлённых Мирой за этот ход. Прикладываем
-            # к ответу как attachments — клиент рисует кнопки-чипы для скачивания.
+            # файлов, созданных/обновлённых Мирой за этот ход. Плюс явные
+            # прикрепления через attach_file tool (pop_pending_attachments).
+            # Сливаем, дедуплицируем по (name, dir).
+            from tools.file_tools import pop_pending_attachments
+            manual = pop_pending_attachments(user_id)
             attachments: list[dict] = []
             if os.path.isdir(_output_dir):
                 for _f in os.listdir(_output_dir):
@@ -1465,19 +1657,21 @@ async def chat(websocket: WebSocket, session: str = ""):
                             "dir":  "output",
                             "size": os.path.getsize(_fp),
                         })
+            # Сливаем manual + auto, дедуплицируем
+            merged = list({(a["name"], a["dir"]): a for a in (attachments + manual)}.values())
 
             # Сохраняем ответ в постоянную историю. И Конклав-путь (alpha_msgs —
             # отдельный список), и alpha.run (llm_msgs — копия c augment) не пишут
             # в основной msgs. Без этого следующий ход видит чат без её ответов
             # и Мира «забывает» что уже отвечала.
             assistant_msg = {"role": "assistant", "content": answer, "ts": time.time()}
-            if attachments:
-                assistant_msg["attachments"] = attachments
+            if merged:
+                assistant_msg["attachments"] = merged
             msgs.append(assistant_msg)
 
             ws_payload: dict = {"type": "message", "content": answer}
-            if attachments:
-                ws_payload["attachments"] = attachments
+            if merged:
+                ws_payload["attachments"] = merged
             await websocket.send_json(ws_payload)
             _save_session(user_id, msgs)
 
@@ -1538,6 +1732,14 @@ async def chat(websocket: WebSocket, session: str = ""):
             notify_owner(f"WebSocket error: {e}"[:300])
         except Exception:
             pass
+    finally:
+        # Cleanup owner channel
+        try:
+            _owner_task.cancel()
+        except Exception:
+            pass
+        if is_owner_ws:
+            _och_unregister(_ws_key)
 
 
 if __name__ == "__main__":

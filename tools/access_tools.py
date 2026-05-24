@@ -273,17 +273,33 @@ def notify_owner(message: str, user_id: str = "", buttons: list | None = None) -
 
 
 def notify_new_user(user_id: str, name: str, source: str = "telegram") -> None:
-    """Уведомляет владельца о новом пользователе с кнопками одобрения."""
+    """Уведомляет владельца о новом пользователе с кнопками одобрения.
+
+    Telegram — основной канал с inline-кнопками.
+    WS (owner_channel) — параллельно, для мобайла/веба.
+    """
     msg = (
         f"Новый пользователь хочет пообщаться!\n"
         f"Имя: {name or '—'}\n"
         f"ID: {user_id}\n"
         f"Источник: {source}"
     )
+    # Telegram
     notify_owner(msg, user_id=user_id, buttons=[
         {"text": "Одобрить ✅",  "callback_data": f"u_ap_{user_id}"},
         {"text": "Отклонить ❌", "callback_data": f"u_rj_{user_id}"},
     ])
+    # WS — approval_request для drawer/веба
+    try:
+        from tools.owner_channel import push_to_owner
+        push_to_owner({
+            "type": "approval_request",
+            "user_id": user_id,
+            "name": name,
+            "source": source,
+        })
+    except Exception as e:
+        logger.warning(f"notify_new_user: WS push failed: {e}")
 
 
 def _log_decision(event: str, msg: str) -> None:
