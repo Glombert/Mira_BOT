@@ -2,9 +2,11 @@
 
 import os
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from tools import db
+
+MSK = timezone(timedelta(hours=3))
 
 
 @pytest.fixture
@@ -112,8 +114,11 @@ def test_reminder_cancel_wrong_user(fresh_db):
 
 
 def test_reminder_get_due(fresh_db):
-    past = (datetime.now() - timedelta(minutes=1)).isoformat()
-    future = (datetime.now() + timedelta(hours=1)).isoformat()
+    # Используем TZ-aware datetime, чтобы тест работал на любой локальной
+    # зоне (раньше naive .now() на UTC+10 интерпретировался как МСК →
+    # уезжал на 7 часов в будущее).
+    past = (datetime.now(MSK) - timedelta(minutes=1)).isoformat()
+    future = (datetime.now(MSK) + timedelta(hours=1)).isoformat()
     fresh_db.add_reminder("tg_1", past, "Past")
     fresh_db.add_reminder("tg_1", future, "Future")
 

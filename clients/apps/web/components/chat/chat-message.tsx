@@ -3,7 +3,6 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { StarAvatar } from '@/components/ui/star-avatar';
 import { FileText, Folder, Cloud } from 'lucide-react';
 import { formatBytes } from '@/lib/utils';
 
@@ -76,7 +75,7 @@ export function ChatMessageBubble({ message, getFileUrl }: ChatMessageProps) {
   if (type === 'thinking') {
     return (
       <div className="flex items-start gap-3 animate-fade-in-up">
-        <StarAvatar size={28} />
+        <img src="/mira-avatar-full.png" alt="Мира" className="w-7 h-7 rounded-full object-cover shrink-0" />
         <div className="flex items-center gap-2 px-4 py-3">
           <span className="h-2 w-2 rounded-full bg-accent animate-pulse-think" />
           <span className="h-2 w-2 rounded-full bg-accent animate-pulse-think [animation-delay:200ms]" />
@@ -106,7 +105,7 @@ export function ChatMessageBubble({ message, getFileUrl }: ChatMessageProps) {
     const isNew = isFresh(message.timestamp);
     return (
       <div className="flex items-start gap-3 animate-fade-in-up">
-        <StarAvatar size={28} />
+        <img src="/mira-avatar-full.png" alt="Мира" className="w-7 h-7 rounded-full object-cover shrink-0" />
         <div className="flex-1 min-w-0">
           <span className="text-xs text-text-secondary mb-1 block">Мира</span>
           <div className="text-text-primary text-base leading-relaxed">

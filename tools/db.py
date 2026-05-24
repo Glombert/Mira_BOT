@@ -24,7 +24,7 @@ import os
 import sqlite3
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 logger = logging.getLogger("Ouroboros")
@@ -376,8 +376,7 @@ def get_due_reminders() -> list[dict]:
     now берётся в UTC. fromisoformat корректно переводит +03:00 в UTC
     для сравнения. Старые записи без TZ интерпретируются как МСК.
     """
-    from datetime import timezone as _tz
-    now_utc = datetime.now(_tz.utc)
+    now_utc = datetime.now(timezone.utc)
     conn = get_conn()
     with conn:
         all_pending = conn.execute(
@@ -392,7 +391,7 @@ def get_due_reminders() -> list[dict]:
                 continue
             if t.tzinfo is None:
                 # Старая запись без TZ — считаем МСК
-                t = t.replace(tzinfo=_tz(timedelta(hours=3)))
+                t = t.replace(tzinfo=timezone(timedelta(hours=3)))
             if t <= now_utc:
                 due_ids.append(row["id"])
         if not due_ids:
