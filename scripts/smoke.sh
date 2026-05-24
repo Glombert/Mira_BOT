@@ -268,12 +268,12 @@ check_contains "≥3 ритуала загружены" "$RITUALS" "count: 3"
 TP=$(run_remote "cd /root/mira_agent && $VENV_PY -c '
 from tools.time_parse import parse_time
 ok, iso = parse_time(\"завтра 8:00\")
-print(\"завтра 8:00 ok=\" + str(ok), \"+03:00 in iso:\", \"+03:00\" in iso)
+print(\"завтра 8:00 ok=\" + str(ok), \"+00:00 in iso:\", \"+00:00\" in iso)
 ok2, iso2, rest = __import__(\"tools.time_parse\", fromlist=[\"extract_time_and_rest\"]).extract_time_and_rest(\"завтра 8:00 проверь календарь\")
 print(\"extract:\", \"ok=\" + str(ok2), \"rest=\" + rest)
 '" 2>&1)
 [[ "$QUIET" -eq 1 ]] || echo "$TP" | sed 's/^/    /'
-check_contains "parse_time tz-aware" "$TP" "+03:00 in iso: True"
+check_contains "parse_time tz-aware (UTC default)" "$TP" "+00:00 in iso: True"
 check_contains "extract_time_and_rest корректный" "$TP" "rest=проверь календарь"
 
 # attach_file tool

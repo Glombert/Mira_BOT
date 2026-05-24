@@ -104,18 +104,30 @@ Mira — это **твой собственный AI-ассистент**, к к
 | **Безопасность** | firejail-изоляция Python · workspace per user · path traversal protection · HMAC сессии |
 | **Самоэволюция** | `/evolve` — Мира сама правит свой код через 5-слойную валидацию (whitelist → syntax → smoke test → atomic rollback) |
 
-## Что в v2.0 нового
+## Что в v2.2 нового
+
+| Категория | Фичи |
+|---|---|
+| 🌍 **Per-user timezone** | `/tz Asia/Khabarovsk` — Мира знает локальное время каждого юзера, парсит «завтра 8:00» в его зоне. Storage везде UTC. |
+| 🖼 **Vision из приложений** | Прикрепил фото через скрепку в mobile/web → Мира видит и описывает (раньше только через Telegram). |
+| ✏️ **Rename пользователей** | `/rename <user_id> <имя>` (owner) — для тестеров: понятные имена в `/users` вместо подтянутых из Telegram. |
+| 🩺 **Smoke-suite** | `scripts/smoke.sh` — 29 end-to-end проверок (HTTP, WS, upload, БД, Google API, FCM, парсер времени). Cron-обёртка `smoke_cron.py` запускается ежедневно, алертит владельца при fail. |
+| 🚀 **Auto-release** | `scripts/release.sh` для бэка и мобайла — bump+tag+CI+APK+GitHub Release одной командой. |
+| 📦 **logrotate** | `mira_smoke.log` / `mira_autosync.log` — daily/weekly ротация, прекращает бесконечный рост. |
+
+## Что было в v2.0–v2.1
 
 | Категория | Фичи |
 |---|---|
 | 📱 **Клиенты** | Mobile (RN), Web (Next.js), Desktop (Tauri), one-tap Telegram-логин |
+| ☰ **Drawer-меню** | Выезжающая панель со ВСЕМИ командами, иконки, серые при отсутствии прав |
 | 🔔 **Уведомления** | FCM push на ответы и напоминания · mirror в Telegram |
 | 🤖 **Автономия** | Ритуалы по cron (self-review каждые 4ч, server health daily) · Scheduled tasks |
-| 📎 **Файлы** | Прикрепления через скрепку · upload-on-select · download через тап на чип |
-| 🔧 **Owner-команды** | `/stats`, `/users`, `/versions`, `/rituals` теперь и в приложениях |
-| 🛡 **Инфра** | Pre-commit hook, SSH deploy keys, 227 тестов, nginx 25MB lim |
+| 📎 **Файлы** | Прикрепления через скрепку · multi-attachments (до 5) · download через тап |
+| 🔧 **Owner-команды** | `/stats`, `/users`, `/versions`, `/rituals`, `/approve`, `/block`, `/reflect`, `/image` в приложениях |
+| 🛡 **Инфра** | Pre-commit hook, SSH deploy keys, 250+ тестов, nginx 25MB, fix-timezone reminders |
 
-[**→ Полные release notes v2.0**](https://github.com/Glombert/Mira_BOT/releases/tag/v2.0)
+[**→ Все релизы**](https://github.com/Glombert/Mira_BOT/releases)
 
 ---
 
