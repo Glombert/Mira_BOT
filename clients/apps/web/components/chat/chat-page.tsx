@@ -10,7 +10,6 @@ import { ChatHeader } from './chat-header';
 import { ChatInput } from './chat-input';
 import { ChatMessageBubble, type ChatMessageItem } from './chat-message';
 import { WhoamiModal } from '@/components/ui/whoami-modal';
-import { CommandPalette } from '@/components/palette/command-palette';
 import { RemindersModal } from '@/components/ui/reminders-modal';
 import { DriveModal } from '@/components/ui/drive-modal';
 import { WebDrawer } from './web-drawer';
@@ -485,7 +484,7 @@ export function ChatPage() {
       )}
 
       {whoamiContent && <WhoamiModal content={whoamiContent} onClose={() => setWhoamiContent(null)} />}
-      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={handlePaletteRun} />
+      <WebDrawer open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={handlePaletteRun} permissions={permissions} userName={userName} />
       <RemindersModal open={remindersOpen} onClose={() => setRemindersOpen(false)} client={client} />
       <DriveModal open={driveOpen} onClose={() => setDriveOpen(false)} client={client} />
     </div>
