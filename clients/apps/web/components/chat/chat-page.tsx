@@ -13,6 +13,7 @@ import { WhoamiModal } from '@/components/ui/whoami-modal';
 import { CommandPalette } from '@/components/palette/command-palette';
 import { RemindersModal } from '@/components/ui/reminders-modal';
 import { DriveModal } from '@/components/ui/drive-modal';
+import { WebDrawer } from './web-drawer';
 
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -45,6 +46,7 @@ export function ChatPage() {
   const pendingFilesRef = useRef<File[]>([]);
   const uploadResultsRef = useRef<Array<{ filename: string; size: number }>>([]);
   const [autoScroll, setAutoScroll] = useState(true);
+  const [permissions, setPermissions] = useState({ is_owner: false, is_approved: true, gdrive_authorized: false, gdrive_email: null as string | null, permissions: [] as string[] });
 
   const clientRef = useRef<MiraClient | undefined>(undefined);
   useEffect(() => {
@@ -93,6 +95,13 @@ export function ChatPage() {
       setConnectionStatus('online');
       setUserName(msg.name);
       setShowAuth(false);
+      setPermissions({
+        is_owner: msg.is_owner ?? false,
+        is_approved: msg.is_approved ?? true,
+        gdrive_authorized: msg.gdrive_authorized ?? false,
+        gdrive_email: msg.gdrive_email ?? null,
+        permissions: msg.permissions ?? [],
+      });
       if (!historyLoadedRef.current) {
         historyLoadedRef.current = true;
         c.fetchHistory(50).then((hist) => {
@@ -121,13 +130,26 @@ export function ChatPage() {
     });
 
     const unsubMessage = c.on('message', (msg) => {
-      addMessage({ id: generateId(), type: 'message', content: msg.content, timestamp: Date.now() });
+      addMessage({ id: generateId(), type: 'message', content: msg.content, messageAttachments: msg.attachments, timestamp: Date.now() });
+    });
+
+    const unsubApproval = c.on('approval_request', (msg) => {
+      addMessage({ id: generateId(), type: 'approval_request', approval: { user_id: msg.user_id, name: msg.name, source: msg.source }, timestamp: Date.now() });
+    });
+
+    const unsubPermissionsUpdate = c.on('permissions_update', (msg) => {
+      setPermissions((prev) => ({ ...prev, is_owner: msg.is_owner ?? prev.is_owner, is_approved: msg.is_approved ?? prev.is_approved, gdrive_authorized: msg.gdrive_authorized ?? prev.gdrive_authorized, gdrive_email: msg.gdrive_email ?? prev.gdrive_email, permissions: msg.permissions ?? prev.permissions }));
     });
 
     const unsubSystem = c.on('system', (msg) => {
       if (pendingWhoamiRef.current) {
         setWhoamiContent(msg.content);
         pendingWhoamiRef.current = false;
+        return;
+      }
+      const oauthMatch = msg.content.match(/https:\/\/accounts\.google\.com\/o\/oauth2\/[^\s]+/);
+      if (oauthMatch) {
+        window.open(oauthMatch[0], '_blank');
         return;
       }
       addMessage({ id: generateId(), type: 'system', content: msg.content, timestamp: Date.now() });
@@ -149,7 +171,8 @@ export function ChatPage() {
 
     unsubscribersRef.current = [
       unsubReady, unsubAuthRequired, unsubThinking, unsubMessage,
-      unsubSystem, unsubError, unsubPong, unsubFiles, unsubGdrive,
+      unsubApproval, unsubPermissionsUpdate, unsubSystem, unsubError,
+      unsubPong, unsubFiles, unsubGdrive,
     ];
 
     c.connect().catch(() => setConnectionStatus('offline'));
@@ -224,6 +247,22 @@ export function ChatPage() {
       if (!client) return;
       if (cmd === 'whoami') pendingWhoamiRef.current = true;
       client.sendCommand(cmd);
+    },
+    [client]
+  );
+
+  const handleApprove = useCallback(
+    (userId: string) => {
+      if (!client) return;
+      client.sendCommand('approve ' + userId);
+    },
+    [client]
+  );
+
+  const handleBlock = useCallback(
+    (userId: string) => {
+      if (!client) return;
+      client.sendCommand('block ' + userId);
     },
     [client]
   );
@@ -427,7 +466,7 @@ export function ChatPage() {
               </div>
             )}
             {messages.map((msg) => (
-              <ChatMessageBubble key={msg.id} message={msg} getFileUrl={client?.fileUrl.bind(client)} />
+              <ChatMessageBubble key={msg.id} message={msg} getFileUrl={client?.fileUrl.bind(client)} onApprove={handleApprove} onBlock={handleBlock} />
             ))}
             <div ref={messagesEndRef} />
           </div>

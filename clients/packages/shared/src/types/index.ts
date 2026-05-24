@@ -33,11 +33,13 @@ export interface UploadResult {
 }
 
 export type ServerMessage =
-  | { type: 'ready'; name: string }
+  | { type: 'ready'; name: string; is_owner?: boolean; is_approved?: boolean; gdrive_authorized?: boolean; gdrive_email?: string | null; permissions?: string[] }
+  | { type: 'approval_request'; user_id: string; name: string; source: string }
+  | { type: 'permissions_update'; is_owner?: boolean; is_approved?: boolean; gdrive_authorized?: boolean; gdrive_email?: string | null; permissions?: string[] }
   | { type: 'auth_required'; bot: string }
   | { type: 'pong' }
   | { type: 'thinking' }
-  | { type: 'message'; content: string }
+  | { type: 'message'; content: string; attachments?: Array<{ name: string; size: number }> }
   | { type: 'system'; content: string }
   | { type: 'error'; content: string }
   | { type: 'files'; files: Array<{ name: string; dir: string; size: number }> }
@@ -46,4 +48,4 @@ export type ServerMessage =
 export type ClientMessage =
   | { type: 'ping' }
   | { type: 'command'; cmd: string }
-  | { content: string };
+  | { content: string; attachment?: string; attachments?: string[] };

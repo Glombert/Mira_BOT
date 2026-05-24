@@ -50,15 +50,19 @@ export interface ChatMessageItem {
   url?: string;
   files?: Array<{ name: string; dir: string; size: number }>;
   attachments?: Array<{ name: string; dir: string; size: number }>;
+  messageAttachments?: Array<{ name: string; size: number }>;
+  approval?: { user_id: string; name: string; source: string };
   timestamp: number;
 }
 
 interface ChatMessageProps {
   message: ChatMessageItem;
   getFileUrl?: (dir: 'inbox' | 'output', name: string) => string;
+  onApprove?: (userId: string) => void;
+  onBlock?: (userId: string) => void;
 }
 
-export function ChatMessageBubble({ message, getFileUrl }: ChatMessageProps) {
+export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: ChatMessageProps) {
   const { type, content, url, files } = message;
 
   if (type === 'user') {
@@ -127,19 +131,64 @@ export function ChatMessageBubble({ message, getFileUrl }: ChatMessageProps) {
               </ReactMarkdown>
             )}
           </div>
-          {message.attachments && message.attachments.length > 0 && (
+          {message.messageAttachments && message.messageAttachments.length > 0 && (
             <div className="mt-2 space-y-1">
-              {message.attachments.map((a, i) => (
-                <a key={i} href={getFileUrl?.(a.dir as 'inbox' | 'output', a.name)} target="_blank" rel="noopener noreferrer"
-                   className="inline-flex items-center gap-2 bg-bg-base border border-border-focus rounded-lg px-3 py-1.5 text-sm text-accent-secondary hover:text-accent">
+              {message.messageAttachments.map((a, i) => (
+                <span key={i}
+                   className="inline-flex items-center gap-2 bg-bg-base border border-border-focus rounded-lg px-3 py-1.5 text-sm text-accent-secondary">
                   <FileText size={14} />
                   <span className="truncate">{a.name}</span>
                   <span className="text-text-muted text-xs">{formatBytes(a.size)}</span>
-                </a>
+                </span>
               ))}
             </div>
           )}
           {message.timestamp ? <span className="text-[11px] text-text-muted mt-1 block">{formatTime(message.timestamp)}</span> : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (type === 'approval_request' && message.approval) {
+    const [resolved, setResolved] = React.useState<'approve' | 'block' | null>(null);
+    const a = message.approval;
+    if (resolved === 'approve') {
+      return (
+        <div className="flex justify-center animate-fade-in-up">
+          <div className="max-w-[70%] bg-status-online/10 border border-status-online/30 rounded-card px-4 py-2 text-sm text-status-online">
+            ✅ Пользователь {a.name} одобрен
+          </div>
+        </div>
+      );
+    }
+    if (resolved === 'block') {
+      return (
+        <div className="flex justify-center animate-fade-in-up">
+          <div className="max-w-[70%] bg-status-offline/10 border border-status-offline/30 rounded-card px-4 py-2 text-sm text-status-offline">
+            ❌ Пользователь {a.name} заблокирован
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="flex justify-center animate-fade-in-up">
+        <div className="max-w-[80%] bg-bg-elevated border border-border-default rounded-card px-4 py-3 space-y-2">
+          <p className="text-sm text-text-secondary">Новый пользователь запрашивает доступ:</p>
+          <p className="text-base text-text-primary font-medium">{a.name} <span className="text-text-muted text-sm">({a.source})</span></p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setResolved('approve'); onApprove?.(a.user_id); }}
+              className="flex-1 bg-status-online/20 hover:bg-status-online/30 text-status-online rounded-button px-3 py-1.5 text-sm font-medium transition-colors"
+            >
+              Одобрить
+            </button>
+            <button
+              onClick={() => { setResolved('block'); onBlock?.(a.user_id); }}
+              className="flex-1 bg-status-offline/20 hover:bg-status-offline/30 text-status-offline rounded-button px-3 py-1.5 text-sm font-medium transition-colors"
+            >
+              Заблокировать
+            </button>
+          </div>
         </div>
       </div>
     );

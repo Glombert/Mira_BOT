@@ -1,6 +1,6 @@
 'use client';
 
-import { User, Trash2, Terminal, Bell, Cloud } from 'lucide-react';
+import { User, Trash2, Bell, Cloud, Menu } from 'lucide-react';
 import { StatusDot, type ConnectionStatus } from '@/components/ui/status-dot';
 
 interface ChatHeaderProps {
@@ -17,6 +17,13 @@ export function ChatHeader({ userName, connectionStatus, onClear, onWhoami, onOp
   return (
     <header className="flex items-center justify-between px-4 py-3 border-b border-border-subtle bg-bg-base sticky top-0 z-10">
       <div className="flex items-center gap-3">
+        <button
+          onClick={onOpenPalette}
+          aria-label="Меню"
+          className="h-9 w-9 flex items-center justify-center rounded-button text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors duration-fast"
+        >
+          <Menu size={20} />
+        </button>
         <img src="/mira-avatar-full.png" alt="Мира" className="w-10 h-10 rounded-full object-cover" />
         <div>
           <h1 className="text-xl font-semibold text-text-primary leading-tight">Мира</h1>
@@ -33,13 +40,6 @@ export function ChatHeader({ userName, connectionStatus, onClear, onWhoami, onOp
 
       <div className="flex items-center gap-1">
         <span className="text-sm text-text-secondary hidden sm:inline mr-2">{userName}</span>
-        <button
-          onClick={onOpenPalette}
-          aria-label="Команды"
-          className="h-9 w-9 flex items-center justify-center rounded-button text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors duration-fast"
-        >
-          <Terminal size={20} />
-        </button>
         <button
           onClick={onOpenReminders}
           aria-label="Напоминания"
