@@ -46,31 +46,26 @@ def verify_session(bot_token: str, token: str, *, now: float | None = None) -> i
         return None
 
 
-# One-time mobile auth codes (for /m/auth deep-link flow)
-_MOBILE_AUTH_CODES: dict[str, tuple[str, float]] = {}
-_MOBILE_AUTH_LOCK = threading.Lock()
+# One-time mobile auth codes (for /m/auth deep-link flow).
+# ВАЖНО: хранятся в общей БД (mira.db), а НЕ в памяти процесса — код
+# генерит процесс mira-bot, а гасит mira-web; их память не разделяется,
+# поэтому in-memory dict здесь молча ломал бы вход в мобайл.
 _MOBILE_AUTH_TTL = 300  # 5 minutes
 
 
 def make_mobile_auth_code(session_token: str) -> str:
     """Создаёт одноразовый код для /m/auth, который заменяет session token в URL.
     Код живёт 5 минут и удаляется при первом использовании."""
+    from tools import db
     code = secrets.token_urlsafe(32)
-    with _MOBILE_AUTH_LOCK:
-        _MOBILE_AUTH_CODES[code] = (session_token, time.time() + _MOBILE_AUTH_TTL)
+    db.store_mobile_auth_code(code, session_token, time.time() + _MOBILE_AUTH_TTL)
     return code
 
 
 def redeem_mobile_auth_code(code: str) -> str | None:
     """Возвращает session token и инвалидирует код. None если не найден или истёк."""
-    with _MOBILE_AUTH_LOCK:
-        entry = _MOBILE_AUTH_CODES.pop(code, None)
-    if entry is None:
-        return None
-    token, expiry = entry
-    if time.time() > expiry:
-        return None
-    return token
+    from tools import db
+    return db.pop_mobile_auth_code(code)
 
 
 def safe_filename(raw: str | None) -> str:

@@ -23,6 +23,7 @@ import logging
 import os
 import sqlite3
 import threading
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -127,6 +128,16 @@ def init_db(path: str | None = None) -> None:
                     last_run     TEXT,
                     last_output  TEXT
                 );
+
+                CREATE TABLE IF NOT EXISTS mobile_auth_codes (
+                    -- Одноразовые коды для /m/auth deep-link: заменяют
+                    -- session token в URL (чтобы не утекал в nginx-логи).
+                    -- ОБЯЗАТЕЛЬНО в БД, а не в памяти: код генерит процесс
+                    -- mira-bot, а гасит mira-web — память процессов не общая.
+                    code         TEXT PRIMARY KEY,
+                    token        TEXT NOT NULL,
+                    expiry       REAL NOT NULL
+                );
             """)
             # Миграция: добавляем колонку kind в reminders (v2.0).
             # Идемпотентно — проверяем PRAGMA table_info перед ALTER.
@@ -230,6 +241,37 @@ def list_user_profiles() -> list[tuple[str, dict]]:
         if isinstance(profile, dict):
             result.append((row["user_id"], profile))
     return result
+
+
+# ---------------------------------------------------------------------------
+# Одноразовые коды /m/auth (кросс-процессно: bot пишет, web гасит)
+# ---------------------------------------------------------------------------
+
+def store_mobile_auth_code(code: str, token: str, expiry: float) -> None:
+    """Сохраняет одноразовый код /m/auth с epoch-сроком жизни."""
+    conn = get_conn()
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO mobile_auth_codes (code, token, expiry) "
+            "VALUES (?, ?, ?)",
+            (code, token, expiry),
+        )
+
+
+def pop_mobile_auth_code(code: str) -> str | None:
+    """Возвращает token по коду и сразу удаляет код (one-time).
+    None если код не найден или истёк. Заодно чистит протухшие коды."""
+    now = time.time()
+    conn = get_conn()
+    with conn:
+        row = conn.execute(
+            "SELECT token, expiry FROM mobile_auth_codes WHERE code = ?", (code,)
+        ).fetchone()
+        conn.execute("DELETE FROM mobile_auth_codes WHERE code = ?", (code,))
+        conn.execute("DELETE FROM mobile_auth_codes WHERE expiry < ?", (now,))
+    if row is None or row["expiry"] < now:
+        return None
+    return row["token"]
 
 
 # ---------------------------------------------------------------------------
