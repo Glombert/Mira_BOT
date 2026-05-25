@@ -4,8 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
-# SECURITY TODO: создать пользователя mira:mira и сменить WorkingDirectory/ExecStart
-# на /opt/mira_agent вместо /root/mira_agent. Пока оставлено как есть чтобы не сломать прод.
+# --- SECURITY: hardened non-root service ---
+# После создания пользователя mira:mira и переноса репо в /opt/mira_agent,
+# раскомментируй строки ниже и удали root-версии.
+# Сейчас оставлено как есть чтобы не сломать прод автозаменой.
 # User=mira
 # Group=mira
 WorkingDirectory=/root/mira_agent
@@ -13,11 +15,12 @@ ExecStart=/root/mira_agent/venv/bin/python telegram_bot.py
 Restart=on-failure
 RestartSec=5s
 
-# SECURITY TODO: включить sandboxing после смены пользователя
+# Sandboxing (enable after switching to non-root user):
 # NoNewPrivileges=true
 # PrivateTmp=true
 # ProtectSystem=strict
 # ProtectHome=true
+# ReadWritePaths=/root/mira_agent/memory /root/mira_agent/workspace /root/mira_agent/logs /root/mira_agent/versions
 # ProtectKernelTunables=true
 # ProtectKernelModules=true
 # ProtectControlGroups=true

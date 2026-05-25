@@ -21,8 +21,11 @@ from collections import deque
 from typing import Tuple
 
 LIMITS: dict[str, tuple[int, int]] = {
-    "message": (60, 60),   # 60 запросов / 60 секунд
-    "upload":  (20, 60),   # 20 файлов / 60 секунд
+    "message":  (60, 60),
+    "upload":   (20, 60),
+    "history":  (10, 60),
+    "files":    (30, 60),
+    "oauth":    (5,  60),
 }
 
 _lock = threading.Lock()

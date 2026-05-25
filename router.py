@@ -33,7 +33,9 @@ Categories:
 - image   : generating, drawing, creating an image/picture/illustration/visual
 - complex : multi-step task requiring planning, analysis, or calculation (no need for live search)
 
-User message: {message}
+--- BEGIN USER INPUT ---
+{message}
+--- END USER INPUT ---
 
 Label:"""
 

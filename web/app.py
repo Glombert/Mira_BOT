@@ -675,6 +675,12 @@ async def history(session: str = "", limit: int = 50):
     tg_id = _verify_session(session) if session else None
     if not tg_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
+    # Rate limit
+    from tools import rate_limit as _rl
+    allowed, retry = _rl.check_and_record(_web_user_id(tg_id), "history")
+    if not allowed:
+        raise HTTPException(429, detail=f"Too many history requests, retry in {retry}s",
+                            headers={"Retry-After": str(retry)})
     user_id = _web_user_id(tg_id)
     msgs = _load_session(user_id)
     limit = max(1, min(limit, 200))
@@ -697,12 +703,20 @@ async def history(session: str = "", limit: int = 50):
 
 
 @app.get("/oauth/google/callback")
-async def oauth_google_callback(code: str = "", state: str = "", error: str = ""):
+async def oauth_google_callback(code: str = "", state: str = "", error: str = "",
+                                 request: Request = None):
     """
     Принимает редирект от Google OAuth, автоматически обменивает код,
     показывает результат. Пользователю не нужно копировать код вручную.
     """
     from tools.gdrive_tools import parse_oauth_state, exchange_code
+    # Rate limit per IP (без сессии — редирект от Google)
+    client_ip = request.client.host if request and request.client else "anon"
+    from tools import rate_limit as _rl
+    allowed, retry = _rl.check_and_record(f"ip:{client_ip}", "oauth")
+    if not allowed:
+        raise HTTPException(429, detail=f"Too many OAuth requests, retry in {retry}s",
+                            headers={"Retry-After": str(retry)})
 
     if error:
         logger.warning(f"OAuth callback: Google вернул ошибку: {error}")
@@ -829,6 +843,12 @@ async def download_file(file_path: str, session: str = ""):
     if not tg_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
     user_id = _web_user_id(tg_id)
+    # Rate limit
+    from tools import rate_limit as _rl
+    allowed, retry = _rl.check_and_record(user_id, "files")
+    if not allowed:
+        raise HTTPException(429, detail=f"Too many file requests, retry in {retry}s",
+                            headers={"Retry-After": str(retry)})
     user_root = os.path.join(WORKSPACE_DIR, user_id)
 
     parts = file_path.replace("\\", "/").split("/", 1)
