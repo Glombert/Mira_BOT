@@ -16,7 +16,8 @@ import shutil
 from datetime import datetime
 
 ENC_KEY = os.getenv("MEMORY_ENCRYPTION_KEY", "")
-DB_PATH = "mira.db"
+# Реальная БД лежит в memory/mira.db (см. tools/db.py DB_PATH).
+DB_PATH = os.path.join("memory", "mira.db")
 
 if not ENC_KEY:
     print("ERROR: установи MEMORY_ENCRYPTION_KEY в окружении")
@@ -42,7 +43,7 @@ def encrypt_db():
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    cur.execute("SELECT user_id, session_type, messages FROM sessions")
+    cur.execute("SELECT user_id, messages FROM sessions")
     rows = cur.fetchall()
 
     encrypted = 0
@@ -55,8 +56,8 @@ def encrypt_db():
         # Шифруем
         encrypted_msg = fernet.encrypt(msg.encode()).decode()
         cur.execute(
-            "UPDATE sessions SET messages=? WHERE user_id=? AND session_type=?",
-            (encrypted_msg, row["user_id"], row["session_type"]),
+            "UPDATE sessions SET messages=? WHERE user_id=?",
+            (encrypted_msg, row["user_id"]),
         )
         encrypted += 1
 
@@ -72,7 +73,7 @@ def decrypt_db():
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    cur.execute("SELECT user_id, session_type, messages FROM sessions")
+    cur.execute("SELECT user_id, messages FROM sessions")
     rows = cur.fetchall()
 
     decrypted = 0
@@ -85,8 +86,8 @@ def decrypt_db():
         try:
             plain = fernet.decrypt(msg.encode()).decode()
             cur.execute(
-                "UPDATE sessions SET messages=? WHERE user_id=? AND session_type=?",
-                (plain, row["user_id"], row["session_type"]),
+                "UPDATE sessions SET messages=? WHERE user_id=?",
+                (plain, row["user_id"]),
             )
             decrypted += 1
         except Exception as e:
