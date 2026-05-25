@@ -135,6 +135,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("MiraBot")
 
+# Безопасность: httpx/httpcore логируют полный URL запроса на уровне INFO,
+# а python-telegram-bot шлёт getUpdates на https://api.telegram.org/bot<TOKEN>/...
+# → токен бота утекал в journald и файл-лог открытым текстом. Глушим до WARNING.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 # ---------------------------------------------------------------------------
 # Вспомогательные функции
 # ---------------------------------------------------------------------------

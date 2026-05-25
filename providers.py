@@ -386,6 +386,12 @@ def call(model_chain: list[dict], messages: list, **kwargs) -> object:
                     **kwargs,
                 )
                 dt = time.time() - t_call
+                if not getattr(result, "choices", None):
+                    # OpenRouter иногда отдаёт 200 с choices=null + error в теле,
+                    # когда upstream-провайдер (Claude через Vertex) моргнул.
+                    # Бросаем понятную ошибку → failover с осмысленной причиной.
+                    err = getattr(result, "error", None) or "пустой ответ (choices=null)"
+                    raise RuntimeError(f"{provider_name}/{model}: {err}")
                 has_tools = bool(getattr(result.choices[0].message, 'tool_calls', None))
                 logger.info(f"providers.call [{i+1}/{len(model_chain)}]: {provider_name}/{model} OK ({dt:.1f}s, ответ={len(result.choices[0].message.content or '')} символов, tool_calls={has_tools})")
                 # Метрики
