@@ -51,7 +51,9 @@ os.makedirs(GDRIVE_TOKENS_DIR, exist_ok=True)
 
 
 def _verifier_path(user_id: str) -> str:
-    return os.path.join(GDRIVE_TOKENS_DIR, f".verifier_{user_id}")
+    # sanitize user_id to prevent path traversal in filename
+    safe = "".join(c if c.isalnum() or c in "_-" else "_" for c in user_id)
+    return os.path.join(GDRIVE_TOKENS_DIR, f".verifier_{safe}")
 
 
 def _save_verifier(user_id: str, verifier: str) -> None:
@@ -432,7 +434,9 @@ def gdrive_read(user_id: str, file_path: str) -> dict:
 
         if len(file_path) < 25 or '/' in file_path or '.' in file_path.split('/')[-1]:
             # Похоже на имя, а не ID — ищем
-            query = f"name = '{file_path}' and trashed = false"
+            # escape single quotes to prevent query injection
+            safe_name = file_path.replace("'", "\\'")
+            query = f"name = '{safe_name}' and trashed = false"
             results = service.files().list(q=query, pageSize=5, fields="files(id, name, size)").execute()
             found = results.get('files', [])
             if not found:
@@ -448,7 +452,11 @@ def gdrive_read(user_id: str, file_path: str) -> dict:
         from agent import WORKSPACE_DIR
         output = os.path.join(WORKSPACE_DIR, user_id, "output")
         os.makedirs(output, exist_ok=True)
-        dest = os.path.join(output, file_name)
+        # sanitize filename to prevent path traversal from Drive names
+        safe_file_name = os.path.basename(file_name.replace("\\", "/")).replace("\x00", "")
+        if not safe_file_name or safe_file_name in (".", ".."):
+            safe_file_name = "download"
+        dest = os.path.join(output, safe_file_name)
         with open(dest, "wb") as f:
             f.write(content)
 
@@ -531,7 +539,8 @@ def gdrive_write(user_id: str, workspace_path: str, drive_folder: str = "root") 
 def _find_folder_id(service, folder_name: str) -> str | None:
     """Ищет папку по имени в корне Drive. Возвращает ID или None."""
     try:
-        query = f"name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+        safe = folder_name.replace("'", "\\'")
+        query = f"name = '{safe}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
         results = service.files().list(q=query, pageSize=5, fields="files(id, name)").execute()
         folders = results.get('files', [])
         return folders[0]['id'] if folders else None

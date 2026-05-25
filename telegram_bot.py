@@ -417,18 +417,19 @@ _MIRA_PUBLIC_URL = os.getenv("MIRA_PUBLIC_URL", "https://mira-bot.duckdns.org")
 async def _send_session_token(update: Update, tg_id: int, name: str) -> None:
     """Генерит токен, шлёт пользователю с inline-кнопкой «Войти в приложение».
 
-    Кнопка ведёт на /m/auth?token=... — сервер редиректит в miramobile://
-    deep link, MiraMobile принимает токен без копипасты.
+    Кнопка ведёт на /m/auth?code=... — сервер обменивает одноразовый код
+    на реальный токен и редиректит в miramobile:// deep link.
+    Это предотвращает утечку session token в nginx access-логи и историю браузера.
 
     Для пользователей без приложения остаётся текстовый токен в кодовом блоке —
     его можно тапнуть для копирования и вставить в любой клиент.
     """
-    from web.security import make_session
+    from web.security import make_session, make_mobile_auth_code
     from urllib.parse import quote as _urlquote
     token = make_session(TOKEN, tg_id, name)
-    # URL-кодируем токен: имя в payload может содержать пробел/кириллицу,
-    # без кодирования Telegram-клиент или Android intent обрежет на пробеле.
-    deeplink_url = f"{_MIRA_PUBLIC_URL}/m/auth?token={_urlquote(token, safe='')}"
+    # Одноразовый код вместо токена в URL — предотвращает утечку в логи
+    auth_code = make_mobile_auth_code(token)
+    deeplink_url = f"{_MIRA_PUBLIC_URL}/m/auth?code={auth_code}"
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("📱 Войти в приложение", url=deeplink_url)]
     ])

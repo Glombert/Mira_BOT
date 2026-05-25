@@ -12,6 +12,9 @@ import hmac
 import hashlib
 import os
 import time
+import secrets
+import threading
+from collections import deque
 
 # Session token = HMAC-SHA256 от payload, 32 hex символа (128 бит).
 SESSION_SIG_LEN = 32
@@ -41,6 +44,33 @@ def verify_session(bot_token: str, token: str, *, now: float | None = None) -> i
         return tg_id
     except Exception:
         return None
+
+
+# One-time mobile auth codes (for /m/auth deep-link flow)
+_MOBILE_AUTH_CODES: dict[str, tuple[str, float]] = {}
+_MOBILE_AUTH_LOCK = threading.Lock()
+_MOBILE_AUTH_TTL = 300  # 5 minutes
+
+
+def make_mobile_auth_code(session_token: str) -> str:
+    """Создаёт одноразовый код для /m/auth, который заменяет session token в URL.
+    Код живёт 5 минут и удаляется при первом использовании."""
+    code = secrets.token_urlsafe(32)
+    with _MOBILE_AUTH_LOCK:
+        _MOBILE_AUTH_CODES[code] = (session_token, time.time() + _MOBILE_AUTH_TTL)
+    return code
+
+
+def redeem_mobile_auth_code(code: str) -> str | None:
+    """Возвращает session token и инвалидирует код. None если не найден или истёк."""
+    with _MOBILE_AUTH_LOCK:
+        entry = _MOBILE_AUTH_CODES.pop(code, None)
+    if entry is None:
+        return None
+    token, expiry = entry
+    if time.time() > expiry:
+        return None
+    return token
 
 
 def safe_filename(raw: str | None) -> str:

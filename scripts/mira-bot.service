@@ -4,10 +4,25 @@ After=network.target
 
 [Service]
 Type=simple
+# SECURITY TODO: создать пользователя mira:mira и сменить WorkingDirectory/ExecStart
+# на /opt/mira_agent вместо /root/mira_agent. Пока оставлено как есть чтобы не сломать прод.
+# User=mira
+# Group=mira
 WorkingDirectory=/root/mira_agent
 ExecStart=/root/mira_agent/venv/bin/python telegram_bot.py
 Restart=on-failure
 RestartSec=5s
+
+# SECURITY TODO: включить sandboxing после смены пользователя
+# NoNewPrivileges=true
+# PrivateTmp=true
+# ProtectSystem=strict
+# ProtectHome=true
+# ProtectKernelTunables=true
+# ProtectKernelModules=true
+# ProtectControlGroups=true
+# RestrictRealtime=true
+# RestrictSUIDSGID=true
 
 [Install]
 WantedBy=multi-user.target

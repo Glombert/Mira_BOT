@@ -119,6 +119,20 @@ if os.getenv("MIRA_ALLOW_LOCAL_CORS") == "1":
     )
 
 
+# Global security headers middleware (ASVS V13, OWASP)
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = (
+        "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
+        "magnetometer=(), microphone=(), payment=(), usb=()"
+    )
+    return response
+
+
 # Cache-Control для статики:
 #   /_next/static/* — хешированные имена файлов (chunks/webpack-<hash>.js),
 #                     immutable + 1 год — браузер не дёрнет сервер повторно.
@@ -1028,15 +1042,18 @@ async def register_push_token(request: Request):
 
 
 @app.get("/m/auth")
-async def mobile_auth_redirect(token: str = ""):
+async def mobile_auth_redirect(code: str = ""):
     """Бот шлёт юзеру inline-кнопку с URL сюда → Telegram открывает страницу →
-    мы редиректим в miramobile://auth?token=... → Android отдаёт MiraMobile.
+    мы обмениваем одноразовый code на session token → редиректим в
+    miramobile://auth?token=... → Android отдаёт MiraMobile.
 
     Зачем не сразу deeplink в кнопке: Telegram BotAPI разрешает в inline_button.url
     только http/https/tg-схемы; кастомные (miramobile://) запрещены.
     """
-    if not token or len(token) > 512:
-        return HTMLResponse("Неверный или пустой токен.", status_code=400)
+    from web.security import redeem_mobile_auth_code
+    token = redeem_mobile_auth_code(code) if code else None
+    if not token:
+        return HTMLResponse("Ссылка устарела или недействительна. Запроси новую через /login в боте.", status_code=400)
     # КРИТИЧНО: токен идёт в URL (miramobile://auth?token=...), а формат токена —
     # "<tg_id>:<first_name>:<auth_date>:<hmac>". Если first_name содержит пробел
     # или кириллицу — Android intent-parser обрежет токен и сервер потом скажет

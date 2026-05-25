@@ -120,11 +120,21 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
                 remarkPlugins={[remarkGfm]}
                 className="mira-markdown"
                 components={{
-                  a: ({ href, children }) => (
-                    <a href={href} target="_blank" rel="noopener noreferrer">
-                      {children}
-                    </a>
-                  ),
+                  a: ({ href, children }) => {
+                    const allowed = ['http:', 'https:', 'mailto:', 'tg:'];
+                    let safe = href || '#';
+                    try {
+                      const u = new URL(safe, window.location.href);
+                      if (!allowed.includes(u.protocol)) safe = '#';
+                    } catch {
+                      safe = '#';
+                    }
+                    return (
+                      <a href={safe} target="_blank" rel="noopener noreferrer">
+                        {children}
+                      </a>
+                    );
+                  },
                 }}
               >
                 {content || ''}

@@ -13,5 +13,8 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.2",
     "typescript": "^5.4.5"
+  },
+  "overrides": {
+    "postcss": ">=8.5.10"
   }
 }
