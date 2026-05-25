@@ -28,8 +28,14 @@ def init(loop: asyncio.AbstractEventLoop) -> None:
     _loop = loop
 
 
-def register(ws_key: str, queue: asyncio.Queue) -> None:
-    """Регистрирует очередь WS-сообщений владельца."""
+def register(ws_key: str, queue: asyncio.Queue, owner_id: str = "") -> None:
+    """Регистрирует очередь. owner_id проверяется на принадлежность владельцу (defense in depth)."""
+    if owner_id:
+        import os as _os
+        _owner_tg = _os.getenv("OWNER_TELEGRAM_ID", "0")
+        if _owner_tg and _owner_tg != "0" and owner_id not in (f"tg_{_owner_tg}", f"cli_{_owner_tg}"):
+            logger.warning(f"owner_channel: попытка регистрации не-owner ({owner_id})")
+            return
     _owner_queues[ws_key] = queue
     logger.info(f"owner_channel: registered {ws_key}, total={len(_owner_queues)}")
 

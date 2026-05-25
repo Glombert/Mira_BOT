@@ -134,6 +134,9 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(), _file_handler],
 )
 logger = logging.getLogger("MiraBot")
+# Redaction filter — маскировка секретов в логах (ASVS V7.1)
+from tools.redaction_filter import install as _install_redact
+_install_redact()
 
 # Безопасность: httpx/httpcore логируют полный URL запроса на уровне INFO,
 # а python-telegram-bot шлёт getUpdates на https://api.telegram.org/bot<TOKEN>/...

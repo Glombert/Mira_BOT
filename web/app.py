@@ -84,6 +84,9 @@ logger.addHandler(_web_log_handler)
 _stdout_handler = logging.StreamHandler()
 _stdout_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
 logger.addHandler(_stdout_handler)
+# Redaction filter — маскировка секретов в логах (ASVS V7.1)
+from tools.redaction_filter import install as _install_redact
+_install_redact()
 
 BOT_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN", "")
 BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")   # например: MyMiraBot (без @)
@@ -1090,7 +1093,7 @@ async def chat(websocket: WebSocket, session: str = ""):
     _ws_key = str(id(websocket))
     _owner_queue: asyncio.Queue = asyncio.Queue(maxsize=64)
     if is_owner_ws:
-        _och_register(_ws_key, _owner_queue)
+        _och_register(_ws_key, _owner_queue, owner_id=user_id)
 
     # Формируем permissions для drawer-меню
     _perms = ["chat", "files"]
@@ -2019,6 +2022,49 @@ async def chat(websocket: WebSocket, session: str = ""):
             pass
         if is_owner_ws:
             _och_unregister(_ws_key)
+
+
+# --- Startup: retention cleanup + rate-limit cleanup ---
+
+@app.on_event("startup")
+async def _startup_cleanup():
+    """При старте чистим протухшие сессии (retention) и гостей."""
+    import threading
+    def _cleanup():
+        try:
+            from tools import db
+            retention_days = int(os.getenv("RETENTION_DAYS", "90"))
+            cutoff = datetime.now() - timedelta(days=retention_days)
+            cutoff_iso = cutoff.isoformat()
+            # Чистим sessions старше N дней
+            cnt = db.execute(
+                "DELETE FROM sessions WHERE last_msg_at < ?", (cutoff_iso,)
+            ).rowcount if hasattr(db.execute("DELETE FROM sessions WHERE last_msg_at < ?", (cutoff_iso,)), "rowcount") else 0
+            # Чистим гостей без активности > 3 дня
+            cnt += db.execute(
+                "DELETE FROM sessions WHERE user_id LIKE 'tg_%' AND last_msg_at < ?",
+                ((datetime.now() - timedelta(days=3)).isoformat(),)
+            ).rowcount if hasattr(db.execute("DELETE FROM sessions WHERE user_id LIKE 'tg_%' AND last_msg_at < ?", ((datetime.now() - timedelta(days=3)).isoformat(),)), "rowcount") else 0
+            if cnt:
+                logger.info(f"retention: удалено {cnt} сессий старше {retention_days} дней")
+            db.conn.commit()
+        except Exception as e:
+            logger.warning(f"retention cleanup error: {e}")
+    threading.Thread(target=_cleanup, daemon=True).start()
+    # Запускаем периодическую чистку (раз в час)
+    import asyncio
+    async def _periodic_retention():
+        while True:
+            await asyncio.sleep(3600)
+            try:
+                from tools import db
+                from datetime import timedelta
+                cutoff = (datetime.now() - timedelta(days=int(os.getenv("RETENTION_DAYS", "90")))).isoformat()
+                db.execute("DELETE FROM sessions WHERE last_msg_at < ?", (cutoff,))
+                db.conn.commit()
+            except Exception:
+                pass
+    asyncio.create_task(_periodic_retention())
 
 
 if __name__ == "__main__":

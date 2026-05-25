@@ -35,6 +35,19 @@ VALID_STATUSES  = ("owner", "regular", "guest", "rejected", "blacklisted", "bloc
 
 EVOLUTION_FILE  = os.path.join(MEMORY_DIR, "evolution_counter.json")
 
+_OWNER_TG = os.getenv("OWNER_TELEGRAM_ID", "0").strip()
+
+
+def _is_owner_id(caller_id: str) -> bool:
+    if not _OWNER_TG or _OWNER_TG == "0":
+        return False
+    return caller_id in (f"tg_{_OWNER_TG}", f"cli_{_OWNER_TG}")
+
+
+def _require_owner(caller_id: str) -> None:
+    if not _is_owner_id(caller_id):
+        raise PermissionError(f"{caller_id} не владелец")
+
 
 # ---------------------------------------------------------------------------
 # Чтение / запись профилей
@@ -70,9 +83,11 @@ def get_status(user_id: str) -> str:
     return profile.get("status", "regular")
 
 
-def set_status(user_id: str, status: str) -> bool:
+def set_status(user_id: str, status: str, caller_id: str = "") -> bool:
     if status not in VALID_STATUSES:
         return False
+    if caller_id:
+        _require_owner(caller_id)
     profile = _load_profile(user_id)
     if profile is None:
         return False
@@ -99,7 +114,9 @@ def list_users() -> list[dict]:
     return users
 
 
-def approve(user_id: str, new_name: str = "") -> bool:
+def approve(user_id: str, new_name: str = "", caller_id: str = "") -> bool:
+    if caller_id:
+        _require_owner(caller_id)
     profile = _load_profile(user_id)
     if profile is None:
         return False
@@ -112,8 +129,10 @@ def approve(user_id: str, new_name: str = "") -> bool:
     return _save_profile(user_id, profile)
 
 
-def reject(user_id: str) -> bool:
+def reject(user_id: str, caller_id: str = "") -> bool:
     """Помечает статус 'rejected' — история сохраняется, может попробовать снова."""
+    if caller_id:
+        _require_owner(caller_id)
     profile = _load_profile(user_id)
     if profile is None:
         return False
@@ -123,8 +142,10 @@ def reject(user_id: str) -> bool:
     return _save_profile(user_id, profile)
 
 
-def blacklist(user_id: str) -> bool:
+def blacklist(user_id: str, caller_id: str = "") -> bool:
     """Добавляет в чёрный список."""
+    if caller_id:
+        _require_owner(caller_id)
     profile = _load_profile(user_id)
     if profile is None:
         return False
@@ -134,27 +155,32 @@ def blacklist(user_id: str) -> bool:
     return _save_profile(user_id, profile)
 
 
-def unblacklist(user_id: str) -> bool:
-    """Убирает из чёрного списка → rejected (был отклонён, но не в ЧС)."""
-    return set_status(user_id, "rejected")
+def unblacklist(user_id: str, caller_id: str = "") -> bool:
+    return set_status(user_id, "rejected", caller_id=caller_id)
 
 
-def block(user_id: str) -> bool:
-    """Backward compat — алиас blacklist."""
-    return blacklist(user_id)
+def block(user_id: str, caller_id: str = "") -> bool:
+    return blacklist(user_id, caller_id=caller_id)
 
 
-def unblock(user_id: str) -> bool:
-    """Backward compat — алиас set_status regular."""
-    return set_status(user_id, "regular")
+def unblock(user_id: str, caller_id: str = "") -> bool:
+    return set_status(user_id, "regular", caller_id=caller_id)
 
 
-def delete_user(user_id: str) -> bool:
-    """Полное удаление: профиль + сессия + workspace."""
+def delete_user(user_id: str, caller_id: str = "") -> bool:
+    """Полное удаление: профиль + сессия + workspace + gdrive + push."""
+    if caller_id:
+        _require_owner(caller_id)
     from tools import db
     deleted = db.delete_user_profile(user_id)
     db.delete_session(user_id)
-    db.delete_session(f"web_{user_id}")  # парная web-сессия
+    db.delete_session(f"web_{user_id}")
+    db.delete_gdrive_token(user_id)
+    try:
+        from tools import db as _db
+        _db.execute("DELETE FROM push_tokens WHERE user_id=?", (user_id,))
+    except Exception:
+        pass
     ws = os.path.join(WORKSPACE_DIR, user_id)
     if os.path.isdir(ws):
         shutil.rmtree(ws, ignore_errors=True)
