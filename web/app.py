@@ -2048,42 +2048,33 @@ async def chat(websocket: WebSocket, session: str = ""):
 
 @app.on_event("startup")
 async def _startup_cleanup():
-    """При старте чистим протухшие сессии (retention) и гостей."""
+    """Retention: чистим сессии, не обновлявшиеся дольше RETENTION_DAYS дней.
+    RETENTION_DAYS=0 (или меньше) полностью отключает чистку."""
+    import asyncio
     import threading
-    def _cleanup():
+
+    def _run_once():
         try:
             from tools import db
-            retention_days = int(os.getenv("RETENTION_DAYS", "90"))
-            cutoff = datetime.now() - timedelta(days=retention_days)
-            cutoff_iso = cutoff.isoformat()
-            # Чистим sessions старше N дней
-            cnt = db.execute(
-                "DELETE FROM sessions WHERE last_msg_at < ?", (cutoff_iso,)
-            ).rowcount if hasattr(db.execute("DELETE FROM sessions WHERE last_msg_at < ?", (cutoff_iso,)), "rowcount") else 0
-            # Чистим гостей без активности > 3 дня
-            cnt += db.execute(
-                "DELETE FROM sessions WHERE user_id LIKE 'tg_%' AND last_msg_at < ?",
-                ((datetime.now() - timedelta(days=3)).isoformat(),)
-            ).rowcount if hasattr(db.execute("DELETE FROM sessions WHERE user_id LIKE 'tg_%' AND last_msg_at < ?", ((datetime.now() - timedelta(days=3)).isoformat(),)), "rowcount") else 0
-            if cnt:
-                logger.info(f"retention: удалено {cnt} сессий старше {retention_days} дней")
-            db.conn.commit()
+            from datetime import datetime, timedelta
+            days = int(os.getenv("RETENTION_DAYS", "90"))
+            if days <= 0:
+                return  # retention отключён
+            cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+            n = db.delete_sessions_older_than(cutoff)
+            if n:
+                logger.info(f"retention: удалено {n} сессий неактивных > {days} дн.")
         except Exception as e:
             logger.warning(f"retention cleanup error: {e}")
-    threading.Thread(target=_cleanup, daemon=True).start()
-    # Запускаем периодическую чистку (раз в час)
-    import asyncio
+
+    # Первый прогон — в фоне, чтобы не блокировать старт.
+    threading.Thread(target=_run_once, daemon=True).start()
+
+    # Периодически — раз в сутки.
     async def _periodic_retention():
         while True:
-            await asyncio.sleep(3600)
-            try:
-                from tools import db
-                from datetime import timedelta
-                cutoff = (datetime.now() - timedelta(days=int(os.getenv("RETENTION_DAYS", "90")))).isoformat()
-                db.execute("DELETE FROM sessions WHERE last_msg_at < ?", (cutoff,))
-                db.conn.commit()
-            except Exception:
-                pass
+            await asyncio.sleep(86400)
+            await asyncio.to_thread(_run_once)
     asyncio.create_task(_periodic_retention())
 
 

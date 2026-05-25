@@ -307,6 +307,16 @@ def delete_session(user_id: str) -> bool:
     return cur.rowcount > 0
 
 
+def delete_sessions_older_than(cutoff_iso: str) -> int:
+    """Retention: удаляет сессии, не обновлявшиеся с cutoff_iso (по updated_at,
+    который save_session переписывает при каждом сообщении). Возвращает число
+    удалённых строк."""
+    conn = get_conn()
+    with conn:
+        cur = conn.execute("DELETE FROM sessions WHERE updated_at < ?", (cutoff_iso,))
+    return cur.rowcount
+
+
 def get_session_updated_at(user_id: str) -> str | None:
     """Возвращает updated_at сессии в ISO-формате или None если сессии нет.
 
