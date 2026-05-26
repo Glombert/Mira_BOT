@@ -2044,6 +2044,21 @@ async def chat(websocket: WebSocket, session: str = ""):
             _och_unregister(_ws_key)
 
 
+# --- Корневые статик-ассеты Next.js (mira-avatar-full.png, favicon и пр.) ---
+# Next.js кладёт файлы из public/ в корень dist/. /_next смонтирован отдельно,
+# а эти корневые файлы иначе отдавали 404 (аватар Миры не грузился).
+# РЕГИСТРИРУЕТСЯ ПОСЛЕДНИМ среди GET-роутов — catch-all {path}, чтобы не
+# затенять /health, /files/*, /mobile/* и т.д. (они определены выше).
+@app.get("/{asset_path:path}")
+async def _serve_client_asset(asset_path: str):
+    candidate = (CLIENT_DIST / asset_path).resolve()
+    dist_root = CLIENT_DIST.resolve()
+    # Защита от path traversal: только файлы строго внутри dist.
+    if candidate.is_file() and str(candidate).startswith(str(dist_root) + os.sep):
+        return FileResponse(str(candidate))
+    raise HTTPException(status_code=404, detail="Not found")
+
+
 # --- Startup: retention cleanup + rate-limit cleanup ---
 
 @app.on_event("startup")
