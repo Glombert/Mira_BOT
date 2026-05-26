@@ -105,7 +105,7 @@ export function WebDrawer({ open, onClose, onRun, permissions, userName }: WebDr
       {/* Mobile overlay */}
       <div
         className={cn(
-          'fixed inset-0 z-40 bg-black/40 transition-opacity lg:hidden',
+          'fixed inset-0 z-40 bg-black/40 transition-opacity',
           open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         )}
         onClick={onClose}
@@ -114,13 +114,15 @@ export function WebDrawer({ open, onClose, onRun, permissions, userName }: WebDr
       {/* Drawer / Sidebar */}
       <aside
         className={cn(
-          'fixed lg:sticky lg:top-0 lg:h-[100dvh] z-50 lg:z-auto bg-bg-card border-r border-border-default',
+          // Всегда overlay (fixed, вне потока) на всех экранах — иначе на десктопе
+          // sticky+h-[100dvh] делал его flex-ребёнком и ломал высоту чата.
+          'fixed top-0 left-0 h-[100dvh] z-50 bg-bg-card border-r border-border-default',
           'w-[280px] transition-transform duration-250',
-          open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-0 lg:border-0 lg:overflow-hidden'
+          open ? 'translate-x-0' : '-translate-x-full'
         )}
       >
         <div className="flex flex-col h-full p-4 overflow-y-auto">
-          <div className="flex items-center justify-between mb-4 lg:hidden">
+          <div className="flex items-center justify-between mb-4">
             <span className="text-text-primary font-semibold">Меню</span>
             <button onClick={onClose} className="text-text-secondary hover:text-text-primary">
               <X size={20} />
