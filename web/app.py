@@ -469,6 +469,102 @@ def _invoke_alpha(user_id: str, prompt: str,
 # ---------------------------------------------------------------------------
 # Фоновые обработчики: scheduled tasks и rituals
 # ---------------------------------------------------------------------------
+# Счётчики для сайдбара (Aurora UI design)
+# ---------------------------------------------------------------------------
+
+def _compute_sidebar_counts(user_id: str, is_approved: bool, is_owner: bool) -> dict:
+    """Возвращает counts для ws_ready / permissions_update."""
+    counts: dict = {}
+    try:
+        # Файлы в workspace
+        ws_dir = os.path.join(WORKSPACE_DIR, user_id)
+        file_count = 0
+        for sub in ("inbox", "output"):
+            sd = os.path.join(ws_dir, sub)
+            if os.path.isdir(sd):
+                file_count += len([f for f in os.listdir(sd)
+                                  if os.path.isfile(os.path.join(sd, f)) and not f.startswith(".")])
+        counts["files"] = file_count
+    except Exception:
+        counts["files"] = 0
+
+    if is_approved:
+        from tools.db import get_conn
+        try:
+            conn = get_conn()
+            rows = conn.execute(
+                "SELECT COUNT(*) FROM reminders WHERE user_id=? AND kind='reminder' AND status='pending'",
+                (user_id,)
+            ).fetchone()
+            counts["reminders_today"] = rows[0] if rows else 0
+            rows = conn.execute(
+                "SELECT COUNT(*) FROM reminders WHERE user_id=? AND kind='task' AND status='pending'",
+                (user_id,)
+            ).fetchone()
+            counts["tasks"] = rows[0] if rows else 0
+        except Exception:
+            counts["reminders_today"] = 0
+            counts["tasks"] = 0
+
+    if is_owner:
+        try:
+            from tools.db import get_conn as _gc
+            conn = _gc()
+            rows = conn.execute("SELECT COUNT(*) FROM user_profiles").fetchone()
+            counts["users"] = max(rows[0] if rows else 0, 1)
+        except Exception:
+            counts["users"] = 1
+        try:
+            from tools.rituals import load_rituals
+            counts["rituals"] = len(load_rituals())
+        except Exception:
+            counts["rituals"] = 0
+        try:
+            import json
+            evo_path = os.path.join(MEMORY_DIR, "evolution_counter.json")
+            if os.path.exists(evo_path):
+                with open(evo_path) as f:
+                    evo = json.load(f)
+                counts["evolutions"] = evo.get("count", 0)
+            else:
+                counts["evolutions"] = 0
+        except Exception:
+            counts["evolutions"] = 0
+
+    return counts
+
+
+# Cards builder (Aurora UI design: structured attachments)
+def _build_cards(user_id: str,
+                 aug_prompt: str | None = None) -> list[dict] | None:
+    """Собирает структурированные карточки по модели из хэндоффа.
+
+    Карточки — опциональное поле в message-ответе Миры.
+    Модель: {kind: 'memory'|'event'|'backup', label, ...}
+    """
+    cards: list[dict] = []
+    # memory card: когда ответ опирался на семантическую память
+    if aug_prompt:
+        # Парсим первый факт из augment для показа
+        memory_facts = []
+        for line in aug_prompt.split("\n"):
+            line = line.strip()
+            if line.startswith("- ") and len(line) > 3:
+                memory_facts.append(line[2:])
+            elif line and not line.startswith("#") and not line.startswith("Память"):
+                if len(line) > 20:
+                    memory_facts.append(line[:200])
+        if memory_facts:
+            cards.append({
+                "kind": "memory",
+                "label": "из памяти",
+                "fact": memory_facts[0],
+                "list": memory_facts[1:5] if len(memory_facts) > 1 else None,
+            })
+    return cards if cards else None
+
+
+# ---------------------------------------------------------------------------
 
 def _run_scheduled_task(user_id: str, prompt: str) -> str:
     """Выполняет отложенную задачу (kind='task')."""
@@ -1126,6 +1222,10 @@ async def chat(websocket: WebSocket, session: str = ""):
     # Готовим ws_ready с флагами доступности
     _profile = load_user_profile(user_id) or {}
     _gd_auth = gdrive_authorized(user_id) if is_approved_ws else False
+
+    # Счётчики для сайдбара (Aurora UI design)
+    _counts = _compute_sidebar_counts(user_id, is_approved_ws, is_owner_ws)
+
     await websocket.send_json({
         "type": "ready",
         "name": _profile.get("name", ""),
@@ -1134,6 +1234,7 @@ async def chat(websocket: WebSocket, session: str = ""):
         "gdrive_authorized": _gd_auth,
         "gdrive_email": gdrive_status(user_id).get("email", "") if _gd_auth else "",
         "permissions": _perms,
+        "counts": _counts,
     })
     logger.info(f"WS connect: {user_id} owner={is_owner_ws} approved={is_approved_ws}")
 
@@ -1974,7 +2075,24 @@ async def chat(websocket: WebSocket, session: str = ""):
             ws_payload: dict = {"type": "message", "content": answer}
             if merged:
                 ws_payload["attachments"] = merged
+
+            # Структурированные карточки (Aurora UI design)
+            _cards = _build_cards(user_id, aug_prompt=augment)
+            if _cards:
+                ws_payload["cards"] = _cards
+
             await websocket.send_json(ws_payload)
+
+            # Если Мира использовала факты из памяти — шлём learned ивент
+            # (фиолетовая капсула «я заметила» в Aurora UI)
+            if _cards:
+                for card in _cards:
+                    if card.get("kind") == "memory":
+                        await websocket.send_json({
+                            "type": "learned",
+                            "insight": card.get("fact", ""),
+                        })
+
             _save_session(user_id, msgs)
 
             # FCM push с текстом ответа. На foreground (приложение открыто, WS
