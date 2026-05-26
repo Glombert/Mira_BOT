@@ -2,31 +2,37 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Manrope:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-  --bg-base: #0d0c0f;
-  --bg-elevated: #16151a;
-  --bg-overlay: #1e1d23;
-  --bg-input: #15141a;
-  --text-primary: #eae6dc;
-  --text-secondary: #a8a39c;
-  --text-muted: #6e6a64;
-  --text-on-accent: #1a1410;
-  --accent: #FF8C42;
-  --accent-hover: #FFA060;
-  --accent-soft: #FFB888;
-  --accent-glow: rgba(255, 140, 66, 0.15);
-  --success: #7BB661;
-  --warning: #E8A24A;
-  --error: #D9534F;
-  --info: #7B9FD4;
-  --border-subtle: rgba(234, 230, 220, 0.06);
-  --border-default: rgba(234, 230, 220, 0.12);
-  --border-focus: var(--accent);
-  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 1px rgba(255, 140, 66, 0.06);
-  --shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 2px rgba(255, 140, 66, 0.08);
-  --shadow-glow: 0 0 24px rgba(255, 140, 66, 0.18);
+  --bg-base: #0b1226;
+  --bg-elevated: #101a30;
+  --bg-overlay: #070c1c;
+  --bg-input: #080d1d;
+  --bg-card: #101a30;
+  --bg-sidebar: #080d1d;
+  --bg-composer: rgba(13, 21, 42, 0.88);
+  --text-primary: #f4ead6;
+  --text-secondary: rgba(244, 234, 214, 0.62);
+  --text-muted: rgba(244, 234, 214, 0.36);
+  --text-faint: rgba(244, 234, 214, 0.22);
+  --text-on-accent: #0b1226;
+  --accent: #f5bc7a;
+  --accent-hover: #f8cfa0;
+  --accent-soft: rgba(245, 188, 122, 0.22);
+  --accent-glow: rgba(245, 188, 122, 0.55);
+  --accent-dim: rgba(245, 188, 122, 0.10);
+  --success: #8dd0a7;
+  --warning: #f5bc7a;
+  --error: #e88a8a;
+  --info: #b9a3ff;
+  --border-subtle: rgba(244, 234, 214, 0.10);
+  --border-strong: rgba(245, 188, 122, 0.30);
+  --border-focus: #f5bc7a;
+  --border-divider: rgba(244, 234, 214, 0.06);
+  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-elevated: 0 8px 24px rgba(0, 0, 0, 0.4);
+  --shadow-glow: 0 0 24px rgba(245, 188, 122, 0.18);
   --duration-fast: 120ms;
   --duration-normal: 200ms;
   --duration-slow: 320ms;
@@ -39,9 +45,10 @@ html {
 }
 
 body {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Manrope', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 /* Scrollbar */
@@ -52,11 +59,11 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(234, 230, 220, 0.12);
+  background: rgba(244, 234, 214, 0.08);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(234, 230, 220, 0.2);
+  background: rgba(244, 234, 214, 0.15);
 }
 
 /* Markdown overrides */
@@ -104,6 +111,58 @@ body {
   font-weight: 600;
   color: var(--text-primary);
 }
+
+/* Aurora animations */
+@keyframes mira-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 0.85; transform: scale(1.04); }
+}
+@keyframes mira-glow {
+  0%, 100% { filter: drop-shadow(0 0 12px rgba(245, 188, 122, 0.4)); }
+  50%      { filter: drop-shadow(0 0 24px rgba(245, 188, 122, 0.65)); }
+}
+@keyframes mira-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes mira-blink {
+  0%, 70%, 100% { opacity: 0.3; transform: translateY(0); }
+  35% { opacity: 1; transform: translateY(-2px); }
+}
+@keyframes mira-twinkle {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+@keyframes mira-orbit {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes mira-rise {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+.mira-breathe { animation: mira-breathe 4.5s ease-in-out infinite; }
+.mira-glow    { animation: mira-glow 5s ease-in-out infinite; }
+.mira-twinkle { animation: mira-twinkle 3s ease-in-out infinite; }
+.mira-orbit-slow { animation: mira-orbit 60s linear infinite; }
+
+.mira-typing-dot {
+  animation: mira-blink 1.3s ease-in-out infinite;
+}
+.mira-typing-dot:nth-child(2) { animation-delay: 0.18s; }
+.mira-typing-dot:nth-child(3) { animation-delay: 0.36s; }
+
+.mira-shimmer {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(245, 188, 122, 0.18) 50%,
+    transparent 100%);
+  background-size: 200% 100%;
+  animation: mira-shimmer 2.4s ease-in-out infinite;
+}
+
+.mira-rise { animation: mira-rise 0.6s ease-out both; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

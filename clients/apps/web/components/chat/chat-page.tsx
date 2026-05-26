@@ -455,13 +455,13 @@ export function ChatPage() {
                 <svg width="48" height="48" viewBox="0 0 28 28" fill="none">
                   <defs>
                     <linearGradient id="emptyStar" x1="0" y1="0" x2="28" y2="28" gradientUnits="userSpaceOnUse">
-                      <stop stopColor="#FF8C42" stopOpacity="0.3" />
-                      <stop offset="1" stopColor="#FFB888" stopOpacity="0.2" />
+                      <stop stopColor="#f5bc7a" stopOpacity="0.3" />
+                      <stop offset="1" stopColor="#f8cfa0" stopOpacity="0.2" />
                     </linearGradient>
                   </defs>
                   <path d="M14 2L16.5 11.5H26L18.5 17L21 26L14 21L7 26L9.5 17L2 11.5H11.5L14 2Z" fill="url(#emptyStar)" />
                 </svg>
-                <p className="text-sm">Напиши что-нибудь, чтобы начать</p>
+                <p className="text-sm text-text-secondary font-serif italic">Напиши что-нибудь, чтобы начать</p>
               </div>
             )}
             {messages.map((msg) => (

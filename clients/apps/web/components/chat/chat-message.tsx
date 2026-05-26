@@ -68,7 +68,14 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
   if (type === 'user') {
     return (
       <div className="flex flex-col items-end animate-fade-in-up gap-1">
-        <div className="max-w-[70%] rounded-card rounded-br-button bg-bg-elevated px-4 py-3 text-text-primary text-base leading-relaxed">
+        <div
+          className="max-w-[70%] px-4 py-3 text-text-primary text-base leading-relaxed"
+          style={{
+            borderRadius: '16px 16px 4px 16px',
+            backgroundColor: 'rgba(245, 188, 122, 0.10)',
+            border: '1px solid rgba(245, 188, 122, 0.32)',
+          }}
+        >
           {content}
         </div>
         {message.timestamp ? <span className="text-[11px] text-text-muted mr-1">{formatTime(message.timestamp)}</span> : null}
@@ -79,11 +86,11 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
   if (type === 'thinking') {
     return (
       <div className="flex items-start gap-3 animate-fade-in-up">
-        <img src="/mira-avatar-full.png" alt="Мира" className="w-7 h-7 rounded-full object-cover shrink-0" />
+        <img src="/mira-avatar-full.png" alt="Мира" className="w-7 h-7 rounded-full object-cover shrink-0 border border-gold-soft" />
         <div className="flex items-center gap-2 px-4 py-3">
-          <span className="h-2 w-2 rounded-full bg-accent animate-pulse-think" />
-          <span className="h-2 w-2 rounded-full bg-accent animate-pulse-think [animation-delay:200ms]" />
-          <span className="h-2 w-2 rounded-full bg-accent animate-pulse-think [animation-delay:400ms]" />
+          <span className="h-2 w-2 rounded-full bg-gold animate-pulse-think" />
+          <span className="h-2 w-2 rounded-full bg-gold animate-pulse-think [animation-delay:200ms]" />
+          <span className="h-2 w-2 rounded-full bg-gold animate-pulse-think [animation-delay:400ms]" />
         </div>
       </div>
     );
@@ -100,7 +107,7 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
   if (type === 'error') {
     return (
       <div className="flex items-center justify-center gap-2 py-1 animate-fade-in-up">
-        <span className="text-sm text-error whitespace-pre-wrap">{content}</span>
+        <span className="text-sm text-rose whitespace-pre-wrap">{content}</span>
       </div>
     );
   }
@@ -108,44 +115,55 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
   if (type === 'message') {
     const isNew = isFresh(message.timestamp);
     return (
-      <div className="flex items-start gap-3 animate-fade-in-up">
-        <img src="/mira-avatar-full.png" alt="Мира" className="w-7 h-7 rounded-full object-cover shrink-0" />
+      <div className="flex items-start gap-3 animate-fade-in-up max-w-[85%]">
+        <img src="/mira-avatar-full.png" alt="Мира" className="w-7 h-7 rounded-full object-cover shrink-0 border border-gold-soft" />
         <div className="flex-1 min-w-0">
-          <span className="text-xs text-text-secondary mb-1 block">Мира</span>
-          <div className="text-text-primary text-base leading-relaxed">
-            {isNew ? (
-              <TypewriterText content={content || ''} />
-            ) : (
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                className="mira-markdown"
-                components={{
-                  a: ({ href, children }) => {
-                    const allowed = ['http:', 'https:', 'mailto:', 'tg:'];
-                    let safe = href || '#';
-                    try {
-                      const u = new URL(safe, window.location.href);
-                      if (!allowed.includes(u.protocol)) safe = '#';
-                    } catch {
-                      safe = '#';
-                    }
-                    return (
-                      <a href={safe} target="_blank" rel="noopener noreferrer">
-                        {children}
-                      </a>
-                    );
-                  },
-                }}
-              >
-                {content || ''}
-              </ReactMarkdown>
-            )}
+          <span className="text-xs text-text-secondary mb-1 block font-serif italic">Мира</span>
+          <div
+            className="relative text-text-primary text-base leading-relaxed overflow-hidden"
+            style={{
+              borderRadius: '16px 16px 16px 4px',
+              backgroundColor: 'rgba(20, 30, 55, 0.85)',
+              border: '1px solid rgba(244, 234, 214, 0.08)',
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.35)',
+            }}
+          >
+            <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gold/50" />
+            <div className="px-4 py-3">
+              {isNew ? (
+                <TypewriterText content={content || ''} />
+              ) : (
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  className="mira-markdown"
+                  components={{
+                    a: ({ href, children }) => {
+                      const allowed = ['http:', 'https:', 'mailto:', 'tg:'];
+                      let safe = href || '#';
+                      try {
+                        const u = new URL(safe, window.location.href);
+                        if (!allowed.includes(u.protocol)) safe = '#';
+                      } catch {
+                        safe = '#';
+                      }
+                      return (
+                        <a href={safe} target="_blank" rel="noopener noreferrer">
+                          {children}
+                        </a>
+                      );
+                    },
+                  }}
+                >
+                  {content || ''}
+                </ReactMarkdown>
+              )}
+            </div>
           </div>
           {message.messageAttachments && message.messageAttachments.length > 0 && (
             <div className="mt-2 space-y-1">
               {message.messageAttachments.map((a, i) => (
                 <span key={i}
-                   className="inline-flex items-center gap-2 bg-bg-base border border-border-focus rounded-lg px-3 py-1.5 text-sm text-accent-secondary">
+                   className="inline-flex items-center gap-2 bg-bg-base border border-border-strong rounded-lg px-3 py-1.5 text-sm text-text-secondary">
                   <FileText size={14} />
                   <span className="truncate">{a.name}</span>
                   <span className="text-text-muted text-xs">{formatBytes(a.size)}</span>
@@ -165,7 +183,7 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
     if (resolved === 'approve') {
       return (
         <div className="flex justify-center animate-fade-in-up">
-          <div className="max-w-[70%] bg-status-online/10 border border-status-online/30 rounded-card px-4 py-2 text-sm text-status-online">
+          <div className="max-w-[70%] bg-sage/10 border border-sage/30 rounded-card px-4 py-2 text-sm text-sage">
             ✅ Пользователь {a.name} одобрен
           </div>
         </div>
@@ -174,7 +192,7 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
     if (resolved === 'block') {
       return (
         <div className="flex justify-center animate-fade-in-up">
-          <div className="max-w-[70%] bg-status-offline/10 border border-status-offline/30 rounded-card px-4 py-2 text-sm text-status-offline">
+          <div className="max-w-[70%] bg-rose/10 border border-rose/30 rounded-card px-4 py-2 text-sm text-rose">
             ❌ Пользователь {a.name} заблокирован
           </div>
         </div>
@@ -182,19 +200,19 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
     }
     return (
       <div className="flex justify-center animate-fade-in-up">
-        <div className="max-w-[80%] bg-bg-elevated border border-border-default rounded-card px-4 py-3 space-y-2">
+        <div className="max-w-[80%] bg-bg-elevated border border-border-subtle rounded-card px-4 py-3 space-y-2">
           <p className="text-sm text-text-secondary">Новый пользователь запрашивает доступ:</p>
           <p className="text-base text-text-primary font-medium">{a.name} <span className="text-text-muted text-sm">({a.source})</span></p>
           <div className="flex gap-2">
             <button
               onClick={() => { setResolved('approve'); onApprove?.(a.user_id); }}
-              className="flex-1 bg-status-online/20 hover:bg-status-online/30 text-status-online rounded-button px-3 py-1.5 text-sm font-medium transition-colors"
+              className="flex-1 bg-sage/20 hover:bg-sage/30 text-sage rounded-button px-3 py-1.5 text-sm font-medium transition-colors"
             >
               Одобрить
             </button>
             <button
               onClick={() => { setResolved('block'); onBlock?.(a.user_id); }}
-              className="flex-1 bg-status-offline/20 hover:bg-status-offline/30 text-status-offline rounded-button px-3 py-1.5 text-sm font-medium transition-colors"
+              className="flex-1 bg-rose/20 hover:bg-rose/30 text-rose rounded-button px-3 py-1.5 text-sm font-medium transition-colors"
             >
               Заблокировать
             </button>
@@ -207,12 +225,12 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
   if (type === 'gdrive_auth_url' && url) {
     return (
       <div className="flex items-center justify-center gap-2 py-1 animate-fade-in-up">
-        <Cloud size={16} className="text-accent shrink-0" />
+        <Cloud size={16} className="text-gold shrink-0" />
         <a
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-sm text-accent hover:text-accent-hover underline"
+          className="text-sm text-gold hover:text-accent-hover underline"
         >
           Привязать Google Drive
         </a>
@@ -233,7 +251,7 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
                   href={getFileUrl(f.dir as 'inbox' | 'output', f.name)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="truncate text-accent hover:text-accent-hover underline"
+                  className="truncate text-gold hover:text-accent-hover underline"
                 >
                   {f.name}
                 </a>
@@ -255,5 +273,3 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
     </div>
   );
 }
-
-

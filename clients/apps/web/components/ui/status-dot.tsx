@@ -14,9 +14,9 @@ export function StatusDot({ status, className }: StatusDotProps) {
     <span
       className={cn(
         'inline-block h-2 w-2 rounded-full',
-        status === 'online' && 'bg-success',
-        status === 'reconnecting' && 'bg-warning animate-pulse',
-        status === 'offline' && 'bg-text-muted',
+        status === 'online' && 'bg-gold',
+        status === 'reconnecting' && 'bg-gold animate-pulse',
+        status === 'offline' && 'bg-rose',
         className
       )}
       aria-hidden="true"

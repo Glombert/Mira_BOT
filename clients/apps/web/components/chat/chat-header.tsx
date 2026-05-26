@@ -14,25 +14,39 @@ interface ChatHeaderProps {
 }
 
 export function ChatHeader({ userName, connectionStatus, onClear, onWhoami, onOpenPalette, onOpenReminders, onOpenDrive }: ChatHeaderProps) {
+  const statusText = connectionStatus === 'online'
+    ? 'на связи · слушает'
+    : connectionStatus === 'reconnecting'
+    ? 'переподключается...'
+    : 'офлайн';
+  const statusColorClass = connectionStatus === 'offline' ? 'text-rose' : 'text-gold';
+
   return (
-    <header className="flex items-center justify-between px-4 py-3 border-b border-border-subtle bg-bg-base sticky top-0 z-10">
+    <header className="flex items-center justify-between px-4 py-3 border-b border-border-divider bg-bg-base sticky top-0 z-10">
       <div className="flex items-center gap-3">
         <button
           onClick={onOpenPalette}
           aria-label="Меню"
-          className="h-9 w-9 flex items-center justify-center rounded-button text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors duration-fast"
+          className="h-9 w-9 flex items-center justify-center rounded-button border border-border-subtle bg-bg-deep/50 text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors duration-fast"
         >
           <Menu size={20} />
         </button>
-        <img src="/mira-avatar-full.png" alt="Мира" className="w-10 h-10 rounded-full object-cover" />
+
+        <div className="relative">
+          <div className="absolute inset-[-4px] rounded-full bg-gold/10 animate-mira-glow" />
+          <img
+            src="/mira-avatar-full.png"
+            alt="Мира"
+            className="relative w-10 h-10 rounded-full object-cover border border-gold-soft"
+          />
+        </div>
+
         <div>
-          <h1 className="text-xl font-semibold text-text-primary leading-tight">Мира</h1>
-          <div className="flex items-center gap-1.5">
+          <h1 className="font-serif text-[23px] font-medium text-text-primary leading-tight tracking-wide">Мира</h1>
+          <div className="flex items-center gap-1.5 mt-0.5">
             <StatusDot status={connectionStatus} />
-            <span className="text-xs text-text-secondary">
-              {connectionStatus === 'online' && 'В сети'}
-              {connectionStatus === 'reconnecting' && 'Переподключение...'}
-              {connectionStatus === 'offline' && 'Не в сети'}
+            <span className={`text-[11px] tracking-wide ${statusColorClass}`}>
+              {statusText}
             </span>
           </div>
         </div>
@@ -43,28 +57,28 @@ export function ChatHeader({ userName, connectionStatus, onClear, onWhoami, onOp
         <button
           onClick={onOpenReminders}
           aria-label="Напоминания"
-          className="h-9 w-9 flex items-center justify-center rounded-button text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors duration-fast"
+          className="h-9 w-9 flex items-center justify-center rounded-button border border-border-subtle bg-bg-deep/50 text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors duration-fast"
         >
           <Bell size={20} />
         </button>
         <button
           onClick={onOpenDrive}
           aria-label="Google Drive"
-          className="h-9 w-9 flex items-center justify-center rounded-button text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors duration-fast"
+          className="h-9 w-9 flex items-center justify-center rounded-button border border-border-subtle bg-bg-deep/50 text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors duration-fast"
         >
           <Cloud size={20} />
         </button>
         <button
           onClick={onWhoami}
           aria-label="Профиль"
-          className="h-9 w-9 flex items-center justify-center rounded-button text-text-secondary hover:text-text-primary hover:bg-bg-elevated transition-colors duration-fast"
+          className="h-9 w-9 flex items-center justify-center rounded-button border border-border-subtle bg-bg-deep/50 text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors duration-fast"
         >
           <User size={20} />
         </button>
         <button
           onClick={onClear}
           aria-label="Очистить историю"
-          className="h-9 w-9 flex items-center justify-center rounded-button text-text-secondary hover:text-error hover:bg-bg-elevated transition-colors duration-fast"
+          className="h-9 w-9 flex items-center justify-center rounded-button border border-border-subtle bg-bg-deep/50 text-text-secondary hover:text-rose hover:border-rose/40 transition-colors duration-fast"
         >
           <Trash2 size={20} />
         </button>
