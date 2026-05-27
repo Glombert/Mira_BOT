@@ -11,6 +11,7 @@
     "lint:web": "npm run lint -w apps/web"
   },
   "devDependencies": {
+    "@svgr/webpack": "^8.1.0",
     "@tauri-apps/cli": "^2.11.2",
     "typescript": "^5.4.5"
   },

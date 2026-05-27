@@ -1,9 +1,26 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
-import { X, Search, Command } from 'lucide-react';
+import { X, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { UserEntry } from '@mira/shared';
+import { MiraIcon } from '../icons/MiraIcon';
+
+// Иконка на команду / секцию (ключи из дизайн-пакета icons/)
+const CMD_ICONS: Record<string, string> = {
+  clear: 'clear', whoami: 'profile', tz: 'tz', forget: 'forget', stop: 'stop', help: 'help',
+  files: 'myfiles',
+  gdrive_login: 'driveLink', gdrive_status: 'driveStatus', gdrive_list: 'driveList',
+  gdrive_get: 'driveDown', gdrive_toggle: 'autoup', gdrive_logout: 'driveUnlink',
+  gcal: 'cal', gcal_create: 'calNew', gsheet: 'sheetRead', gsheet_create: 'sheetNew',
+  remind: 'remNew', reminders: 'remList', task: 'taskDefer', tasks: 'taskList', image: 'genImg',
+  stats: 'metrics', users: 'users', versions: 'backup', evolution_count: 'evolve',
+  blacklist: 'blacklist', rituals: 'rituals', reflect: 'review', kidmode: 'child', rename: 'rename',
+};
+const SECTION_ICONS: Record<string, string> = {
+  'ЧАТ': 'chat', 'ФАЙЛЫ': 'folder', 'GOOGLE': 'cloud', 'НАПОМИНАНИЯ': 'bell',
+  'ЗАДАЧИ': 'task', 'ИНСТРУМЕНТЫ': 'tool', 'ВЛАДЕЛЕЦ': 'lock',
+};
 
 // Справочные команды → результат панелью в меню (не в чат)
 const INFO_CMDS = new Set([
@@ -241,7 +258,7 @@ export function WebDrawer({ open, onClose, onRun, permissions, userName, onFetch
               return (
                 <div key={section.cat} className="mb-3">
                   <div className="flex items-center gap-1.5 mb-1">
-                    <Command size={14} className="text-text-muted" />
+                    <MiraIcon name={SECTION_ICONS[section.cat] || 'chat'} size={15} color="#f5bc7a" />
                     <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted font-semibold">
                       {section.cat}
                     </div>
@@ -254,7 +271,7 @@ export function WebDrawer({ open, onClose, onRun, permissions, userName, onFetch
                       return (
                         <div key="users">
                           <button onClick={toggleUsers} className="w-full text-left px-2 py-[7px] rounded-sidebar-item text-[13px] flex items-center gap-2 text-text-primary hover:bg-gold/5 hover:text-gold transition-colors">
-                            <span className="text-sm">{cmd.icon}</span>
+                            <MiraIcon name={CMD_ICONS[cmd.cmd] || 'chat'} size={16} />
                             <span>{cmd.label}</span>
                             <span className="ml-auto text-text-muted text-xs">{usersExpanded ? '▾' : '▸'}</span>
                           </button>
@@ -290,7 +307,7 @@ export function WebDrawer({ open, onClose, onRun, permissions, userName, onFetch
                       return (
                         <div key={cmd.cmd}>
                           <button onClick={() => toggleInfo(cmd.cmd)} className="w-full text-left px-2 py-[7px] rounded-sidebar-item text-[13px] flex items-center gap-2 text-text-primary hover:bg-gold/5 hover:text-gold transition-colors">
-                            <span className="text-sm">{cmd.icon}</span>
+                            <MiraIcon name={CMD_ICONS[cmd.cmd] || 'chat'} size={16} />
                             <span>{cmd.label}</span>
                             <span className="ml-auto text-text-muted text-xs">{o ? '▾' : '▸'}</span>
                           </button>
@@ -317,7 +334,7 @@ export function WebDrawer({ open, onClose, onRun, permissions, userName, onFetch
                             : 'text-text-primary hover:bg-gold/5 hover:text-gold'
                         )}
                       >
-                        <span className="text-sm">{cmd.icon}</span>
+                        <MiraIcon name={CMD_ICONS[cmd.cmd] || 'chat'} size={16} />
                         <span>{cmd.label}</span>
                         {cmd.hasArgs && !disabled && <span className="ml-auto text-text-muted text-xs">⋯</span>}
                       </button>
