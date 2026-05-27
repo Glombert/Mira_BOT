@@ -43,7 +43,14 @@ export type ServerMessage =
   | { type: 'system'; content: string }
   | { type: 'error'; content: string }
   | { type: 'files'; files: Array<{ name: string; dir: string; size: number }> }
-  | { type: 'gdrive_auth_url'; url: string };
+  | { type: 'gdrive_auth_url'; url: string }
+  | { type: 'users_list'; users: UserEntry[] };
+
+export interface UserEntry {
+  id: string;
+  name: string;
+  status: string;
+}
 
 export type ClientMessage =
   | { type: 'ping' }

@@ -3,6 +3,17 @@
 import { useState, useCallback, useMemo } from 'react';
 import { X, Search, Command } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { UserEntry } from '@mira/shared';
+
+// Справочные команды → результат панелью в меню (не в чат)
+const INFO_CMDS = new Set([
+  'whoami', 'help', 'stats', 'versions', 'rituals', 'blacklist',
+  'evolution_count', 'gdrive_status', 'gcal', 'reminders', 'tasks',
+]);
+const STATUS_LABEL: Record<string, string> = {
+  owner: 'Владелец', regular: 'Одобрен', guest: 'Гость',
+  rejected: 'Отклонён', blacklisted: 'Чёрный список', blocked: 'Блок',
+};
 
 interface DrawerCommand {
   cmd: string;
@@ -59,12 +70,55 @@ interface WebDrawerProps {
   onRun: (cmd: string) => void;
   permissions: UserPermissions;
   userName: string;
+  onFetchInfo?: (cmd: string) => Promise<string>;
+  onFetchUsers?: () => Promise<UserEntry[]>;
 }
 
-export function WebDrawer({ open, onClose, onRun, permissions, userName }: WebDrawerProps) {
+export function WebDrawer({ open, onClose, onRun, permissions, userName, onFetchInfo, onFetchUsers }: WebDrawerProps) {
   const [formCmd, setFormCmd] = useState<string | null>(null);
   const [formValue, setFormValue] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // info-панели
+  const [infoOpen, setInfoOpen] = useState<string | null>(null);
+  const [infoText, setInfoText] = useState<Record<string, string>>({});
+  const [infoLoading, setInfoLoading] = useState<string | null>(null);
+  const toggleInfo = useCallback((cmd: string) => {
+    setInfoOpen((prev) => {
+      if (prev === cmd) return null;
+      if (onFetchInfo && infoText[cmd] === undefined) {
+        setInfoLoading(cmd);
+        onFetchInfo(cmd)
+          .then((t) => setInfoText((m) => ({ ...m, [cmd]: t })))
+          .catch(() => setInfoText((m) => ({ ...m, [cmd]: 'Не удалось получить данные' })))
+          .finally(() => setInfoLoading(null));
+      }
+      return cmd;
+    });
+  }, [onFetchInfo, infoText]);
+
+  // список пользователей
+  const [usersExpanded, setUsersExpanded] = useState(false);
+  const [usersList, setUsersList] = useState<UserEntry[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [openUserId, setOpenUserId] = useState<string | null>(null);
+  const loadUsers = useCallback(() => {
+    if (!onFetchUsers) return;
+    setUsersLoading(true);
+    onFetchUsers().then(setUsersList).catch(() => {}).finally(() => setUsersLoading(false));
+  }, [onFetchUsers]);
+  const toggleUsers = useCallback(() => {
+    setUsersExpanded((prev) => {
+      const next = !prev;
+      if (next && usersList.length === 0) loadUsers();
+      return next;
+    });
+  }, [usersList.length, loadUsers]);
+  const userAction = useCallback((cmd: string) => {
+    onRun(cmd);
+    setOpenUserId(null);
+    setTimeout(loadUsers, 600);
+  }, [onRun, loadUsers]);
 
   const grouped = useMemo(() => {
     const cats = Array.from(new Set(COMMANDS.map((c) => c.category)));
@@ -194,6 +248,63 @@ export function WebDrawer({ open, onClose, onRun, permissions, userName }: WebDr
                   </div>
                   {section.commands.map((cmd) => {
                     const disabled = isDisabled(cmd);
+
+                    // «Пользователи» — выпадающий список с подменю действий
+                    if (cmd.cmd === 'users' && onFetchUsers && permissions.is_owner && !searchQuery) {
+                      return (
+                        <div key="users">
+                          <button onClick={toggleUsers} className="w-full text-left px-2 py-[7px] rounded-sidebar-item text-[13px] flex items-center gap-2 text-text-primary hover:bg-gold/5 hover:text-gold transition-colors">
+                            <span className="text-sm">{cmd.icon}</span>
+                            <span>{cmd.label}</span>
+                            <span className="ml-auto text-text-muted text-xs">{usersExpanded ? '▾' : '▸'}</span>
+                          </button>
+                          {usersExpanded && (
+                            <div className="ml-4 pl-2 border-l border-border-divider">
+                              {usersLoading && <div className="text-xs text-text-muted py-1">Загрузка…</div>}
+                              {!usersLoading && usersList.length === 0 && <div className="text-xs text-text-muted py-1">Пусто</div>}
+                              {usersList.map((u) => (
+                                <div key={u.id}>
+                                  <button onClick={() => setOpenUserId(openUserId === u.id ? null : u.id)} className="w-full flex items-center justify-between py-2 px-1 text-left">
+                                    <span className="text-[13px] text-text-primary truncate mr-2">{u.name || u.id}</span>
+                                    <span className="text-[10px] text-gold font-mono shrink-0">{STATUS_LABEL[u.status] || u.status}</span>
+                                  </button>
+                                  {openUserId === u.id && (
+                                    <div className="pl-1 pb-1">
+                                      <button onClick={() => { setOpenUserId(null); setFormCmd(`rename ${u.id}`); setFormValue(''); }} className="block w-full text-left py-1.5 px-2 text-[13px] text-text-dim hover:text-gold rounded-sidebar-item">Переименовать</button>
+                                      <button onClick={() => userAction(`approve ${u.id}`)} className="block w-full text-left py-1.5 px-2 text-[13px] text-text-dim hover:text-gold rounded-sidebar-item">Одобрить</button>
+                                      <button onClick={() => userAction(`reject ${u.id}`)} className="block w-full text-left py-1.5 px-2 text-[13px] text-text-dim hover:text-gold rounded-sidebar-item">Отклонить</button>
+                                      <button onClick={() => userAction(`block ${u.id}`)} className="block w-full text-left py-1.5 px-2 text-[13px] text-rose hover:opacity-80 rounded-sidebar-item">Заблокировать</button>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    // Справочные команды — раскрываются панелью с результатом
+                    if (INFO_CMDS.has(cmd.cmd) && onFetchInfo && !disabled && !searchQuery) {
+                      const o = infoOpen === cmd.cmd;
+                      return (
+                        <div key={cmd.cmd}>
+                          <button onClick={() => toggleInfo(cmd.cmd)} className="w-full text-left px-2 py-[7px] rounded-sidebar-item text-[13px] flex items-center gap-2 text-text-primary hover:bg-gold/5 hover:text-gold transition-colors">
+                            <span className="text-sm">{cmd.icon}</span>
+                            <span>{cmd.label}</span>
+                            <span className="ml-auto text-text-muted text-xs">{o ? '▾' : '▸'}</span>
+                          </button>
+                          {o && (
+                            <div className="ml-4 pl-2 py-1 border-l border-border-divider">
+                              {infoLoading === cmd.cmd
+                                ? <div className="text-xs text-text-muted">Загрузка…</div>
+                                : <div className="text-xs text-text-secondary font-mono whitespace-pre-wrap leading-relaxed">{infoText[cmd.cmd] || '—'}</div>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
                     return (
                       <button
                         key={cmd.cmd}

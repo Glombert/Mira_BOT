@@ -250,6 +250,22 @@ export function ChatPage() {
     [client]
   );
 
+  const handleFetchInfo = useCallback((cmd: string): Promise<string> => {
+    if (!client) return Promise.resolve('Нет соединения');
+    return client
+      .sendCommandAwait(cmd, ['system', 'message'])
+      .then((m) => ('content' in m ? m.content : '—'))
+      .catch(() => 'Не удалось получить данные');
+  }, [client]);
+
+  const handleFetchUsers = useCallback(() => {
+    if (!client) return Promise.resolve([]);
+    return client
+      .sendCommandAwait('users_data', ['users_list'])
+      .then((m) => m.users)
+      .catch(() => []);
+  }, [client]);
+
   const handleApprove = useCallback(
     (userId: string) => {
       if (!client) return;
@@ -480,11 +496,22 @@ export function ChatPage() {
               uploading={uploadProgress !== null}
             />
           </div>
+          {!autoScroll && (
+            <button
+              onClick={() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); setAutoScroll(true); }}
+              className="fixed right-6 bottom-24 z-10 w-10 h-10 rounded-full bg-bg-surface border border-border-strong flex items-center justify-center shadow-elevated hover:bg-bg-elevated transition-colors"
+              aria-label="Вниз"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M6 9l6 6 6-6" stroke="#f5bc7a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          )}
         </>
       )}
 
       {whoamiContent && <WhoamiModal content={whoamiContent} onClose={() => setWhoamiContent(null)} />}
-      <WebDrawer open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={handlePaletteRun} permissions={permissions} userName={userName} />
+      <WebDrawer open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={handlePaletteRun} permissions={permissions} userName={userName} onFetchInfo={handleFetchInfo} onFetchUsers={handleFetchUsers} />
       <RemindersModal open={remindersOpen} onClose={() => setRemindersOpen(false)} client={client} />
       <DriveModal open={driveOpen} onClose={() => setDriveOpen(false)} client={client} />
     </div>
