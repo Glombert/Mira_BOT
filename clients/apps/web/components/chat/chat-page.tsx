@@ -31,6 +31,7 @@ export function ChatPage() {
   const [showAuth, setShowAuth] = useState(false);
   const [whoamiContent, setWhoamiContent] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [driveOpen, setDriveOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -241,13 +242,29 @@ export function ChatPage() {
   const handleOpenReminders = useCallback(() => setRemindersOpen(true), []);
   const handleOpenDrive = useCallback(() => setDriveOpen(true), []);
 
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((t: string) => {
+    setToast(t.slice(0, 160));
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2800);
+  }, []);
+
+  // Действие из меню: подтверждение тостом, не в чат. image/gdrive_login → в чат.
   const handlePaletteRun = useCallback(
     (cmd: string) => {
       if (!client) return;
-      if (cmd === 'whoami') pendingWhoamiRef.current = true;
-      client.sendCommand(cmd);
+      const base = cmd.split(' ')[0];
+      if (base === 'clear') setMessages([]);
+      if (base === 'image' || base === 'gdrive_login') {
+        client.sendCommand(cmd);
+        return;
+      }
+      client
+        .sendCommandAwait(cmd, ['system', 'message'])
+        .then((m) => showToast('content' in m ? m.content : 'Готово'))
+        .catch(() => {});
     },
-    [client]
+    [client, showToast]
   );
 
   const handleFetchInfo = useCallback((cmd: string): Promise<string> => {
@@ -514,6 +531,11 @@ export function ChatPage() {
       <WebDrawer open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={handlePaletteRun} permissions={permissions} userName={userName} onFetchInfo={handleFetchInfo} onFetchUsers={handleFetchUsers} />
       <RemindersModal open={remindersOpen} onClose={() => setRemindersOpen(false)} client={client} />
       <DriveModal open={driveOpen} onClose={() => setDriveOpen(false)} client={client} />
+      {toast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] max-w-[80%] px-4 py-2 rounded-full bg-bg-surface border border-border-strong text-text-primary text-sm shadow-elevated text-center">
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
