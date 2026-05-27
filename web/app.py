@@ -1668,7 +1668,8 @@ async def chat(websocket: WebSocket, session: str = ""):
                             lines = [f"Пользователи ({len(users)}):"]
                             for u in users:
                                 ico = icons.get(u.get("status"), "?")
-                                lines.append(f"{ico} {u.get('name') or u.get('id')} [{u.get('status')}]")
+                                lines.append(f"{ico} {u.get('name') or '—'} [{u.get('status')}]\n   id: {u.get('id')}")
+                            lines.append("\nПереименовать: /rename <id> <новое имя>")
                             await websocket.send_json({"type": "system", "content": "\n".join(lines)})
                         except Exception as e:
                             await websocket.send_json({"type": "system", "content": f"users: {e}"})
