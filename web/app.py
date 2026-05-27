@@ -1635,7 +1635,7 @@ async def chat(websocket: WebSocket, session: str = ""):
                 # Деструктивные (/evolve, /rollback, /release, /git, /restart) НЕ
                 # пробрасываются в WS — они требуют интерактивных подтверждений
                 # и контекста, оставлены только в Telegram.
-                elif cmd in ("stats", "users", "versions", "evolution_count", "blacklist"):
+                elif cmd in ("stats", "users", "users_data", "versions", "evolution_count", "blacklist"):
                     is_owner_ws = OWNER_TG_ID and tg_id == OWNER_TG_ID
                     if not is_owner_ws:
                         await websocket.send_json({"type": "system", "content": "Команда доступна только владельцу."})
@@ -1673,6 +1673,17 @@ async def chat(websocket: WebSocket, session: str = ""):
                             await websocket.send_json({"type": "system", "content": "\n".join(lines)})
                         except Exception as e:
                             await websocket.send_json({"type": "system", "content": f"users: {e}"})
+                    elif cmd == "users_data":
+                        # Структурный список для раскрывающегося меню в сайдбаре
+                        try:
+                            from tools.access_tools import list_users
+                            users = [
+                                {"id": u.get("id"), "name": u.get("name") or "", "status": u.get("status") or "guest"}
+                                for u in list_users()
+                            ]
+                            await websocket.send_json({"type": "users_list", "users": users})
+                        except Exception as e:
+                            await websocket.send_json({"type": "system", "content": f"users_data: {e}"})
                     elif cmd == "versions":
                         try:
                             import io as _io, sys as _sys
