@@ -4,7 +4,7 @@
 
 ### Личный AI-ассистент, который живёт сразу в Telegram, в браузере и в твоём телефоне
 
-[![Version](https://img.shields.io/badge/version-2.2-brightgreen?style=for-the-badge)](https://github.com/Glombert/Mira_BOT/releases/tag/v2.2)
+[![Version](https://img.shields.io/badge/version-2.3-brightgreen?style=for-the-badge)](https://github.com/Glombert/Mira_BOT/releases/tag/v2.3)
 [![Mobile](https://img.shields.io/badge/Mobile-Android_APK-FF8C42?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Glombert/Mira_Mobile/releases/latest)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-22C55E?style=for-the-badge)](LICENSE)
@@ -103,6 +103,16 @@ Mira — это **твой собственный AI-ассистент**, к к
 | **Интеграции** | Google Drive · Calendar · Sheets · rclone · DuckDuckGo Search · Claude Vision |
 | **Безопасность** | firejail-изоляция Python · workspace per user · path traversal protection · HMAC сессии |
 | **Самоэволюция** | `/evolve` — Мира сама правит свой код через 5-слойную валидацию (whitelist → syntax → smoke test → atomic rollback) |
+
+## Что в v2.3 нового
+
+| Категория | Фичи |
+|---|---|
+| 🔒 **Security-аудит** | По OWASP (ASVS 5.0 / API Top-10 / LLM Top-10 2025): фикс path-traversal в Google Drive, одноразовые коды `/m/auth` (токен больше не в URL), security-заголовки + HSTS + современные TLS-шифры в nginx, redaction-фильтр секретов в логах, `run_python` в firejail-песочнице. Закрыта утечка токена бота в логи. |
+| 📲 **In-app обновление мобайла** | `/mobile/version` + `/mobile/download` — раздача APK из приватного репо через PAT-прокси (302 на CDN GitHub, не хранится на сервере). В приложении обновление качается и ставится **без браузера** (как 2ГИС/Telegram). |
+| 🩹 **Надёжность LLM** | `providers.call` ловит `choices=null` от OpenRouter → понятный failover вместо криптичной ошибки. |
+| 👥 **Структурные данные для UI** | Счётчики в сайдбаре (файлы/напоминания/задачи/пользователи/ритуалы), `users_data` → список пользователей для раскрывающегося меню, `id` в `/users` для `/rename`. |
+| 🧹 **Retention** | Авточистка сессий старше `RETENTION_DAYS` (по умолчанию 90; `0` отключает). |
 
 ## Что в v2.2 нового
 
