@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { X, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { UserEntry } from '@mira/shared';
+import type { UserEntry, SidebarCounts } from '@mira/shared';
 import { MiraIcon } from '../icons/MiraIcon';
 
 // Иконка на команду / секцию (ключи из дизайн-пакета icons/)
@@ -81,6 +81,14 @@ interface UserPermissions {
   gdrive_authorized: boolean;
 }
 
+function CountBadge({ n }: { n: number }) {
+  return (
+    <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-gold/15 text-gold text-[10px] font-mono leading-none">
+      {n}
+    </span>
+  );
+}
+
 interface WebDrawerProps {
   open: boolean;
   onClose: () => void;
@@ -89,9 +97,21 @@ interface WebDrawerProps {
   userName: string;
   onFetchInfo?: (cmd: string) => Promise<string>;
   onFetchUsers?: () => Promise<UserEntry[]>;
+  counts?: SidebarCounts;
 }
 
-export function WebDrawer({ open, onClose, onRun, permissions, userName, onFetchInfo, onFetchUsers }: WebDrawerProps) {
+export function WebDrawer({ open, onClose, onRun, permissions, userName, onFetchInfo, onFetchUsers, counts = {} }: WebDrawerProps) {
+  const countFor = (cmd: string): number | undefined => {
+    const n = ({
+      files: counts.files,
+      reminders: counts.reminders_today,
+      tasks: counts.tasks,
+      users: counts.users,
+      rituals: counts.rituals,
+      evolution_count: counts.evolutions,
+    } as Record<string, number | undefined>)[cmd];
+    return n && n > 0 ? n : undefined;
+  };
   const [formCmd, setFormCmd] = useState<string | null>(null);
   const [formValue, setFormValue] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -273,7 +293,8 @@ export function WebDrawer({ open, onClose, onRun, permissions, userName, onFetch
                           <button onClick={toggleUsers} className="w-full text-left px-2 py-[7px] rounded-sidebar-item text-[13px] flex items-center gap-2 text-text-primary hover:bg-gold/5 hover:text-gold transition-colors">
                             <MiraIcon name={CMD_ICONS[cmd.cmd] || 'chat'} size={16} />
                             <span>{cmd.label}</span>
-                            <span className="ml-auto text-text-muted text-xs">{usersExpanded ? '▾' : '▸'}</span>
+                            {countFor('users') ? <CountBadge n={countFor('users')!} /> : null}
+                            <span className={cn('text-text-muted text-xs', countFor('users') ? 'ml-1' : 'ml-auto')}>{usersExpanded ? '▾' : '▸'}</span>
                           </button>
                           {usersExpanded && (
                             <div className="ml-4 pl-2 border-l border-border-divider">
@@ -309,7 +330,8 @@ export function WebDrawer({ open, onClose, onRun, permissions, userName, onFetch
                           <button onClick={() => toggleInfo(cmd.cmd)} className="w-full text-left px-2 py-[7px] rounded-sidebar-item text-[13px] flex items-center gap-2 text-text-primary hover:bg-gold/5 hover:text-gold transition-colors">
                             <MiraIcon name={CMD_ICONS[cmd.cmd] || 'chat'} size={16} />
                             <span>{cmd.label}</span>
-                            <span className="ml-auto text-text-muted text-xs">{o ? '▾' : '▸'}</span>
+                            {countFor(cmd.cmd) ? <CountBadge n={countFor(cmd.cmd)!} /> : null}
+                            <span className={cn('text-text-muted text-xs', countFor(cmd.cmd) ? 'ml-1' : 'ml-auto')}>{o ? '▾' : '▸'}</span>
                           </button>
                           {o && (
                             <div className="ml-4 pl-2 py-1 border-l border-border-divider">
@@ -336,7 +358,8 @@ export function WebDrawer({ open, onClose, onRun, permissions, userName, onFetch
                       >
                         <MiraIcon name={CMD_ICONS[cmd.cmd] || 'chat'} size={16} />
                         <span>{cmd.label}</span>
-                        {cmd.hasArgs && !disabled && <span className="ml-auto text-text-muted text-xs">⋯</span>}
+                        {countFor(cmd.cmd) ? <CountBadge n={countFor(cmd.cmd)!} /> : null}
+                        {cmd.hasArgs && !disabled && <span className={cn('text-text-muted text-xs', countFor(cmd.cmd) ? 'ml-1' : 'ml-auto')}>⋯</span>}
                       </button>
                     );
                   })}

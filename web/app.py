@@ -536,30 +536,33 @@ def _compute_sidebar_counts(user_id: str, is_approved: bool, is_owner: bool) -> 
 
 # Cards builder (Aurora UI design: structured attachments)
 def _build_cards(user_id: str,
-                 aug_prompt: str | None = None) -> list[dict] | None:
-    """Собирает структурированные карточки по модели из хэндоффа.
+                 matches: list[dict] | None = None,
+                 strong_distance: float = 0.5) -> list[dict] | None:
+    """Структурированные карточки под ответом Миры (Aurora attachment model).
 
-    Карточки — опциональное поле в message-ответе Миры.
-    Модель: {kind: 'memory'|'event'|'backup', label, ...}
+    memory-карточка показывается ТОЛЬКО когда ответ реально опирался на
+    близкое воспоминание (distance < strong_distance), иначе не засоряем чат
+    (search() отдаёт всё с distance<0.95 — это шум, не повод для карточки).
+    Текст берём из самих matches (m['text'] — чистый), а не из форматированного
+    промпта. Модель: {kind:'memory'|'event'|'backup', label, fact, list}.
     """
     cards: list[dict] = []
-    # memory card: когда ответ опирался на семантическую память
-    if aug_prompt:
-        # Парсим первый факт из augment для показа
-        memory_facts = []
-        for line in aug_prompt.split("\n"):
-            line = line.strip()
-            if line.startswith("- ") and len(line) > 3:
-                memory_facts.append(line[2:])
-            elif line and not line.startswith("#") and not line.startswith("Память"):
-                if len(line) > 20:
-                    memory_facts.append(line[:200])
-        if memory_facts:
+    if matches:
+        strong = sorted(
+            (m for m in matches if m.get("distance", 1.0) < strong_distance),
+            key=lambda m: m.get("distance", 1.0),
+        )
+        facts: list[str] = []
+        for m in strong:
+            t = (m.get("text") or "").strip().replace("\n", " ")
+            if len(t) >= 8 and t not in facts:
+                facts.append(t[:200])
+        if facts:
             cards.append({
                 "kind": "memory",
-                "label": "из памяти",
-                "fact": memory_facts[0],
-                "list": memory_facts[1:5] if len(memory_facts) > 1 else None,
+                "label": "Из памяти",
+                "fact": facts[0],
+                "list": facts[1:4] if len(facts) > 1 else None,
             })
     return cards if cards else None
 
@@ -2008,6 +2011,7 @@ async def chat(websocket: WebSocket, session: str = ""):
             # Также: чистим лишние поля (ts) из llm_msgs — некоторые провайдеры
             # строги к схеме message.
             augment = ""
+            matches: list[dict] = []
             try:
                 matches = semantic_memory.search(user_id, text, top_k=5)
                 augment = semantic_memory.format_for_prompt(matches)
@@ -2088,22 +2092,14 @@ async def chat(websocket: WebSocket, session: str = ""):
             if merged:
                 ws_payload["attachments"] = merged
 
-            # Структурированные карточки (Aurora UI design)
-            _cards = _build_cards(user_id, aug_prompt=augment)
+            # Структурированные карточки (Aurora UI design): показываем только
+            # при действительно близком воспоминании. learned-ивент не шлём —
+            # это recall, а не новый инсайт (клиент его и так игнорирует).
+            _cards = _build_cards(user_id, matches=matches)
             if _cards:
                 ws_payload["cards"] = _cards
 
             await websocket.send_json(ws_payload)
-
-            # Если Мира использовала факты из памяти — шлём learned ивент
-            # (фиолетовая капсула «я заметила» в Aurora UI)
-            if _cards:
-                for card in _cards:
-                    if card.get("kind") == "memory":
-                        await websocket.send_json({
-                            "type": "learned",
-                            "insight": card.get("fact", ""),
-                        })
 
             _save_session(user_id, msgs)
 

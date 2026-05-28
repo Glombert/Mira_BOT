@@ -33,23 +33,42 @@ export interface UploadResult {
 }
 
 export type ServerMessage =
-  | { type: 'ready'; name: string; is_owner?: boolean; is_approved?: boolean; gdrive_authorized?: boolean; gdrive_email?: string | null; permissions?: string[] }
+  | { type: 'ready'; name: string; is_owner?: boolean; is_approved?: boolean; gdrive_authorized?: boolean; gdrive_email?: string | null; permissions?: string[]; counts?: SidebarCounts }
   | { type: 'approval_request'; user_id: string; name: string; source: string }
   | { type: 'permissions_update'; is_owner?: boolean; is_approved?: boolean; gdrive_authorized?: boolean; gdrive_email?: string | null; permissions?: string[] }
   | { type: 'auth_required'; bot: string }
   | { type: 'pong' }
   | { type: 'thinking' }
-  | { type: 'message'; content: string; attachments?: Array<{ name: string; size: number }> }
+  | { type: 'message'; content: string; attachments?: Array<{ name: string; size: number }>; cards?: MessageCard[] }
   | { type: 'system'; content: string }
   | { type: 'error'; content: string }
   | { type: 'files'; files: Array<{ name: string; dir: string; size: number }> }
   | { type: 'gdrive_auth_url'; url: string }
-  | { type: 'users_list'; users: UserEntry[] };
+  | { type: 'users_list'; users: UserEntry[] }
+  | { type: 'learned'; insight: string };
 
 export interface UserEntry {
   id: string;
   name: string;
   status: string;
+}
+
+/** Счётчики для бейджей в боковом меню (приходят в ready). */
+export interface SidebarCounts {
+  files?: number;
+  reminders_today?: number;
+  tasks?: number;
+  users?: number;
+  rituals?: number;
+  evolutions?: number;
+}
+
+/** Структурированная карточка под сообщением Миры (Aurora attachment model). */
+export interface MessageCard {
+  kind: 'memory' | 'event' | 'backup';
+  label: string;
+  fact?: string;
+  list?: string[] | null;
 }
 
 export type ClientMessage =

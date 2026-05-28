@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { MiraClient } from '@mira/shared';
-import type { ServerMessage } from '@mira/shared';
+import type { ServerMessage, SidebarCounts } from '@mira/shared';
 import { webSessionStorage } from '@/lib/session-storage';
 import { IS_TAURI } from '@/lib/runtime';
 import { TelegramLogin } from '@/components/auth/telegram-login';
@@ -32,6 +32,7 @@ export function ChatPage() {
   const [whoamiContent, setWhoamiContent] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [counts, setCounts] = useState<SidebarCounts>({});
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [driveOpen, setDriveOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -102,6 +103,7 @@ export function ChatPage() {
         gdrive_email: msg.gdrive_email ?? null,
         permissions: msg.permissions ?? [],
       });
+      setCounts(msg.counts ?? {});
       if (!historyLoadedRef.current) {
         historyLoadedRef.current = true;
         c.fetchHistory(50).then((hist) => {
@@ -130,7 +132,7 @@ export function ChatPage() {
     });
 
     const unsubMessage = c.on('message', (msg) => {
-      addMessage({ id: generateId(), type: 'message', content: msg.content, messageAttachments: msg.attachments, timestamp: Date.now() });
+      addMessage({ id: generateId(), type: 'message', content: msg.content, messageAttachments: msg.attachments, cards: msg.cards, timestamp: Date.now() });
     });
 
     const unsubApproval = c.on('approval_request', (msg) => {
@@ -528,7 +530,7 @@ export function ChatPage() {
       )}
 
       {whoamiContent && <WhoamiModal content={whoamiContent} onClose={() => setWhoamiContent(null)} />}
-      <WebDrawer open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={handlePaletteRun} permissions={permissions} userName={userName} onFetchInfo={handleFetchInfo} onFetchUsers={handleFetchUsers} />
+      <WebDrawer open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={handlePaletteRun} permissions={permissions} userName={userName} onFetchInfo={handleFetchInfo} onFetchUsers={handleFetchUsers} counts={counts} />
       <RemindersModal open={remindersOpen} onClose={() => setRemindersOpen(false)} client={client} />
       <DriveModal open={driveOpen} onClose={() => setDriveOpen(false)} client={client} />
       {toast && (

@@ -41,7 +41,7 @@ function TypewriterText({ content }: { content: string }) {
   }, [content]);
   return <>{displayed}</>;
 }
-import type { ServerMessage } from '@mira/shared';
+import type { ServerMessage, MessageCard } from '@mira/shared';
 
 export interface ChatMessageItem {
   id: string;
@@ -51,8 +51,47 @@ export interface ChatMessageItem {
   files?: Array<{ name: string; dir: string; size: number }>;
   attachments?: Array<{ name: string; dir: string; size: number }>;
   messageAttachments?: Array<{ name: string; size: number }>;
+  cards?: MessageCard[];
   approval?: { user_id: string; name: string; source: string };
   timestamp: number;
+}
+
+const CARD_STYLE: Record<MessageCard['kind'], { rgb: string; title: string; icon: string }> = {
+  memory: { rgb: '185, 163, 255', title: 'Я заметила', icon: '✨' },
+  event: { rgb: '245, 188, 122', title: 'Событие', icon: '🗓' },
+  backup: { rgb: '141, 208, 167', title: 'Резервная копия', icon: '🛡' },
+};
+
+function MessageCards({ cards }: { cards: MessageCard[] }) {
+  return (
+    <div className="mt-2 space-y-2">
+      {cards.map((c, i) => {
+        const s = CARD_STYLE[c.kind] ?? CARD_STYLE.memory;
+        return (
+          <div
+            key={i}
+            className="rounded-card px-3 py-2.5 animate-fade-in-up"
+            style={{ backgroundColor: `rgba(${s.rgb}, 0.07)`, border: `1px solid rgba(${s.rgb}, 0.24)` }}
+          >
+            <div className="flex items-center gap-1.5 text-xs font-medium mb-1" style={{ color: `rgb(${s.rgb})` }}>
+              <span>{s.icon}</span>
+              <span>{c.label || s.title}</span>
+            </div>
+            {c.fact ? <div className="text-sm text-text-primary leading-snug">{c.fact}</div> : null}
+            {c.list && c.list.length > 0 ? (
+              <ul className="mt-1 space-y-0.5">
+                {c.list.map((item, j) => (
+                  <li key={j} className="text-xs text-text-secondary leading-snug pl-3 relative before:content-['·'] before:absolute before:left-0" style={{ color: undefined }}>
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 interface ChatMessageProps {
@@ -171,6 +210,7 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
               ))}
             </div>
           )}
+          {message.cards && message.cards.length > 0 && <MessageCards cards={message.cards} />}
           {message.timestamp ? <span className="text-[11px] text-text-muted mt-1 block">{formatTime(message.timestamp)}</span> : null}
         </div>
       </div>
