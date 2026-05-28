@@ -6,6 +6,7 @@ import type {
   UploadResult,
   ServerMessage,
   ClientMessage,
+  ProfileForm,
 } from '../types';
 import type { SessionStorage } from '../types/session-storage';
 
@@ -341,6 +342,11 @@ export class MiraClient {
     if (this.mock) {
       this._mockCommand(cmd);
     }
+  }
+
+  /** Сохранить анкету (профиль, заполняемый пользователем). */
+  saveProfile(form: ProfileForm): void {
+    this._send({ type: 'profile_save', form });
   }
 
   /**

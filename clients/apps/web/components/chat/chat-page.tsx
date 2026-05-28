@@ -37,6 +37,8 @@ export function ChatPage() {
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [driveOpen, setDriveOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [profileOnboarding, setProfileOnboarding] = useState(false);
+  const onboardCheckedRef = useRef(false);
   const [isDragging, setIsDragging] = useState(false);
   const [pendingAttachment, setPendingAttachment] = useState<{ name: string; size: number } | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -106,6 +108,18 @@ export function ChatPage() {
         permissions: msg.permissions ?? [],
       });
       setCounts(msg.counts ?? {});
+      // Анкета после одобрения: одобренным (не владельцу), кто ещё не заполнил
+      if (msg.is_approved && !msg.is_owner && !onboardCheckedRef.current) {
+        onboardCheckedRef.current = true;
+        c.sendCommandAwait('profile_data', ['profile_data'], 12000)
+          .then((m) => {
+            if ('profile' in m && !m.profile.onboarded) {
+              setProfileOnboarding(true);
+              setProfileOpen(true);
+            }
+          })
+          .catch(() => {});
+      }
       if (!historyLoadedRef.current) {
         historyLoadedRef.current = true;
         c.fetchHistory(50).then((hist) => {
@@ -532,8 +546,8 @@ export function ChatPage() {
       )}
 
       {whoamiContent && <WhoamiModal content={whoamiContent} onClose={() => setWhoamiContent(null)} />}
-      <WebDrawer open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={handlePaletteRun} permissions={permissions} userName={userName} onFetchInfo={handleFetchInfo} onFetchUsers={handleFetchUsers} counts={counts} onOpenProfile={() => { setPaletteOpen(false); setProfileOpen(true); }} />
-      <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} client={client} />
+      <WebDrawer open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={handlePaletteRun} permissions={permissions} userName={userName} onFetchInfo={handleFetchInfo} onFetchUsers={handleFetchUsers} counts={counts} onOpenProfile={() => { setPaletteOpen(false); setProfileOnboarding(false); setProfileOpen(true); }} />
+      <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} client={client} onboarding={profileOnboarding} />
       <RemindersModal open={remindersOpen} onClose={() => setRemindersOpen(false)} client={client} />
       <DriveModal open={driveOpen} onClose={() => setDriveOpen(false)} client={client} />
       {toast && (

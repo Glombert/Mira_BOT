@@ -46,7 +46,8 @@ export type ServerMessage =
   | { type: 'gdrive_auth_url'; url: string }
   | { type: 'users_list'; users: UserEntry[] }
   | { type: 'learned'; insight: string }
-  | { type: 'profile_data'; profile: ProfileData };
+  | { type: 'profile_data'; profile: ProfileData }
+  | { type: 'profile_saved' };
 
 /** Структурированный профиль для экрана «Профиль» (Aurora). */
 export interface ProfileData {
@@ -63,6 +64,27 @@ export interface ProfileData {
   gdrive_email: string;
   memory_facts: number;
   conversations: number;
+  days_together: number;
+  // анкета (пользователь заполняет сам)
+  onboarded: boolean;
+  addressing: string;
+  address_form: string;
+  manner: string[];
+  origin: string;
+  occupation: string;
+  notes: string;
+  manner_options: string[];
+}
+
+/** Анкета — что пользователь сам сообщает о себе. */
+export interface ProfileForm {
+  addressing?: string;
+  address_form?: string; // 'ты' | 'вы' | ''
+  manner?: string[];
+  origin?: string;
+  occupation?: string;
+  notes?: string;
+  timezone?: string;
 }
 
 export interface UserEntry {
@@ -92,4 +114,5 @@ export interface MessageCard {
 export type ClientMessage =
   | { type: 'ping' }
   | { type: 'command'; cmd: string }
+  | { type: 'profile_save'; form: ProfileForm }
   | { content: string; attachment?: string; attachments?: string[] };

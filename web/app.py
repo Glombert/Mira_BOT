@@ -313,10 +313,57 @@ def _save_session(user_id: str, msgs: list) -> None:
         logger.warning(f"save_session {user_id}: {e}")
 
 
+# Манеры Миры (анкета). Это модуляция тона, НЕ подмена характера из SYSTEM_PROMPT.
+MANNER_TRAITS = [
+    "тёплая", "вдумчивая", "немногословная", "игривая",
+    "формальная", "дерзкая", "заботливая", "прямая",
+]
+
+
+def _persona_block(profile: dict | None) -> str:
+    """Блок системного промпта из анкеты пользователя (заполняет он сам)."""
+    f = (profile or {}).get("form") or {}
+    parts: list[str] = []
+    addr = (f.get("addressing") or "").strip()
+    form = (f.get("address_form") or "").strip()
+    if addr or form:
+        s = "Обращайся к собеседнику"
+        if addr:
+            s += f" «{addr}»"
+        if form:
+            s += f", на «{form}»"
+        parts.append(s + ".")
+    manner = [m for m in (f.get("manner") or []) if m in MANNER_TRAITS]
+    if manner:
+        parts.append(
+            "Манера общения именно с ним: " + ", ".join(manner) + ". "
+            "Это только тон — ты остаёшься собой, твой характер выше неизменен; "
+            "подстрой регистр под человека, не противореча себе."
+        )
+    bio = []
+    if (f.get("origin") or "").strip():
+        bio.append(f"откуда: {f['origin'].strip()}")
+    if (f.get("occupation") or "").strip():
+        bio.append(f"занятие: {f['occupation'].strip()}")
+    if bio:
+        parts.append("О собеседнике — " + "; ".join(bio) + ".")
+    notes = (f.get("notes") or "").strip()
+    if notes:
+        parts.append(f"Что он сам рассказал о себе: {notes[:500]}")
+    if not parts:
+        return ""
+    return ("Анкета собеседника (он заполнил её сам — подстройся, оставаясь собой):\n"
+            + "\n".join("— " + p for p in parts))
+
+
 def _system_prompt_for(user_id: str) -> str:
+    profile   = load_user_profile(user_id)
     base      = SYSTEM_PROMPT + f"\n\n{time_context(user_id)}"
+    persona   = _persona_block(profile)
     summary   = memory_manager.get_summary(user_id, load_user_profile)
     templates = memory_manager.get_templates_prompt(user_id)
+    if persona:
+        base += f"\n\n{persona}"
     if summary:
         base += f"\n\nЧто ты знаешь об этом пользователе из прошлых разговоров:\n{summary}"
     if templates:
@@ -1284,6 +1331,44 @@ async def chat(websocket: WebSocket, session: str = ""):
                 await websocket.send_json({"type": "pong"})
                 continue
 
+            # Анкета: пользователь сам заполняет профиль (необязательно, не проверяем)
+            if data.get("type") == "profile_save":
+                _f = data.get("form", {}) or {}
+                p = load_user_profile(user_id) or {}
+                form = p.get("form", {}) or {}
+                form["addressing"] = str(_f.get("addressing", ""))[:80]
+                form["address_form"] = _f.get("address_form") if _f.get("address_form") in ("ты", "вы") else ""
+                form["manner"] = [m for m in (_f.get("manner") or []) if m in MANNER_TRAITS][:8]
+                form["origin"] = str(_f.get("origin", ""))[:120]
+                form["occupation"] = str(_f.get("occupation", ""))[:120]
+                form["notes"] = str(_f.get("notes", ""))[:600]
+                form["onboarded"] = True
+                p["form"] = form
+                # имя из «как обращаться», если задано (для отображения)
+                if form["addressing"]:
+                    p["name"] = form["addressing"]
+                save_user_profile(user_id, p)
+                # часовой пояс — отдельной валидацией
+                _tzv = str(_f.get("timezone", "")).strip()
+                if _tzv:
+                    try:
+                        from tools.access_tools import set_user_timezone
+                        set_user_timezone(user_id, _tzv)
+                    except Exception as e:
+                        logger.warning(f"profile_save tz: {e}")
+                # обновляем системный промпт активной сессии (персона применится сразу)
+                try:
+                    _sess = _load_session(user_id)
+                    if _sess and _sess[0].get("role") == "system":
+                        _sess[0] = {"role": "system", "content": _system_prompt_for(user_id)}
+                        _save_session(user_id, _sess)
+                except Exception as e:
+                    logger.warning(f"profile_save session refresh: {e}")
+                logger.info(f"profile_save: {user_id} onboarded manner={form['manner']}")
+                # ack отдельным типом — не сыплем в чат
+                await websocket.send_json({"type": "profile_saved"})
+                continue
+
             # Команды
             if data.get("type") == "command":
                 cmd = data.get("cmd", "")
@@ -1329,6 +1414,12 @@ async def chat(websocket: WebSocket, session: str = ""):
                     except Exception:
                         _conv = 0
                     _role = "owner" if is_owner_ws else (p.get("status") or "regular")
+                    _form = p.get("form", {}) or {}
+                    try:
+                        _days = (datetime.now() - datetime.strptime(
+                            p.get("created_at", "")[:10], "%Y-%m-%d")).days
+                    except Exception:
+                        _days = 0
                     await websocket.send_json({
                         "type": "profile_data",
                         "profile": {
@@ -1345,6 +1436,16 @@ async def chat(websocket: WebSocket, session: str = ""):
                             "gdrive_email": _gd.get("email", "") if _gd.get("authorized") else "",
                             "memory_facts": _mem,
                             "conversations": _conv,
+                            "days_together": max(_days, 0),
+                            # анкета (заполняет сам пользователь)
+                            "onboarded": bool(_form.get("onboarded")),
+                            "addressing": _form.get("addressing", ""),
+                            "address_form": _form.get("address_form", ""),
+                            "manner": _form.get("manner", []) or [],
+                            "origin": _form.get("origin", ""),
+                            "occupation": _form.get("occupation", ""),
+                            "notes": _form.get("notes", ""),
+                            "manner_options": MANNER_TRAITS,
                         },
                     })
 
