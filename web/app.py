@@ -1420,6 +1420,16 @@ async def chat(websocket: WebSocket, session: str = ""):
                             p.get("created_at", "")[:10], "%Y-%m-%d")).days
                     except Exception:
                         _days = 0
+                    # Анкета = что Мира знает. Поля пользователя (form) приоритетны,
+                    # иначе подставляем выученное Мирой (about).
+                    _addressing = _form.get("addressing") or p.get("name", "")
+                    _occupation = _form.get("occupation") or about.get("role", "")
+                    _origin = _form.get("origin") or about.get("location", "")
+                    _filled_by_mira = []
+                    if not _form.get("occupation") and about.get("role"):
+                        _filled_by_mira.append("occupation")
+                    if not _form.get("origin") and about.get("location"):
+                        _filled_by_mira.append("origin")
                     await websocket.send_json({
                         "type": "profile_data",
                         "profile": {
@@ -1437,15 +1447,16 @@ async def chat(websocket: WebSocket, session: str = ""):
                             "memory_facts": _mem,
                             "conversations": _conv,
                             "days_together": max(_days, 0),
-                            # анкета (заполняет сам пользователь)
+                            # анкета (form пользователя + выученное Мирой)
                             "onboarded": bool(_form.get("onboarded")),
-                            "addressing": _form.get("addressing", ""),
+                            "addressing": _addressing,
                             "address_form": _form.get("address_form", ""),
                             "manner": _form.get("manner", []) or [],
-                            "origin": _form.get("origin", ""),
-                            "occupation": _form.get("occupation", ""),
+                            "origin": _origin,
+                            "occupation": _occupation,
                             "notes": _form.get("notes", ""),
                             "manner_options": MANNER_TRAITS,
+                            "filled_by_mira": _filled_by_mira,
                         },
                     })
 

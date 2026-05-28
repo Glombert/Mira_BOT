@@ -37,6 +37,7 @@ export function ProfileModal({ open, onClose, client, onboarding = false }: Prop
   const [occupation, setOccupation] = useState('');
   const [notes, setNotes] = useState('');
   const [timezone, setTimezone] = useState('');
+  const [filledByMira, setFilledByMira] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     if (!client) return;
@@ -53,6 +54,7 @@ export function ProfileModal({ open, onClose, client, onboarding = false }: Prop
         setOccupation(p.occupation || '');
         setNotes(p.notes || '');
         setTimezone(p.timezone || '');
+        setFilledByMira(p.filled_by_mira || []);
       }
     } catch {
       /* no-op */
@@ -169,6 +171,9 @@ export function ProfileModal({ open, onClose, client, onboarding = false }: Prop
 
             <div>
               <div className="text-[10px] uppercase tracking-[0.18em] text-text-muted font-semibold mb-1.5">✦ О тебе</div>
+              {filledByMira.length > 0 && (
+                <div className="text-[11px] text-mystic mb-2">✦ часть полей Мира заполнила сама — поправь, если не так</div>
+              )}
               <div className="space-y-2">
                 <input value={origin} onChange={(e) => setOrigin(e.target.value)} placeholder="Откуда (город / страна)"
                   className="w-full bg-bg-base border border-border-subtle rounded-button px-3 py-2 text-sm text-text-primary placeholder:text-text-faint outline-none" />

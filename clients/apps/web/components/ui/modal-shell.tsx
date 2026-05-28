@@ -24,9 +24,9 @@ export function ModalShell({ open, onClose, children, className }: ModalShellPro
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div
         className={cn(
-          'relative w-full max-w-lg bg-bg-overlay shadow-elevated overflow-hidden animate-fade-in-up',
+          'relative w-full max-w-lg bg-bg-overlay shadow-elevated animate-fade-in-up',
           'sm:rounded-card rounded-t-card',
-          'sm:max-h-none max-h-[90vh] overflow-y-auto',
+          'max-h-[88vh] overflow-y-auto overscroll-contain',
           className
         )}
       >
