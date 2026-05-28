@@ -1298,6 +1298,45 @@ async def chat(websocket: WebSocket, session: str = ""):
                             lines.append("Google Drive: не привязан")
                     await websocket.send_json({"type": "system", "content": "\n".join(lines)})
 
+                elif cmd == "profile_data":
+                    # Структурированный профиль для экрана «Профиль» (Aurora).
+                    p = load_user_profile(user_id) or {}
+                    about = p.get("about", {}) or {}
+                    try:
+                        from tools.access_tools import get_user_timezone
+                        _tz = get_user_timezone(user_id) or ""
+                    except Exception:
+                        _tz = ""
+                    _gd = gdrive_status(user_id) if _is_approved(user_id) else {}
+                    try:
+                        _mem = semantic_memory.count(user_id)
+                    except Exception:
+                        _mem = 0
+                    try:
+                        _conv = sum(1 for m in (_load_session(user_id) or [])
+                                    if m.get("role") == "user")
+                    except Exception:
+                        _conv = 0
+                    _role = "owner" if is_owner_ws else (p.get("status") or "regular")
+                    await websocket.send_json({
+                        "type": "profile_data",
+                        "profile": {
+                            "id": user_id,
+                            "name": p.get("name", ""),
+                            "role": _role,
+                            "status": p.get("status", "regular"),
+                            "timezone": _tz,
+                            "telegram": p.get("telegram", "") or p.get("username", ""),
+                            "about_role": about.get("role", ""),
+                            "about_project": about.get("project", ""),
+                            "summary": (p.get("conversation_summary", "") or "")[:600],
+                            "gdrive_linked": bool(_gd.get("authorized")),
+                            "gdrive_email": _gd.get("email", "") if _gd.get("authorized") else "",
+                            "memory_facts": _mem,
+                            "conversations": _conv,
+                        },
+                    })
+
                 elif cmd == "files":
                     files = []
                     for subdir in ("inbox", "output"):

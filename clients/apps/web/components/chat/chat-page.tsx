@@ -12,6 +12,7 @@ import { ChatMessageBubble, type ChatMessageItem } from './chat-message';
 import { WhoamiModal } from '@/components/ui/whoami-modal';
 import { RemindersModal } from '@/components/ui/reminders-modal';
 import { DriveModal } from '@/components/ui/drive-modal';
+import { ProfileModal } from '@/components/ui/profile-modal';
 import { WebDrawer } from './web-drawer';
 
 function generateId() {
@@ -35,6 +36,7 @@ export function ChatPage() {
   const [counts, setCounts] = useState<SidebarCounts>({});
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [driveOpen, setDriveOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [pendingAttachment, setPendingAttachment] = useState<{ name: string; size: number } | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -530,7 +532,8 @@ export function ChatPage() {
       )}
 
       {whoamiContent && <WhoamiModal content={whoamiContent} onClose={() => setWhoamiContent(null)} />}
-      <WebDrawer open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={handlePaletteRun} permissions={permissions} userName={userName} onFetchInfo={handleFetchInfo} onFetchUsers={handleFetchUsers} counts={counts} />
+      <WebDrawer open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={handlePaletteRun} permissions={permissions} userName={userName} onFetchInfo={handleFetchInfo} onFetchUsers={handleFetchUsers} counts={counts} onOpenProfile={() => { setPaletteOpen(false); setProfileOpen(true); }} />
+      <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} client={client} />
       <RemindersModal open={remindersOpen} onClose={() => setRemindersOpen(false)} client={client} />
       <DriveModal open={driveOpen} onClose={() => setDriveOpen(false)} client={client} />
       {toast && (

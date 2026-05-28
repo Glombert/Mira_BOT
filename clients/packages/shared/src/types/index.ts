@@ -45,7 +45,25 @@ export type ServerMessage =
   | { type: 'files'; files: Array<{ name: string; dir: string; size: number }> }
   | { type: 'gdrive_auth_url'; url: string }
   | { type: 'users_list'; users: UserEntry[] }
-  | { type: 'learned'; insight: string };
+  | { type: 'learned'; insight: string }
+  | { type: 'profile_data'; profile: ProfileData };
+
+/** Структурированный профиль для экрана «Профиль» (Aurora). */
+export interface ProfileData {
+  id: string;
+  name: string;
+  role: string;
+  status: string;
+  timezone: string;
+  telegram: string;
+  about_role: string;
+  about_project: string;
+  summary: string;
+  gdrive_linked: boolean;
+  gdrive_email: string;
+  memory_facts: number;
+  conversations: number;
+}
 
 export interface UserEntry {
   id: string;

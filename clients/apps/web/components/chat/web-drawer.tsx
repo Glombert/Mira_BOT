@@ -98,9 +98,10 @@ interface WebDrawerProps {
   onFetchInfo?: (cmd: string) => Promise<string>;
   onFetchUsers?: () => Promise<UserEntry[]>;
   counts?: SidebarCounts;
+  onOpenProfile?: () => void;
 }
 
-export function WebDrawer({ open, onClose, onRun, permissions, userName, onFetchInfo, onFetchUsers, counts = {} }: WebDrawerProps) {
+export function WebDrawer({ open, onClose, onRun, permissions, userName, onFetchInfo, onFetchUsers, counts = {}, onOpenProfile }: WebDrawerProps) {
   const countFor = (cmd: string): number | undefined => {
     const n = ({
       files: counts.files,
@@ -319,6 +320,18 @@ export function WebDrawer({ open, onClose, onRun, permissions, userName, onFetch
                             </div>
                           )}
                         </div>
+                      );
+                    }
+
+                    // «Профиль» — открывает экран профиля, а не info-панель
+                    if (cmd.cmd === 'whoami' && onOpenProfile && !searchQuery) {
+                      return (
+                        <button key="whoami" onClick={() => { onClose(); onOpenProfile(); }}
+                          className="w-full text-left px-2 py-[7px] rounded-sidebar-item text-[13px] flex items-center gap-2 text-text-primary hover:bg-gold/5 hover:text-gold transition-colors">
+                          <MiraIcon name={CMD_ICONS[cmd.cmd] || 'chat'} size={16} />
+                          <span>{cmd.label}</span>
+                          <span className="ml-auto text-text-muted text-xs">›</span>
+                        </button>
                       );
                     }
 
