@@ -534,37 +534,43 @@ def _compute_sidebar_counts(user_id: str, is_approved: bool, is_owner: bool) -> 
     return counts
 
 
-# Cards builder (Aurora UI design: structured attachments)
+# Карточка «Из памяти» — показываем РЕДКО, только на «особенные» совпадения.
+# В обычной беседе любое сообщение тянет похожее (distance<0.5), поэтому порог
+# жёсткий + кулдаун на стороне сессии (см. _msgs_since_card). Оба настраиваются.
+MEMORY_CARD_MAX_DISTANCE = float(os.getenv("MEMORY_CARD_MAX_DISTANCE", "0.22"))
+MEMORY_CARD_COOLDOWN = int(os.getenv("MEMORY_CARD_COOLDOWN", "6"))
+
+
 def _build_cards(user_id: str,
                  matches: list[dict] | None = None,
-                 strong_distance: float = 0.5) -> list[dict] | None:
-    """Структурированные карточки под ответом Миры (Aurora attachment model).
+                 max_distance: float | None = None,
+                 exclude_facts: set[str] | None = None) -> list[dict] | None:
+    """Структурированная карточка под ответом Миры (Aurora attachment model).
 
-    memory-карточка показывается ТОЛЬКО когда ответ реально опирался на
-    близкое воспоминание (distance < strong_distance), иначе не засоряем чат
-    (search() отдаёт всё с distance<0.95 — это шум, не повод для карточки).
-    Текст берём из самих matches (m['text'] — чистый), а не из форматированного
-    промпта. Модель: {kind:'memory'|'event'|'backup', label, fact, list}.
+    memory-карточка только когда совпадение по-настоящему близкое
+    (distance < max_distance) и этот факт ещё не показывали в сессии.
+    Текст берём из m['text'] (чистый). Модель: {kind, label, fact, list}.
     """
-    cards: list[dict] = []
-    if matches:
-        strong = sorted(
-            (m for m in matches if m.get("distance", 1.0) < strong_distance),
-            key=lambda m: m.get("distance", 1.0),
-        )
-        facts: list[str] = []
-        for m in strong:
-            t = (m.get("text") or "").strip().replace("\n", " ")
-            if len(t) >= 8 and t not in facts:
-                facts.append(t[:200])
-        if facts:
-            cards.append({
-                "kind": "memory",
-                "label": "Из памяти",
-                "fact": facts[0],
-                "list": facts[1:4] if len(facts) > 1 else None,
-            })
-    return cards if cards else None
+    thr = MEMORY_CARD_MAX_DISTANCE if max_distance is None else max_distance
+    if not matches:
+        return None
+    strong = sorted(
+        (m for m in matches if m.get("distance", 1.0) < thr),
+        key=lambda m: m.get("distance", 1.0),
+    )
+    facts: list[str] = []
+    for m in strong:
+        t = (m.get("text") or "").strip().replace("\n", " ")
+        if len(t) >= 8 and t not in facts and (not exclude_facts or t[:200] not in exclude_facts):
+            facts.append(t[:200])
+    if not facts:
+        return None
+    return [{
+        "kind": "memory",
+        "label": "Из памяти",
+        "fact": facts[0],
+        "list": facts[1:4] if len(facts) > 1 else None,
+    }]
 
 
 # ---------------------------------------------------------------------------
@@ -1254,6 +1260,11 @@ async def chat(websocket: WebSocket, session: str = ""):
             except Exception:
                 break
     _owner_task = asyncio.create_task(_forward_owner_messages())
+
+    # Карточка «Из памяти» — редкая и только на «особенные» совпадения:
+    # счётчик сообщений с последней карточки (кулдаун) + уже показанные факты.
+    _msgs_since_card = 0
+    _shown_card_facts: set[str] = set()
 
     try:
         while True:
@@ -2056,6 +2067,7 @@ async def chat(websocket: WebSocket, session: str = ""):
                 augment = semantic_memory.format_for_prompt(matches)
             except Exception as e:
                 logger.warning(f"semantic_memory search: {e}")
+            _msgs_since_card += 1  # кулдаун карточки «Из памяти»
             llm_msgs = [{k: v for k, v in m.items() if k != "ts"} for m in msgs]
             if augment and llm_msgs and llm_msgs[0].get("role") == "system":
                 llm_msgs[0] = {**llm_msgs[0], "content": llm_msgs[0]["content"] + "\n\n" + augment}
@@ -2131,12 +2143,19 @@ async def chat(websocket: WebSocket, session: str = ""):
             if merged:
                 ws_payload["attachments"] = merged
 
-            # Структурированные карточки (Aurora UI design): показываем только
-            # при действительно близком воспоминании. learned-ивент не шлём —
-            # это recall, а не новый инсайт (клиент его и так игнорирует).
-            _cards = _build_cards(user_id, matches=matches)
-            if _cards:
-                ws_payload["cards"] = _cards
+            # Карточка «Из памяти»: только если совпадение очень близкое И прошёл
+            # кулдаун (не на каждое сообщение) И этот факт ещё не показывали.
+            # learned-ивент не шлём — это recall, а не новый инсайт.
+            if _msgs_since_card >= MEMORY_CARD_COOLDOWN:
+                _cards = _build_cards(user_id, matches=matches,
+                                      exclude_facts=_shown_card_facts)
+                if _cards:
+                    ws_payload["cards"] = _cards
+                    _msgs_since_card = 0
+                    for _c in _cards:
+                        if _c.get("fact"):
+                            _shown_card_facts.add(_c["fact"])
+                            logger.info(f"memory-card shown: {user_id} d<{MEMORY_CARD_MAX_DISTANCE}")
 
             await websocket.send_json(ws_payload)
 
