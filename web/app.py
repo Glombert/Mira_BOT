@@ -446,7 +446,7 @@ def _invoke_alpha(user_id: str, prompt: str,
     # Семантический augment
     augment = ""
     try:
-        matches = _sm.search(user_id, prompt, top_k=5)
+        matches = _sm.search(user_id, prompt, top_k=5, max_distance=0.35)
         augment = _sm.format_for_prompt(matches)
     except Exception:
         pass
@@ -2175,7 +2175,7 @@ async def chat(websocket: WebSocket, session: str = ""):
             augment = ""
             matches: list[dict] = []
             try:
-                matches = semantic_memory.search(user_id, text, top_k=5)
+                matches = semantic_memory.search(user_id, text, top_k=5, max_distance=0.35)
                 augment = semantic_memory.format_for_prompt(matches)
             except Exception as e:
                 logger.warning(f"semantic_memory search: {e}")

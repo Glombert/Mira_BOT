@@ -205,4 +205,5 @@ def format_for_prompt(matches: list[dict]) -> str:
         role = "пользователь" if m["role"] == "user" else "ты"
         date = m["ts"][:10] if m["ts"] else ""
         lines.append(f"— [{date}] {role}: {m['text']}")
-    return "Из прошлых разговоров вспомнила:\n" + "\n".join(lines)
+    return ("Возможно связанное из прошлого (справка для контекста — НЕ вывод, "
+            "что собеседник именно тот, о ком речь):\n" + "\n".join(lines))
