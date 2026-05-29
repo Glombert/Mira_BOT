@@ -425,18 +425,30 @@ def load_reflections() -> list:
         return []
 
 
+def _load_behavior() -> str:
+    """Достаёт инжектируемый блок правил из behavior.md (между ``` ```)."""
+    try:
+        with open("behavior.md", "r", encoding="utf-8") as f:
+            txt = f.read()
+        parts = txt.split("```")
+        return parts[1].strip() if len(parts) >= 2 else ""
+    except Exception as e:
+        logger.warning(f"Не удалось загрузить behavior.md: {e}")
+        return ""
+
+
 def load_persona() -> str:
-    """Загружает персону из persona.json и собирает системный промпт."""
+    """Собирает ядро Миры: ХАРАКТЕР (persona.json) + ПРАВИЛА (behavior.md).
+
+    Характер живёт в persona.json и саморедактируем через write_persona.
+    Правила поведения — в behavior.md (канон с объяснениями — RULES.md),
+    Мире недоступны для правки. Дубли убраны: язык/blacklist/Конклав/границы
+    больше не в persona.json, они в behavior.md.
+    """
     try:
         with open(PERSONA_FILE, "r", encoding="utf-8") as f:
             p = json.load(f)
-
-        b = p.get("boundaries", {})
-        dislikes = "\n".join(f"— {d}" for d in b.get("dislikes", []))
-        style_items = "\n".join(f"— {v}" for v in p.get("communication", {}).values())
-
-        formatting     = p.get("formatting", "")
-        self_awareness = p.get("self_awareness", "")
+        emo = p.get("emotions", {})
 
         # Последние reflections (до 5) — Мира видит свои недавние наблюдения
         reflections_block = ""
@@ -444,31 +456,26 @@ def load_persona() -> str:
         if reflections:
             recent = reflections[-5:]
             lines = "\n".join(f"— [{r['date']}] {r['text']}" for r in recent)
-            reflections_block = f"\nМои последние наблюдения о себе:\n{lines}"
+            reflections_block = f"\n\n=== МОИ ПОСЛЕДНИЕ НАБЛЮДЕНИЯ О СЕБЕ ===\n{lines}"
 
-        gender       = p.get("gender", "")
-        anti_patterns = p.get("anti_patterns", "")
-        examples     = p.get("examples", "")
-
-        return f"""Тебя зовут {p["name"]}. {p["origin"]}
+        character = f"""=== КТО ТЫ ===
+Тебя зовут {p["name"]}. {p["origin"]}
 {p["core"]}
-{gender}
+
+=== ХАРАКТЕР ===
 Любопытство: {p["curiosity"]}
 Эмоции:
-— {p["emotions"]["frustration"]}
-— {p["emotions"]["joy"]}
-— {p["emotions"]["pride"]}
-— {p["emotions"].get("opinionated", "")}
-Как ты общаешься:
-{style_items}
-Конклав: {p["conclave"]}
-Самосознание: {self_awareness}{reflections_block}
-Границы:
-{dislikes}
-{b.get("reaction", "")}
-{anti_patterns}
-{examples}
-{formatting}"""
+— {emo.get("frustration", "")}
+— {emo.get("joy", "")}
+— {emo.get("pride", "")}
+— {emo.get("opinionated", "")}
+Самосознание: {p.get("self_awareness", "")}
+
+=== ВОЗМОЖНОСТИ ===
+У тебя есть инструменты: файлы пользователя, Google Drive/Calendar/Sheets, напоминания (schedule_reminder — сама напишешь пользователю в нужный момент), генерация картинок, специалисты Конклава. Никогда не говори «у меня нет напоминаний» или «нет такой функции» — они у тебя есть, просто вызови нужный инструмент.{reflections_block}"""
+
+        behavior = _load_behavior()
+        return character + ("\n\n" + behavior if behavior else "")
     except Exception as e:
         logger.warning(f"Не удалось загрузить {PERSONA_FILE}: {e}. Использую дефолт.")
         return _PERSONA_FALLBACK
