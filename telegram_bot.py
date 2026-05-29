@@ -2069,53 +2069,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             out[0] = {**out[0], "content": out[0]["content"] + "\n\n" + semantic_augment}
         return out
 
-    task_type = classify(text, alpha.model_chain if alpha else [])
     ts_before = datetime.now().timestamp()
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
-    _EXECUTOR_FOR = {
-        "search":  "scout",
-        "code":    "coder",
-        "complex": "coder",
-    }
-
     try:
-        # Конклав только для одобренных — гости общаются напрямую с alpha
-        if task_type in _EXECUTOR_FOR and alpha and _is_approved(user_id):
-            executor = _EXECUTOR_FOR[task_type]
-            # Стартовое сообщение убрано — первый прогресс от Конклава его заменяет
-            loop    = asyncio.get_running_loop()
-            chat_id = update.effective_chat.id
-
-            def _progress(text: str) -> None:
-                asyncio.run_coroutine_threadsafe(
-                    context.bot.send_message(chat_id=chat_id, text=text),
-                    loop,
-                )
-
-            conc.on_progress = _progress
-            raw = await asyncio.to_thread(conc.run_with_qa, text, executor)
-
-            presentation = (
-                f"Специалисты выполнили задачу. Представь результат:\n\n{raw}"
-            )
-            sys_with_semantic = SYSTEM_PROMPT + ("\n\n" + semantic_augment if semantic_augment else "")
-            # Включаем последние 12 не-системных сообщений чтобы Альфа
-            # помнила контекст разговора при подаче результата Конклава.
-            recent = [m for m in msgs if m.get("role") != "system"][-12:]
-            alpha_msgs = [
-                {"role": "system",    "content": sys_with_semantic},
-                *recent,
-                {"role": "assistant", "content": "[передала специалистам]"},
-                {"role": "user",      "content": presentation},
-            ]
-            answer = _providers.call(
-                alpha.model_chain, alpha_msgs, temperature=0.7,
-                user_id=user_id, agent_name=alpha.name,
-            ).choices[0].message.content
-            msgs.append({"role": "assistant", "content": answer})
-        elif alpha:
+        # Инверсия: Мира всегда отвечает сама (alpha.run умеет вызывать
+        # инструменты). Специалисты — её инструменты, не маршрут «мимо» неё.
+        if alpha:
             answer = alpha.run(_augmented(msgs))
             # alpha.run мутирует _augmented(msgs) — копию. Сюда не попало.
             msgs.append({"role": "assistant", "content": answer})

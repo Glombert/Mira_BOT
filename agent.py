@@ -1847,45 +1847,11 @@ if __name__ == "__main__":
                 break
         logger.info(f"User: {user_input}")
 
-        # Классифицируем задачу — дёшево, один вызов
-        conclave.should_stop = False  # сбрасываем флаг перед новым запросом
-        # (executor, skip_editor, parallel_scout)
-        _EXECUTOR_FOR = {
-            "search":  ("scout", True,  False),  # поиск — без редактора
-            "code":    ("coder", False, False),  # код — полный цикл
-            "complex": ("coder", False, True),   # сложное — scout параллельно
-            "image":   ("artist", True, False),  # рисование — без редактора и параллельного scout
-        }
-
-        task_type = classify(user_input, alpha.model_chain if alpha else [])
+        # Инверсия: Мира всегда отвечает сама (alpha.run крутит tool-loop).
+        conclave.should_stop = False  # на случай /stop
 
         try:
-            if task_type in _EXECUTOR_FOR and alpha:
-                # Передаём в Конклав: executor → editor → critic
-                executor, skip_editor, parallel_scout = _EXECUTOR_FOR[task_type]
-                logger.info(f"Conclave activated: task_type={task_type}, executor={executor}")
-
-                raw = conclave.run_with_qa(user_input, executor,
-                                           skip_editor=skip_editor,
-                                           parallel_scout=parallel_scout)
-
-                # Альфа оформляет результат своим голосом
-                presentation = (
-                    f"Специалисты выполнили задачу. "
-                    f"Представь результат пользователю от своего имени:\n\n{raw}"
-                )
-                alpha_messages = [
-                    {"role": "system",    "content": SYSTEM_PROMPT},
-                    {"role": "user",      "content": user_input},
-                    {"role": "assistant", "content": "[передала специалистам]"},
-                    {"role": "user",      "content": presentation},
-                ]
-                answer = _providers.call(
-                    alpha.model_chain, alpha_messages, temperature=0.7
-                ).choices[0].message.content
-                messages.append({"role": "assistant", "content": answer})
-
-            elif alpha:
+            if alpha:
                 answer = alpha.run(messages)
 
             else:
