@@ -2278,37 +2278,44 @@ async def post_init(app: Application) -> None:
         from tools.rituals import load_rituals
         from tools import db as _db
         from datetime import datetime as _dt
+        from web.app import _run_ritual_background  # фикс: раньше не импортировался → NameError каждый цикл
         try:
             from croniter import croniter
         except ImportError:
             logger.warning("Rituals: croniter не установлен. pip install croniter")
             return
+        first_pass = True  # на первом проходе после старта гоним on_startup-ритуалы (selftest)
         while True:
             try:
                 rituals = load_rituals()
                 runs = _db.load_ritual_runs()
                 now = _dt.now()
+                owner_id = f"tg_{OWNER_TG_ID}" if OWNER_TG_ID else ""
                 for r in rituals:
                     name = r["name"]
-                    cron = croniter(r["schedule"], now)
-                    next_run = cron.get_next(datetime)
-                    last_run_str = runs.get(name, {}).get("last_run")
-                    last_run = _dt.fromisoformat(last_run_str) if last_run_str else None
+                    is_startup = bool(first_pass and r.get("on_startup"))
                     should_run = False
-                    if last_run is None:
-                        should_run = True
+                    if is_startup:
+                        should_run = True  # selftest при каждом перезапуске процесса
                     else:
-                        cron_past = croniter(r["schedule"], last_run)
-                        next_from_last = cron_past.get_next(datetime)
-                        if now >= next_from_last and (now - last_run).total_seconds() >= 60:
+                        cron = croniter(r["schedule"], now)
+                        next_run = cron.get_next(datetime)
+                        last_run_str = runs.get(name, {}).get("last_run")
+                        last_run = _dt.fromisoformat(last_run_str) if last_run_str else None
+                        if last_run is None:
                             should_run = True
+                        else:
+                            cron_past = croniter(r["schedule"], last_run)
+                            next_from_last = cron_past.get_next(datetime)
+                            if now >= next_from_last and (now - last_run).total_seconds() >= 60:
+                                should_run = True
                     if should_run:
-                        owner_id = f"tg_{OWNER_TG_ID}" if OWNER_TG_ID else ""
                         threading.Thread(
                             target=_run_ritual_background, args=(r, owner_id),
                             daemon=True
                         ).start()
-                        logger.info(f"Rituals: запущен '{name}'")
+                        logger.info(f"Rituals: запущен '{name}'" + (" (startup selftest)" if is_startup else ""))
+                first_pass = False
             except Exception as e:
                 logger.warning(f"Rituals: ошибка цикла: {e}")
             _time.sleep(60)
