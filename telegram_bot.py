@@ -311,12 +311,24 @@ async def _reply(update: Update, text: str, **kwargs) -> None:
         await target.reply_text(text, **kwargs)
 
 
-async def _send_long(update: Update, text: str, **kwargs) -> None:
+async def _send_long(update: Update, text: str, *, split_for_chat: bool = False, **kwargs) -> None:
     target = _reply_target(update)
     if target is None:
         return
-    for part in _split_message(text):
-        await target.reply_text(part, **kwargs)
+    chunks: list[str]
+    if split_for_chat:
+        # Логическое дробление на 2-3 куска (живой ритм). Каждый
+        # затем ещё проходит через _split_message для соблюдения 4096-лимита TG.
+        from tools.chunking import split_for_chat as _split_logical
+        chunks = _split_logical(text) or [text]
+    else:
+        chunks = [text]
+    import asyncio as _aio
+    for i, logical in enumerate(chunks):
+        for part in _split_message(logical):
+            await target.reply_text(part, **kwargs)
+        if i < len(chunks) - 1:
+            await _aio.sleep(0.5)
 
 
 async def _send_output_files(context, chat_id: int, user_id: str, since_ts: float) -> None:
@@ -2089,7 +2101,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await _reply(update,"Провайдеры не настроены.")
             return
 
-        await _send_long(update, _strip_md_for_tg(answer))
+        await _send_long(update, _strip_md_for_tg(answer), split_for_chat=True)
         await _send_output_files(context, update.effective_chat.id, user_id, ts_before)
         _save_session(user_id, msgs)
         if changelog_aug:

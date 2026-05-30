@@ -23,7 +23,7 @@ export interface HealthStatus {
 }
 
 export interface HistoryResult {
-  messages: Array<{ role: string; content: string }>;
+  messages: Array<{ role: string; content: string; ts?: number }>;
 }
 
 export interface UploadResult {

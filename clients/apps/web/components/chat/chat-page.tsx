@@ -180,7 +180,11 @@ export function ChatPage() {
         c.fetchHistory(80, 'tech').then((h) => {
           const msgs = h.messages
             .filter((m) => m.role === 'user' || m.role === 'assistant')
-            .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content, ts: Date.now() }));
+            .map((m) => ({
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+              ts: typeof m.ts === 'number' && m.ts > 0 ? Math.round(m.ts * 1000) : Date.now(),
+            }));
           if (msgs.length) setTechMessages(msgs);
         }).catch(() => {});
       }
@@ -204,7 +208,7 @@ export function ChatPage() {
               id: generateId(),
               type: m.role === 'user' ? 'user' : 'message',
               content: m.content,
-              timestamp: Date.now(),
+              timestamp: typeof m.ts === 'number' && m.ts > 0 ? Math.round(m.ts * 1000) : 0,
             }));
             setMessages(historyMsgs);
           }

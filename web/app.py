@@ -2449,25 +2449,35 @@ async def chat(websocket: WebSocket, session: str = ""):
                 assistant_msg["attachments"] = merged
             msgs.append(assistant_msg)
 
-            ws_payload: dict = {"type": "message", "content": answer}
-            if merged:
-                ws_payload["attachments"] = merged
-
             # Карточка «Из памяти»: только если совпадение очень близкое И прошёл
             # кулдаун (не на каждое сообщение) И этот факт ещё не показывали.
             # learned-ивент не шлём — это recall, а не новый инсайт.
+            cards_payload: list | None = None
             if _msgs_since_card >= MEMORY_CARD_COOLDOWN:
                 _cards = _build_cards(user_id, matches=matches,
                                       exclude_facts=_shown_card_facts)
                 if _cards:
-                    ws_payload["cards"] = _cards
+                    cards_payload = _cards
                     _msgs_since_card = 0
                     for _c in _cards:
                         if _c.get("fact"):
                             _shown_card_facts.add(_c["fact"])
                             logger.info(f"memory-card shown: {user_id} d<{MEMORY_CARD_MAX_DISTANCE}")
 
-            await websocket.send_json(ws_payload)
+            # Дробление: длинный ответ на 2-3 сообщения для живого ритма.
+            # Attachments крепим к ПЕРВОМУ куску (там и галерея на клиенте),
+            # cards — к ПОСЛЕДНЕМУ (карточка «Из памяти» — это эпилог реплики).
+            from tools.chunking import split_for_chat
+            parts = split_for_chat(answer) or [answer]
+            for idx, chunk in enumerate(parts):
+                ws_payload: dict = {"type": "message", "content": chunk}
+                if idx == 0 and merged:
+                    ws_payload["attachments"] = merged
+                if idx == len(parts) - 1 and cards_payload:
+                    ws_payload["cards"] = cards_payload
+                await websocket.send_json(ws_payload)
+                if idx < len(parts) - 1:
+                    await asyncio.sleep(0.45)
 
             _save_session(user_id, msgs)
 
