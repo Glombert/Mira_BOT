@@ -14,10 +14,34 @@ import { RemindersModal } from '@/components/ui/reminders-modal';
 import { DriveModal } from '@/components/ui/drive-modal';
 import { ProfileModal } from '@/components/ui/profile-modal';
 import { WebDrawer } from './web-drawer';
-import { TechInbox } from './tech-inbox';
+import { TechInbox, type TechFeedEntry } from './tech-inbox';
 
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function buildTechFeed(
+  inbox: OwnerInboxItem[],
+  msgs: Array<{ role: 'user' | 'assistant'; content: string; ts: number }>,
+  thinking: boolean,
+  error: string | null,
+): TechFeedEntry[] {
+  const entries: TechFeedEntry[] = [];
+  for (const it of inbox) {
+    const t = Date.parse(it.ts);
+    entries.push({ kind: 'inbox', ts: Number.isFinite(t) ? t : Date.now(), item: it });
+  }
+  for (const m of msgs) {
+    entries.push({ kind: 'msg', ts: m.ts, role: m.role, content: m.content });
+  }
+  entries.sort((a, b) => a.ts - b.ts);
+  if (thinking) {
+    entries.push({ kind: 'thinking', ts: Date.now() });
+  }
+  if (error) {
+    entries.push({ kind: 'error', ts: Date.now(), content: error });
+  }
+  return entries;
 }
 
 function TabSwitcher({
@@ -85,6 +109,9 @@ export function ChatPage() {
   const [permissions, setPermissions] = useState({ is_owner: false, is_approved: true, gdrive_authorized: false, gdrive_email: null as string | null, permissions: [] as string[] });
   const [mode, setMode] = useState<'chat' | 'tech'>('chat');
   const [inbox, setInbox] = useState<OwnerInboxItem[]>([]);
+  const [techMessages, setTechMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; ts: number }>>([]);
+  const [techThinking, setTechThinking] = useState(false);
+  const [techError, setTechError] = useState<string | null>(null);
   const [unreadTech, setUnreadTech] = useState(0);
   const inboxLoadedRef = useRef(false);
 
@@ -143,12 +170,18 @@ export function ChatPage() {
         permissions: msg.permissions ?? [],
       });
       setCounts(msg.counts ?? {});
-      // Owner: подтянуть техническую ленту
+      // Owner: подтянуть техническую ленту + историю tech-чата
       if (msg.is_owner && !inboxLoadedRef.current) {
         inboxLoadedRef.current = true;
         c.listOwnerInbox(0).then((items) => {
           setInbox(items);
           setUnreadTech(items.filter((it) => !it.is_read).length);
+        }).catch(() => {});
+        c.fetchHistory(80, 'tech').then((h) => {
+          const msgs = h.messages
+            .filter((m) => m.role === 'user' || m.role === 'assistant')
+            .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content, ts: Date.now() }));
+          if (msgs.length) setTechMessages(msgs);
         }).catch(() => {});
       }
       // Анкета после одобрения: одобренным (не владельцу), кто ещё не заполнил
@@ -232,7 +265,6 @@ export function ChatPage() {
 
     const unsubTech = c.onTech((ev: TechEvent) => {
       if (ev.type === 'inbox_update') {
-        // действие применили из другого клиента — обновляем локально
         if (ev.id != null) {
           setInbox((prev) => prev.map((it) =>
             it.id === ev.id ? { ...it, is_read: true, action: ev.action ?? it.action } : it
@@ -240,10 +272,29 @@ export function ChatPage() {
         }
         return;
       }
-      // Новое событие: добавляем в ленту
+      if (ev.type === 'thinking') {
+        setTechThinking(true);
+        return;
+      }
+      if (ev.type === 'message') {
+        setTechThinking(false);
+        setTechError(null);
+        setTechMessages((prev) => [...prev, {
+          role: 'assistant',
+          content: ev.content ?? ev.body ?? '',
+          ts: typeof ev.ts === 'number' ? ev.ts * 1000 : Date.now(),
+        }]);
+        return;
+      }
+      if (ev.type === 'error') {
+        setTechThinking(false);
+        setTechError(ev.content ?? ev.body ?? 'Ошибка');
+        return;
+      }
+      // ritual/system/approval_request — события inbox
       const item: OwnerInboxItem = {
         id: ev.id ?? Date.now(),
-        ts: ev.ts ?? new Date().toISOString(),
+        ts: typeof ev.ts === 'string' ? ev.ts : new Date().toISOString(),
         type: ev.type,
         importance: ev.importance ?? 'NONE',
         title: ev.title ?? '',
@@ -255,7 +306,6 @@ export function ChatPage() {
         action: null,
       };
       setInbox((prev) => {
-        // защита от дубликата по id
         if (prev.some((p) => p.id === item.id && item.id < 1e12)) return prev;
         return [...prev, item];
       });
@@ -398,6 +448,14 @@ export function ChatPage() {
     },
     []
   );
+
+  const handleSendTech = useCallback((text: string) => {
+    if (!client) return;
+    setTechMessages((prev) => [...prev, { role: 'user', content: text, ts: Date.now() }]);
+    setTechError(null);
+    setTechThinking(true);
+    client.sendMessage(text, undefined, 'tech');
+  }, [client]);
 
   // При переключении на «Техника» — отметить непрочитанные прочитанными
   useEffect(() => {
@@ -575,7 +633,13 @@ export function ChatPage() {
       ) : permissions.is_owner && mode === 'tech' ? (
         <>
           <TabSwitcher mode={mode} setMode={setMode} unreadTech={unreadTech} />
-          <TechInbox items={inbox} client={client} onLocalUpdate={handleInboxLocalUpdate} />
+          <TechInbox
+            feed={buildTechFeed(inbox, techMessages, techThinking, techError)}
+            client={client}
+            onLocalUpdate={handleInboxLocalUpdate}
+            onSend={handleSendTech}
+            sending={techThinking}
+          />
         </>
       ) : (
         <>

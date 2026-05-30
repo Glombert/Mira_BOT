@@ -1,12 +1,22 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { MiraClient, OwnerInboxItem } from '@mira/shared';
 
-interface TechInboxProps {
-  items: OwnerInboxItem[];
+/** Запись в технической ленте — либо событие из owner_inbox, либо реплика
+ *  переписки с Мирой в tech-режиме. */
+export type TechFeedEntry =
+  | { kind: 'inbox'; ts: number; item: OwnerInboxItem }
+  | { kind: 'msg'; ts: number; role: 'user' | 'assistant'; content: string }
+  | { kind: 'thinking'; ts: number }
+  | { kind: 'error'; ts: number; content: string };
+
+interface TechChatProps {
+  feed: TechFeedEntry[];
   client: MiraClient | null;
   onLocalUpdate: (id: number, patch: Partial<OwnerInboxItem>) => void;
+  onSend: (text: string) => void;
+  sending: boolean;
 }
 
 const IMPORTANCE_COLORS: Record<string, string> = {
@@ -22,29 +32,95 @@ const TYPE_LABEL: Record<string, string> = {
   approval_request: 'Заявка',
 };
 
-function fmtTime(ts: string): string {
+function fmtTime(ts: number | string): string {
   try {
-    const d = new Date(ts);
+    const d = typeof ts === 'number' ? new Date(ts) : new Date(ts);
     return d.toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' });
   } catch {
-    return ts;
+    return String(ts);
   }
 }
 
-export function TechInbox({ items, client, onLocalUpdate }: TechInboxProps) {
-  if (items.length === 0) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-text-muted">
-        <p className="text-sm font-serif italic">Здесь будет техническая лента: ритуалы, заявки, сбои.</p>
-      </div>
-    );
-  }
+export function TechInbox({ feed, client, onLocalUpdate, onSend, sending }: TechChatProps) {
+  const [draft, setDraft] = useState('');
+  const endRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [feed]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const t = draft.trim();
+    if (!t || sending) return;
+    onSend(t);
+    setDraft('');
+  };
+
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-      {items.map((it) => (
-        <InboxCard key={it.id} item={it} client={client} onLocalUpdate={onLocalUpdate} />
-      ))}
-    </div>
+    <>
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        {feed.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-text-muted">
+            <p className="text-sm font-serif italic">
+              Технический канал. Здесь оповещения о ритуалах/сбоях и закрытый разговор с Мирой.
+            </p>
+          </div>
+        )}
+        {feed.map((entry, idx) => {
+          if (entry.kind === 'inbox') {
+            return <InboxCard key={`i-${entry.item.id}-${idx}`} item={entry.item} client={client} onLocalUpdate={onLocalUpdate} />;
+          }
+          if (entry.kind === 'thinking') {
+            return (
+              <div key={`t-${idx}`} className="text-sm text-text-muted italic">
+                Мира думает...
+              </div>
+            );
+          }
+          if (entry.kind === 'error') {
+            return (
+              <div key={`e-${idx}`} className="text-sm text-rose">
+                {entry.content}
+              </div>
+            );
+          }
+          // msg
+          const mine = entry.role === 'user';
+          return (
+            <div key={`m-${idx}`} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+              <div
+                className={`max-w-[85%] rounded-card px-3 py-2 text-sm whitespace-pre-wrap ${
+                  mine ? 'bg-gold/10 border border-gold-soft/40 text-text-primary' : 'bg-bg-deep/40 border border-border-subtle text-text-secondary'
+                }`}
+              >
+                {entry.content}
+              </div>
+            </div>
+          );
+        })}
+        <div ref={endRef} />
+      </div>
+      <form
+        onSubmit={handleSubmit}
+        className="px-4 py-3 border-t border-border-subtle bg-bg-base flex gap-2"
+      >
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="Технический вопрос Мире..."
+          disabled={sending}
+          className="flex-1 bg-bg-deep/40 border border-border-subtle rounded-button px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-gold-soft disabled:opacity-50"
+        />
+        <button
+          type="submit"
+          disabled={!draft.trim() || sending}
+          className="px-4 py-2 text-sm rounded-button bg-gold/20 border border-gold-soft text-gold hover:bg-gold/30 disabled:opacity-50"
+        >
+          {sending ? '...' : 'Отправить'}
+        </button>
+      </form>
+    </>
   );
 }
 

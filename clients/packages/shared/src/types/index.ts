@@ -110,15 +110,16 @@ export interface OwnerInboxItem {
 /** WS-событие технического канала (channel === 'tech'). */
 export interface TechEvent {
   channel: 'tech';
-  type: 'ritual' | 'system' | 'approval_request' | 'inbox_update' | string;
+  type: 'ritual' | 'system' | 'approval_request' | 'inbox_update' | 'message' | 'thinking' | 'error' | string;
   id?: number;
-  ts?: string;
+  ts?: string | number;
   name?: string;
   user_id?: string;
   source?: string;
   importance?: string;
   title?: string;
   body?: string;
+  content?: string;
   buttons?: Array<{ text: string; callback_data: string }>;
   action?: string;
 }
@@ -145,4 +146,4 @@ export type ClientMessage =
   | { type: 'ping' }
   | { type: 'command'; cmd: string }
   | { type: 'profile_save'; form: ProfileForm }
-  | { content: string; attachment?: string; attachments?: string[] };
+  | { content: string; attachment?: string; attachments?: string[]; mode?: 'chat' | 'tech' };

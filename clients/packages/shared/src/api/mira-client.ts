@@ -211,12 +211,14 @@ export class MiraClient {
   }
 
   // History
-  async fetchHistory(limit = 50): Promise<HistoryResult> {
+  async fetchHistory(limit = 50, scope: 'chat' | 'tech' = 'chat'): Promise<HistoryResult> {
     if (this.mock) {
       await this._delay(200);
       return FIXTURES.history as HistoryResult;
     }
-    const res = await fetch(`${this.baseUrl}/history?session=${encodeURIComponent(this.session ?? '')}&limit=${limit}`);
+    const res = await fetch(
+      `${this.baseUrl}/history?session=${encodeURIComponent(this.session ?? '')}&limit=${limit}&scope=${scope}`
+    );
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
@@ -329,10 +331,13 @@ export class MiraClient {
   }
 
   // Sending
-  sendMessage(text: string, attachments?: string | string[]): void {
+  sendMessage(text: string, attachments?: string | string[], mode?: 'chat' | 'tech'): void {
     const payload: Record<string, unknown> = { content: text };
     if (attachments) {
       payload.attachments = Array.isArray(attachments) ? attachments : [attachments];
+    }
+    if (mode === 'tech') {
+      payload.mode = 'tech';
     }
     this._send(payload as ClientMessage);
     if (this.mock) {

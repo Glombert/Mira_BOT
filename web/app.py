@@ -846,9 +846,10 @@ async def health():
 
 
 @app.get("/history")
-async def history(session: str = "", limit: int = 50):
+async def history(session: str = "", limit: int = 50, scope: str = "chat"):
     """Подгрузить переписку для клиента (user/assistant, без system).
 
+    scope='chat' — основная история; scope='tech' — техническая, только владельцу.
     Клиент вызывает один раз после `ready` чтобы показать прошлый контекст.
     """
     tg_id = _verify_session(session) if session else None
@@ -861,7 +862,12 @@ async def history(session: str = "", limit: int = 50):
         raise HTTPException(429, detail=f"Too many history requests, retry in {retry}s",
                             headers={"Retry-After": str(retry)})
     user_id = _web_user_id(tg_id)
-    msgs = _load_session(user_id)
+    if scope == "tech":
+        if not OWNER_TG_ID or tg_id != OWNER_TG_ID:
+            raise HTTPException(status_code=403, detail="tech scope: owner only")
+        msgs = _load_session("tech_" + user_id) or []
+    else:
+        msgs = _load_session(user_id)
     limit = max(1, min(limit, 200))
     # Включаем user/assistant + системные пометки про загруженные файлы.
     # Прочие system-сообщения (главный prompt) клиенту не нужны.
@@ -2143,6 +2149,8 @@ async def chat(websocket: WebSocket, session: str = ""):
                 continue
 
             text = data.get("content", "").strip()
+            mode = (data.get("mode") or "chat").strip().lower()
+            is_tech = (mode == "tech") and bool(is_owner_ws)
             # Прикреплённые файлы — поддержка массивов (attachments) и одиночного (attachment).
             # Клиент шлёт N POST'ов через /upload, потом одно WS-сообщение с массивом имён.
             attached_raw = data.get("attachments") or []
@@ -2225,6 +2233,59 @@ async def chat(websocket: WebSocket, session: str = ""):
             if pdata and pdata.get("status") == "rejected":
                 logger.info(f"Rejected user attempted message: {user_id}")
                 await websocket.send_json({"type": "system", "content": "Твой запрос на доступ был отклонён."})
+                continue
+
+            # === Tech-режим: отдельная сессия, расширенный system, ответ в channel=tech ===
+            if is_tech:
+                if image_blocks:
+                    # картинки в тех-чате пока не поддерживаем (отдельный pipeline)
+                    await websocket.send_json({"channel": "tech", "type": "error",
+                                               "content": "Картинки в тех-чате пока не поддерживаются."})
+                    continue
+                tech_uid = "tech_" + user_id
+                tmsgs = _load_session(tech_uid) or [
+                    {"role": "system", "content": _system_prompt_for(user_id)}
+                ]
+                tmsgs.append({"role": "user", "content": text, "ts": time.time()})
+                # Тримминг истории как в обычном пайплайне
+                _sys = [m for m in tmsgs if m["role"] == "system"]
+                _rest = [m for m in tmsgs if m["role"] != "system"]
+                tmsgs = _sys + _rest[-MAX_HISTORY:]
+                _tech_llm = [{k: v for k, v in m.items() if k != "ts"} for m in tmsgs]
+                tech_extra = (
+                    "(техно-режим: разговор с владельцем-разработчиком в отдельном "
+                    "техническом канале. Можно выдавать сырые логи, стеки, дампы и "
+                    "технические детали — меньше литературности, больше конкретики. "
+                    "Если просит — посмотри в логи, прочти файл, опиши состояние. "
+                    "Готова делать инспекцию и инженерное обсуждение.)"
+                )
+                try:
+                    tech_agent = Agent.from_config_file(
+                        "alpha", Profile("dev"), user_id, _system_prompt_for(user_id)
+                    )
+                except FileNotFoundError as e:
+                    logger.error(f"tech: agent config alpha не найден: {e}")
+                    await websocket.send_json({"channel": "tech", "type": "error",
+                                               "content": "Конфиг агента не найден."})
+                    continue
+                await websocket.send_json({"channel": "tech", "type": "thinking"})
+                try:
+                    answer = await asyncio.to_thread(
+                        tech_agent.run, _tech_llm, None, tech_extra
+                    )
+                except Exception as e:
+                    logger.error(f"tech alpha.run: {e}", exc_info=True)
+                    await websocket.send_json({"channel": "tech", "type": "error",
+                                               "content": "Что-то пошло не так. Попробуй ещё раз."})
+                    continue
+                tmsgs.append({"role": "assistant", "content": answer, "ts": time.time()})
+                _save_session(tech_uid, tmsgs)
+                await websocket.send_json({
+                    "channel": "tech",
+                    "type": "message",
+                    "content": answer,
+                    "ts": time.time(),
+                })
                 continue
 
             msgs    = _load_session(user_id)

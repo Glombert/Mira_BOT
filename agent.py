@@ -716,10 +716,20 @@ class Agent:
  
         return execute_tool(tool_name, tool_args, self.user_id)
  
-    def run(self, messages: list, max_tool_rounds: int | None = None) -> str:
+    def run(
+        self,
+        messages: list,
+        max_tool_rounds: int | None = None,
+        extra_system: str | None = None,
+    ) -> str:
         """
         Основной метод: отправляет историю в API, обрабатывает tool calls,
         возвращает финальный текстовый ответ.
+
+        extra_system — опциональный suffix к системному промпту только на время
+        запроса (для tech-режима: разговор с владельцем-разработчиком). После
+        возврата системный промпт восстанавливается, чтобы сохранение истории
+        не цементировало временную инструкцию.
 
         Цикл работает так:
         1. Вызываем API
@@ -727,13 +737,25 @@ class Agent:
         3. Если модель хочет вызвать инструменты — выполняем, добавляем
            результаты в messages, идём на шаг 1
         4. Если за max_tool_rounds раундов текст так и не получили — ошибка
-
-        Почему messages передаём снаружи а не держим внутри:
-        История нужна в нескольких местах (сохранение, /reflect, trim).
-        Проще передать ссылку, чем дублировать логику.
         """
         if max_tool_rounds is None:
             max_tool_rounds = self.profile.max_tool_rounds
+
+        # Временно приклеиваем extra_system к системному промпту
+        original_system = None
+        if extra_system and messages and messages[0].get("role") == "system":
+            original_system = messages[0]["content"]
+            messages[0] = {
+                **messages[0],
+                "content": (original_system or "") + "\n\n" + extra_system,
+            }
+        try:
+            return self._run_inner(messages, max_tool_rounds)
+        finally:
+            if original_system is not None:
+                messages[0] = {**messages[0], "content": original_system}
+
+    def _run_inner(self, messages: list, max_tool_rounds: int) -> str:
         # Показываем модели ТОЛЬКО те инструменты которые она реально может вызвать
         # (пересечение agent.allowed_tools и profile.allowed_tools). Без этого она
         # видит всю палитру и пытается звать запрещённые, получая 'Blocked tool'.
