@@ -67,3 +67,16 @@ def test_ws_requires_auth(client):
     with client.websocket_connect("/ws") as ws:
         msg = ws.receive_json()
         assert msg["type"] == "auth_required"
+
+
+def test_mobile_version_without_token(client):
+    # Без GITHUB_APK_TOKEN релиз не тянется → пустой ответ (без сети)
+    r = client.get("/mobile/version")
+    assert r.status_code == 200
+    assert set(r.json()) == {"version", "apk_url", "release_notes"}
+
+
+def test_mobile_download_without_apk(client):
+    # Без токена/релиза — 404, не падение
+    r = client.get("/mobile/download", follow_redirects=False)
+    assert r.status_code in (404, 503)
