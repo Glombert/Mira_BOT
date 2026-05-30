@@ -620,6 +620,56 @@ def _is_owner_user(user_id: str) -> bool:
         return False
 
 
+_TOOL_HUMAN = {
+    "list_files":             "смотрит твои файлы",
+    "read_file":              "читает файл",
+    "write_file":             "пишет файл",
+    "excel_read":             "читает таблицу",
+    "excel_write":            "правит таблицу",
+    "recall":                 "вспоминает",
+    "run_python":             "запускает код",
+    "web_search":             "ищет в интернете",
+    "save_template":          "сохраняет шаблон",
+    "list_templates":         "смотрит шаблоны",
+    "list_self":              "смотрит на свой код",
+    "read_self":              "читает свой код",
+    "git_log":                "смотрит историю изменений",
+    "write_persona":          "обновляет себя",
+    "write_agent_config":     "правит конфиг агента",
+    "gdrive_list":            "смотрит Google Drive",
+    "gdrive_read":            "читает файл из Drive",
+    "gdrive_write":           "загружает в Drive",
+    "metrics_read":           "смотрит метрики",
+    "gcal_list":              "смотрит календарь",
+    "gcal_create":            "создаёт событие",
+    "gcal_quick_add":         "добавляет событие",
+    "gsheet_read":            "читает таблицу",
+    "gsheet_write":           "пишет в таблицу",
+    "gsheet_create":          "создаёт таблицу",
+    "schedule_reminder":      "ставит напоминание",
+    "list_reminders":         "смотрит напоминания",
+    "cancel_reminder":        "отменяет напоминание",
+    "openrouter_list_models": "смотрит список моделей",
+    "generate_image":         "рисует",
+    "attach_file":            "прикрепляет файл",
+    "whats_new":              "сверяется со списком новых возможностей",
+}
+
+
+def _humanize_tool(tool_name: str, tool_args: dict | None = None) -> str:
+    """Человеческое описание инструмента для облачка «💭 ...» на клиенте."""
+    base = _TOOL_HUMAN.get(tool_name, tool_name.replace("_", " "))
+    if tool_name == "web_search" and tool_args:
+        q = (tool_args.get("query") or "").strip()
+        if q:
+            return f"{base}: «{q[:40]}»"
+    if tool_name == "read_file" and tool_args:
+        p = (tool_args.get("relative_path") or "").strip()
+        if p:
+            return f"{base} {p[:40]}"
+    return base
+
+
 def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:
     """Диспетчер инструментов. Возвращает JSON-строку с результатом.
 
@@ -736,6 +786,7 @@ class Agent:
         messages: list,
         max_tool_rounds: int | None = None,
         extra_system: str | None = None,
+        on_progress=None,
     ) -> str:
         """
         Основной метод: отправляет историю в API, обрабатывает tool calls,
@@ -765,12 +816,12 @@ class Agent:
                 "content": (original_system or "") + "\n\n" + extra_system,
             }
         try:
-            return self._run_inner(messages, max_tool_rounds)
+            return self._run_inner(messages, max_tool_rounds, on_progress)
         finally:
             if original_system is not None:
                 messages[0] = {**messages[0], "content": original_system}
 
-    def _run_inner(self, messages: list, max_tool_rounds: int) -> str:
+    def _run_inner(self, messages: list, max_tool_rounds: int, on_progress=None) -> str:
         # Показываем модели ТОЛЬКО те инструменты которые она реально может вызвать
         # (пересечение agent.allowed_tools и profile.allowed_tools). Без этого она
         # видит всю палитру и пытается звать запрещённые, получая 'Blocked tool'.
@@ -820,7 +871,13 @@ class Agent:
             for tool_call in msg.tool_calls:
                 tool_name = tool_call.function.name
                 tool_args = json.loads(tool_call.function.arguments)
- 
+
+                if on_progress is not None:
+                    try:
+                        on_progress(_humanize_tool(tool_name, tool_args))
+                    except Exception:
+                        pass  # коллбэк не должен ронять основной поток
+
                 logger.info(f"[{self.name}] → {tool_name}({tool_args})")
                 result = self.use_tool(tool_name, tool_args)
  

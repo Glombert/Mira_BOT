@@ -135,6 +135,18 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
     );
   }
 
+  if (type === 'thought') {
+    return (
+      <div className="flex items-start gap-3 animate-fade-in-up">
+        <img src="/mira-avatar-full.png" alt="Мира" className="w-7 h-7 rounded-full object-cover shrink-0 border border-gold-soft opacity-70" />
+        <div className="flex items-center gap-2 px-3 py-2 text-sm text-text-secondary italic">
+          <span>💭</span>
+          <span className="whitespace-pre-wrap">{content}</span>
+        </div>
+      </div>
+    );
+  }
+
   if (type === 'system') {
     return (
       <div className="flex items-center justify-center gap-2 py-1 animate-fade-in-up">

@@ -39,6 +39,7 @@ export type ServerMessage =
   | { type: 'auth_required'; bot: string }
   | { type: 'pong' }
   | { type: 'thinking' }
+  | { type: 'thought'; content: string }
   | { type: 'message'; content: string; attachments?: Array<{ name: string; size: number }>; cards?: MessageCard[] }
   | { type: 'system'; content: string }
   | { type: 'error'; content: string }

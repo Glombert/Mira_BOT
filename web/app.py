@@ -2314,9 +2314,18 @@ async def chat(websocket: WebSocket, session: str = ""):
                                                "content": "Конфиг агента не найден."})
                     continue
                 await websocket.send_json({"channel": "tech", "type": "thinking"})
+                _tech_ws_loop = asyncio.get_running_loop()
+                def _tech_on_progress(text: str) -> None:
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            websocket.send_json({"channel": "tech", "type": "thought", "content": text}),
+                            _tech_ws_loop,
+                        )
+                    except Exception:
+                        pass
                 try:
                     answer = await asyncio.to_thread(
-                        tech_agent.run, _tech_llm, None, tech_extra
+                        tech_agent.run, _tech_llm, None, tech_extra, _tech_on_progress
                     )
                 except Exception as e:
                     logger.error(f"tech alpha.run: {e}", exc_info=True)
@@ -2401,12 +2410,25 @@ async def chat(websocket: WebSocket, session: str = ""):
 
             await websocket.send_json({"type": "thinking"})
 
+            # 💭-облачко: Мира перед каждым tool_call шлёт «думаю про X».
+            # alpha.run крутится в asyncio.to_thread, поэтому отправляем
+            # через run_coroutine_threadsafe в основной event loop.
+            _ws_loop = asyncio.get_running_loop()
+            def _on_progress(text: str) -> None:
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        websocket.send_json({"type": "thought", "content": text}),
+                        _ws_loop,
+                    )
+                except Exception:
+                    pass
+
             # Инверсия: Мира всегда отвечает сама. alpha.run умеет вызывать
             # инструменты (web_search, gcal, schedule_reminder, generate_image,
             # excel и т.д.) — специалисты Конклава ей доступны как инструменты,
             # а не как маршрут «мимо» её личности.
             try:
-                answer = await asyncio.to_thread(alpha.run, llm_msgs)
+                answer = await asyncio.to_thread(alpha.run, llm_msgs, None, None, _on_progress)
             except Exception as e:
                 logger.error(f"alpha.run: {e}", exc_info=True)
                 await websocket.send_json({"type": "error", "content": "Что-то пошло не так. Попробуй ещё раз."})

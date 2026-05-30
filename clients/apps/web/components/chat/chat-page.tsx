@@ -25,6 +25,7 @@ function buildTechFeed(
   msgs: Array<{ role: 'user' | 'assistant'; content: string; ts: number }>,
   thinking: boolean,
   error: string | null,
+  thought: string | null,
 ): TechFeedEntry[] {
   const entries: TechFeedEntry[] = [];
   for (const it of inbox) {
@@ -35,7 +36,9 @@ function buildTechFeed(
     entries.push({ kind: 'msg', ts: m.ts, role: m.role, content: m.content });
   }
   entries.sort((a, b) => a.ts - b.ts);
-  if (thinking) {
+  if (thought) {
+    entries.push({ kind: 'thought', ts: Date.now(), content: thought });
+  } else if (thinking) {
     entries.push({ kind: 'thinking', ts: Date.now() });
   }
   if (error) {
@@ -111,6 +114,7 @@ export function ChatPage() {
   const [inbox, setInbox] = useState<OwnerInboxItem[]>([]);
   const [techMessages, setTechMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; ts: number }>>([]);
   const [techThinking, setTechThinking] = useState(false);
+  const [techThought, setTechThought] = useState<string | null>(null);
   const [techError, setTechError] = useState<string | null>(null);
   const [unreadTech, setUnreadTech] = useState(0);
   const inboxLoadedRef = useRef(false);
@@ -145,7 +149,7 @@ export function ChatPage() {
   const addMessage = useCallback((msg: ChatMessageItem) => {
     setMessages((prev) => {
       if (msg.type === 'message' || msg.type === 'error') {
-        const filtered = prev.filter((m) => m.type !== 'thinking');
+        const filtered = prev.filter((m) => m.type !== 'thinking' && m.type !== 'thought');
         return [...filtered, msg];
       }
       return [...prev, msg];
@@ -227,6 +231,20 @@ export function ChatPage() {
       addMessage({ id: generateId(), type: 'thinking', timestamp: Date.now() });
     });
 
+    const unsubThought = c.on('thought', (msg) => {
+      // Заменяем последний thinking-индикатор на 💭-облачко с действием.
+      setMessages((prev) => {
+        const idx = [...prev].reverse().findIndex((m) => m.type === 'thinking' || m.type === 'thought');
+        if (idx === -1) {
+          return [...prev, { id: generateId(), type: 'thought' as const, content: msg.content, timestamp: Date.now() }];
+        }
+        const realIdx = prev.length - 1 - idx;
+        const next = [...prev];
+        next[realIdx] = { ...next[realIdx], type: 'thought' as const, content: msg.content };
+        return next;
+      });
+    });
+
     const unsubMessage = c.on('message', (msg) => {
       addMessage({ id: generateId(), type: 'message', content: msg.content, messageAttachments: msg.attachments, cards: msg.cards, timestamp: Date.now() });
     });
@@ -278,10 +296,17 @@ export function ChatPage() {
       }
       if (ev.type === 'thinking') {
         setTechThinking(true);
+        setTechThought(null);
+        return;
+      }
+      if (ev.type === 'thought') {
+        setTechThinking(true);
+        setTechThought(ev.content ?? '');
         return;
       }
       if (ev.type === 'message') {
         setTechThinking(false);
+        setTechThought(null);
         setTechError(null);
         setTechMessages((prev) => [...prev, {
           role: 'assistant',
@@ -317,7 +342,7 @@ export function ChatPage() {
     });
 
     unsubscribersRef.current = [
-      unsubReady, unsubAuthRequired, unsubThinking, unsubMessage,
+      unsubReady, unsubAuthRequired, unsubThinking, unsubThought, unsubMessage,
       unsubApproval, unsubPermissionsUpdate, unsubSystem, unsubError,
       unsubPong, unsubFiles, unsubGdrive, unsubTech,
     ];
@@ -457,6 +482,7 @@ export function ChatPage() {
     if (!client) return;
     setTechMessages((prev) => [...prev, { role: 'user', content: text, ts: Date.now() }]);
     setTechError(null);
+    setTechThought(null);
     setTechThinking(true);
     client.sendMessage(text, undefined, 'tech');
   }, [client]);
@@ -638,7 +664,7 @@ export function ChatPage() {
         <>
           <TabSwitcher mode={mode} setMode={setMode} unreadTech={unreadTech} />
           <TechInbox
-            feed={buildTechFeed(inbox, techMessages, techThinking, techError)}
+            feed={buildTechFeed(inbox, techMessages, techThinking, techError, techThought)}
             client={client}
             onLocalUpdate={handleInboxLocalUpdate}
             onSend={handleSendTech}

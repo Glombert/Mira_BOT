@@ -11,6 +11,7 @@ export type TechFeedEntry =
   | { kind: 'inbox'; ts: number; item: OwnerInboxItem }
   | { kind: 'msg'; ts: number; role: 'user' | 'assistant'; content: string }
   | { kind: 'thinking'; ts: number }
+  | { kind: 'thought'; ts: number; content: string }
   | { kind: 'error'; ts: number; content: string };
 
 interface TechChatProps {
@@ -77,6 +78,14 @@ export function TechInbox({ feed, client, onLocalUpdate, onSend, sending }: Tech
             return (
               <div key={`t-${idx}`} className="text-sm text-text-muted italic">
                 Мира думает...
+              </div>
+            );
+          }
+          if (entry.kind === 'thought') {
+            return (
+              <div key={`tt-${idx}`} className="text-sm text-text-secondary italic flex items-center gap-2">
+                <span>💭</span>
+                <span>{entry.content}</span>
               </div>
             );
           }
