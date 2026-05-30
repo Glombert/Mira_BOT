@@ -80,3 +80,15 @@ def test_mobile_download_without_apk(client):
     # Без токена/релиза — 404, не падение
     r = client.get("/mobile/download", follow_redirects=False)
     assert r.status_code in (404, 503)
+
+
+def test_auth_mobile_page_renders(client):
+    r = client.get("/auth/mobile")
+    assert r.status_code == 200
+    assert "telegram" in r.text.lower()
+
+
+def test_mobile_auth_redirect_bad_code(client):
+    # Невалидный одноразовый code → 400 (страница «ссылка устарела»)
+    r = client.get("/m/auth", params={"code": "nope"})
+    assert r.status_code == 400
