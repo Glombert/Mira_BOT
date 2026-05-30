@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { MiraClient, OwnerInboxItem } from '@mira/shared';
 
 /** Запись в технической ленте — либо событие из owner_inbox, либо реплика
@@ -20,10 +22,10 @@ interface TechChatProps {
 }
 
 const IMPORTANCE_COLORS: Record<string, string> = {
-  CRITICAL: 'border-rose/60 bg-rose/5',
-  MAJOR:    'border-gold-soft/60 bg-gold/5',
-  MINOR:    'border-border-strong bg-bg-deep/40',
-  NONE:     'border-border-subtle bg-bg-deep/30',
+  CRITICAL: 'border-rose/70 bg-bg-elevated',
+  MAJOR:    'border-gold-soft bg-bg-elevated',
+  MINOR:    'border-border-strong bg-bg-elevated',
+  NONE:     'border-border-subtle bg-bg-elevated',
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -90,11 +92,11 @@ export function TechInbox({ feed, client, onLocalUpdate, onSend, sending }: Tech
           return (
             <div key={`m-${idx}`} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
               <div
-                className={`max-w-[85%] rounded-card px-3 py-2 text-sm whitespace-pre-wrap ${
-                  mine ? 'bg-gold/10 border border-gold-soft/40 text-text-primary' : 'bg-bg-deep/40 border border-border-subtle text-text-secondary'
+                className={`max-w-[85%] rounded-card px-3 py-2 text-sm ${
+                  mine ? 'bg-gold/10 border border-gold-soft/40 text-text-primary whitespace-pre-wrap' : 'bg-bg-deep/60 border border-border-subtle text-text-primary tech-markdown'
                 }`}
               >
-                {entry.content}
+                {mine ? entry.content : <ReactMarkdown remarkPlugins={[remarkGfm]}>{entry.content}</ReactMarkdown>}
               </div>
             </div>
           );
@@ -163,9 +165,11 @@ function InboxCard({
         <span className="text-[11px] text-text-muted">{fmtTime(item.ts)}</span>
       </div>
       {item.title && (
-        <p className="text-sm font-medium text-text-primary mb-1">{item.title}</p>
+        <p className="text-sm font-medium text-gold mb-2">{item.title}</p>
       )}
-      <pre className="whitespace-pre-wrap text-sm text-text-secondary font-sans leading-relaxed">{item.body}</pre>
+      <div className="tech-markdown text-sm text-text-primary leading-relaxed">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.body}</ReactMarkdown>
+      </div>
 
       {item.type === 'approval_request' && !item.action && (
         <div className="flex gap-2 mt-3">
