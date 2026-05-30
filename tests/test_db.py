@@ -159,3 +159,57 @@ def test_gdrive_token_delete(fresh_db):
     fresh_db.save_gdrive_token("tg_1", {"refresh_token": "x"})
     assert fresh_db.delete_gdrive_token("tg_1") is True
     assert fresh_db.load_gdrive_token("tg_1") is None
+
+
+# --- owner_inbox ---
+
+def test_inbox_append_and_list(fresh_db):
+    id1 = fresh_db.append_inbox("ritual", "длинный текст " * 500, title="t1", importance="MAJOR")
+    id2 = fresh_db.append_inbox("system", "короткое", title="t2")
+    assert id2 > id1
+    items = fresh_db.list_inbox()
+    assert len(items) == 2
+    assert items[0]["id"] == id1
+    assert items[0]["title"] == "t1"
+    assert items[0]["importance"] == "MAJOR"
+    # body не обрезан
+    assert len(items[0]["body"]) > 4000
+
+
+def test_inbox_since_id_pagination(fresh_db):
+    id1 = fresh_db.append_inbox("system", "a")
+    id2 = fresh_db.append_inbox("system", "b")
+    new_items = fresh_db.list_inbox(since_id=id1)
+    assert len(new_items) == 1
+    assert new_items[0]["id"] == id2
+
+
+def test_inbox_mark_read_and_unread_filter(fresh_db):
+    id1 = fresh_db.append_inbox("system", "a")
+    id2 = fresh_db.append_inbox("system", "b")
+    fresh_db.mark_inbox_read(id1)
+    unread = fresh_db.list_inbox(unread_only=True)
+    assert len(unread) == 1
+    assert unread[0]["id"] == id2
+
+
+def test_inbox_set_action(fresh_db):
+    id1 = fresh_db.append_inbox("approval_request", "новый юзер",
+                                payload={"user_id": "tg_42"})
+    assert fresh_db.set_inbox_action(id1, "approve") is True
+    items = fresh_db.list_inbox()
+    assert items[0]["action"] == "approve"
+    assert items[0]["is_read"] is True
+    assert items[0]["payload"] == {"user_id": "tg_42"}
+
+
+def test_inbox_cleanup_old(fresh_db):
+    from datetime import datetime, timedelta
+    fresh_db.append_inbox("system", "сегодня")
+    old_ts = (datetime.now() - timedelta(days=40)).isoformat()
+    fresh_db.append_inbox("system", "старое", ts=old_ts)
+    deleted = fresh_db.cleanup_inbox(older_than_days=30)
+    assert deleted == 1
+    items = fresh_db.list_inbox()
+    assert len(items) == 1
+    assert items[0]["body"] == "сегодня"

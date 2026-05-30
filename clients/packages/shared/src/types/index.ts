@@ -94,6 +94,35 @@ export interface UserEntry {
   status: string;
 }
 
+/** Запись в техническом канале владельца (owner_inbox). */
+export interface OwnerInboxItem {
+  id: number;
+  ts: string;
+  type: 'ritual' | 'system' | 'approval_request' | string;
+  importance: 'NONE' | 'MINOR' | 'MAJOR' | 'CRITICAL' | string;
+  title: string;
+  body: string;
+  payload: Record<string, unknown> | null;
+  is_read: boolean;
+  action: string | null;
+}
+
+/** WS-событие технического канала (channel === 'tech'). */
+export interface TechEvent {
+  channel: 'tech';
+  type: 'ritual' | 'system' | 'approval_request' | 'inbox_update' | string;
+  id?: number;
+  ts?: string;
+  name?: string;
+  user_id?: string;
+  source?: string;
+  importance?: string;
+  title?: string;
+  body?: string;
+  buttons?: Array<{ text: string; callback_data: string }>;
+  action?: string;
+}
+
 /** Счётчики для бейджей в боковом меню (приходят в ready). */
 export interface SidebarCounts {
   files?: number;

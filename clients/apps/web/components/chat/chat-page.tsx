@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { MiraClient } from '@mira/shared';
-import type { ServerMessage, SidebarCounts } from '@mira/shared';
+import type { ServerMessage, SidebarCounts, OwnerInboxItem, TechEvent } from '@mira/shared';
 import { webSessionStorage } from '@/lib/session-storage';
 import { IS_TAURI } from '@/lib/runtime';
 import { TelegramLogin } from '@/components/auth/telegram-login';
@@ -14,9 +14,40 @@ import { RemindersModal } from '@/components/ui/reminders-modal';
 import { DriveModal } from '@/components/ui/drive-modal';
 import { ProfileModal } from '@/components/ui/profile-modal';
 import { WebDrawer } from './web-drawer';
+import { TechInbox } from './tech-inbox';
 
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function TabSwitcher({
+  mode,
+  setMode,
+  unreadTech,
+}: {
+  mode: 'chat' | 'tech';
+  setMode: (m: 'chat' | 'tech') => void;
+  unreadTech: number;
+}) {
+  const baseBtn =
+    'flex-1 py-2 text-sm font-medium border-b-2 transition-colors';
+  const active = 'border-gold-soft text-text-primary';
+  const idle = 'border-transparent text-text-muted hover:text-text-secondary';
+  return (
+    <div className="flex border-b border-border-divider bg-bg-base">
+      <button className={`${baseBtn} ${mode === 'chat' ? active : idle}`} onClick={() => setMode('chat')}>
+        Чат
+      </button>
+      <button className={`${baseBtn} ${mode === 'tech' ? active : idle} relative`} onClick={() => setMode('tech')}>
+        Техника
+        {unreadTech > 0 && (
+          <span className="absolute top-1 right-1/3 -translate-x-1/2 px-1.5 py-0.5 text-[10px] rounded-full bg-rose/80 text-bg-base font-semibold">
+            {unreadTech > 99 ? '99+' : unreadTech}
+          </span>
+        )}
+      </button>
+    </div>
+  );
 }
 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_BOT_USERNAME || 'MiraTestBot';
@@ -52,6 +83,10 @@ export function ChatPage() {
   const uploadResultsRef = useRef<Array<{ filename: string; size: number }>>([]);
   const [autoScroll, setAutoScroll] = useState(true);
   const [permissions, setPermissions] = useState({ is_owner: false, is_approved: true, gdrive_authorized: false, gdrive_email: null as string | null, permissions: [] as string[] });
+  const [mode, setMode] = useState<'chat' | 'tech'>('chat');
+  const [inbox, setInbox] = useState<OwnerInboxItem[]>([]);
+  const [unreadTech, setUnreadTech] = useState(0);
+  const inboxLoadedRef = useRef(false);
 
   const clientRef = useRef<MiraClient | undefined>(undefined);
   useEffect(() => {
@@ -108,6 +143,14 @@ export function ChatPage() {
         permissions: msg.permissions ?? [],
       });
       setCounts(msg.counts ?? {});
+      // Owner: подтянуть техническую ленту
+      if (msg.is_owner && !inboxLoadedRef.current) {
+        inboxLoadedRef.current = true;
+        c.listOwnerInbox(0).then((items) => {
+          setInbox(items);
+          setUnreadTech(items.filter((it) => !it.is_read).length);
+        }).catch(() => {});
+      }
       // Анкета после одобрения: одобренным (не владельцу), кто ещё не заполнил
       if (msg.is_approved && !msg.is_owner && !onboardCheckedRef.current) {
         onboardCheckedRef.current = true;
@@ -187,10 +230,42 @@ export function ChatPage() {
       addMessage({ id: generateId(), type: 'gdrive_auth_url', url: msg.url, timestamp: Date.now() });
     });
 
+    const unsubTech = c.onTech((ev: TechEvent) => {
+      if (ev.type === 'inbox_update') {
+        // действие применили из другого клиента — обновляем локально
+        if (ev.id != null) {
+          setInbox((prev) => prev.map((it) =>
+            it.id === ev.id ? { ...it, is_read: true, action: ev.action ?? it.action } : it
+          ));
+        }
+        return;
+      }
+      // Новое событие: добавляем в ленту
+      const item: OwnerInboxItem = {
+        id: ev.id ?? Date.now(),
+        ts: ev.ts ?? new Date().toISOString(),
+        type: ev.type,
+        importance: ev.importance ?? 'NONE',
+        title: ev.title ?? '',
+        body: ev.body ?? '',
+        payload: ev.user_id || ev.buttons
+          ? { user_id: ev.user_id, name: ev.name, source: ev.source, buttons: ev.buttons }
+          : null,
+        is_read: false,
+        action: null,
+      };
+      setInbox((prev) => {
+        // защита от дубликата по id
+        if (prev.some((p) => p.id === item.id && item.id < 1e12)) return prev;
+        return [...prev, item];
+      });
+      setUnreadTech((n) => n + 1);
+    });
+
     unsubscribersRef.current = [
       unsubReady, unsubAuthRequired, unsubThinking, unsubMessage,
       unsubApproval, unsubPermissionsUpdate, unsubSystem, unsubError,
-      unsubPong, unsubFiles, unsubGdrive,
+      unsubPong, unsubFiles, unsubGdrive, unsubTech,
     ];
 
     c.connect().catch(() => setConnectionStatus('offline'));
@@ -316,6 +391,26 @@ export function ChatPage() {
     },
     [client]
   );
+
+  const handleInboxLocalUpdate = useCallback(
+    (id: number, patch: Partial<OwnerInboxItem>) => {
+      setInbox((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
+    },
+    []
+  );
+
+  // При переключении на «Техника» — отметить непрочитанные прочитанными
+  useEffect(() => {
+    if (mode !== 'tech' || !client) return;
+    const unread = inbox.filter((it) => !it.is_read);
+    if (unread.length === 0) return;
+    unread.forEach((it) => {
+      client.markInboxRead(it.id).catch(() => {});
+    });
+    setInbox((prev) => prev.map((it) => (it.is_read ? it : { ...it, is_read: true })));
+    setUnreadTech(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
 
   // Global keybind Cmd+K / Ctrl+K
   useEffect(() => {
@@ -477,8 +572,16 @@ export function ChatPage() {
             <TelegramLogin botUsername={BOT_USERNAME} mockEnabled={IS_MOCK} onAuth={handleAuth} />
           </div>
         </div>
+      ) : permissions.is_owner && mode === 'tech' ? (
+        <>
+          <TabSwitcher mode={mode} setMode={setMode} unreadTech={unreadTech} />
+          <TechInbox items={inbox} client={client} onLocalUpdate={handleInboxLocalUpdate} />
+        </>
       ) : (
         <>
+          {permissions.is_owner && (
+            <TabSwitcher mode={mode} setMode={setMode} unreadTech={unreadTech} />
+          )}
           <div
             ref={containerRef}
             onScroll={handleScroll}

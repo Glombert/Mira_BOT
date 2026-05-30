@@ -138,6 +138,24 @@ def init_db(path: str | None = None) -> None:
                     token        TEXT NOT NULL,
                     expiry       REAL NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS owner_inbox (
+                    -- Технический канал владельца: ритуалы, ошибки,
+                    -- approval_request и пр. system-сообщения. Двусторонний
+                    -- чат «Техника» в приложении читает отсюда.
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts           TEXT NOT NULL,
+                    type         TEXT NOT NULL,
+                    importance   TEXT NOT NULL DEFAULT 'NONE',
+                    title        TEXT NOT NULL DEFAULT '',
+                    body         TEXT NOT NULL,
+                    payload      TEXT,
+                    is_read      INTEGER NOT NULL DEFAULT 0,
+                    action       TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_owner_inbox_ts ON owner_inbox(ts);
+                CREATE INDEX IF NOT EXISTS idx_owner_inbox_unread
+                    ON owner_inbox(is_read, ts);
             """)
             # Миграция: добавляем колонку kind в reminders (v2.0).
             # Идемпотентно — проверяем PRAGMA table_info перед ALTER.
@@ -594,3 +612,76 @@ def load_ritual_runs() -> dict[str, dict]:
     """Возвращает {name: {last_run, last_output}, ...} для всех ритуалов."""
     rows = get_conn().execute("SELECT name, last_run, last_output FROM ritual_runs").fetchall()
     return {r["name"]: {"last_run": r["last_run"], "last_output": r["last_output"]} for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# Owner inbox (технический канал в приложении: ритуалы, одобрения, сбои)
+# ---------------------------------------------------------------------------
+
+def append_inbox(
+    type_: str,
+    body: str,
+    title: str = "",
+    importance: str = "NONE",
+    payload: dict | None = None,
+    ts: str | None = None,
+) -> int:
+    """Добавляет запись в owner_inbox. Возвращает id."""
+    ts_v = ts or datetime.now().isoformat()
+    payload_v = json.dumps(payload, ensure_ascii=False) if payload else None
+    conn = get_conn()
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO owner_inbox (ts, type, importance, title, body, payload) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (ts_v, type_, importance, title, body, payload_v),
+        )
+        return int(cur.lastrowid or 0)
+
+
+def list_inbox(since_id: int = 0, limit: int = 200, unread_only: bool = False) -> list[dict]:
+    """История тех-чата. since_id — id, после которого вернуть новые."""
+    q = "SELECT id, ts, type, importance, title, body, payload, is_read, action FROM owner_inbox WHERE id > ?"
+    args: list = [since_id]
+    if unread_only:
+        q += " AND is_read = 0"
+    q += " ORDER BY id ASC LIMIT ?"
+    args.append(limit)
+    rows = get_conn().execute(q, args).fetchall()
+    out = []
+    for r in rows:
+        out.append({
+            "id":         r["id"],
+            "ts":         r["ts"],
+            "type":       r["type"],
+            "importance": r["importance"],
+            "title":      r["title"],
+            "body":       r["body"],
+            "payload":    json.loads(r["payload"]) if r["payload"] else None,
+            "is_read":    bool(r["is_read"]),
+            "action":     r["action"],
+        })
+    return out
+
+
+def mark_inbox_read(id_: int) -> bool:
+    conn = get_conn()
+    with conn:
+        cur = conn.execute("UPDATE owner_inbox SET is_read=1 WHERE id=?", (id_,))
+        return cur.rowcount > 0
+
+
+def set_inbox_action(id_: int, action: str) -> bool:
+    conn = get_conn()
+    with conn:
+        cur = conn.execute("UPDATE owner_inbox SET action=?, is_read=1 WHERE id=?", (action, id_))
+        return cur.rowcount > 0
+
+
+def cleanup_inbox(older_than_days: int = 30) -> int:
+    """Удаляет записи старше N дней. Возвращает удалённое количество."""
+    cutoff = (datetime.now() - timedelta(days=older_than_days)).isoformat()
+    conn = get_conn()
+    with conn:
+        cur = conn.execute("DELETE FROM owner_inbox WHERE ts < ?", (cutoff,))
+        return cur.rowcount

@@ -274,28 +274,74 @@ def cleanup_expired_guests() -> int:
 # Уведомления владельцу
 # ---------------------------------------------------------------------------
 
+def _tg_split(text: str, limit: int = 3900) -> list[str]:
+    """Режет длинный текст на куски ≤ limit, стараясь по \n\n→\n→ пробелу."""
+    if len(text) <= limit:
+        return [text]
+    parts: list[str] = []
+    rest = text
+    while len(rest) > limit:
+        cut = rest.rfind("\n\n", 0, limit)
+        if cut < limit // 2:
+            cut = rest.rfind("\n", 0, limit)
+        if cut < limit // 2:
+            cut = rest.rfind(" ", 0, limit)
+        if cut <= 0:
+            cut = limit
+        parts.append(rest[:cut].rstrip())
+        rest = rest[cut:].lstrip()
+    if rest:
+        parts.append(rest)
+    return parts
+
+
 def notify_owner(message: str, user_id: str = "", buttons: list | None = None) -> None:
     """
     Отправляет уведомление владельцу.
-    Дублирует в FCM (если у владельца есть зарегистрированные мобайл-токены)
-    И в Telegram. На двух экранах одновременно — нормально для уведомлений
-    важных событий; пользователь увидит хоть где-то.
 
-    buttons — список Telegram inline-кнопок [{"text": ..., "callback_data": ...}].
-    В FCM-вариант кнопки не пробрасываются (push-уведомления показывают
-    только title+body; интерактивные действия делаются в самом приложении).
+    Каналы:
+    - owner_inbox (БД) — полный текст в тех-чат приложения, всегда
+    - FCM push — обрезанный body, если есть зарегистрированные токены
+    - Telegram — основной fallback, длинный текст разбивается на чанки
+
+    buttons — Telegram inline-кнопки + сохраняются в payload owner_inbox.
     """
-    logger.info(f"[OWNER NOTIFY] {message}")
-    _log_decision("owner_notification", message)
+    logger.info(f"[OWNER NOTIFY] {message[:200]}")
+    _log_decision("owner_notification", message[:500])
 
     owner = os.getenv("OWNER_TELEGRAM_ID", "")
+
+    # 0. Тех-чат в приложении (всегда — даже без Telegram-токена)
+    try:
+        from tools import db as _db
+        _db.append_inbox(
+            type_="system",
+            title="Системное уведомление",
+            body=message,
+            importance="MINOR",
+            payload={"buttons": buttons} if buttons else None,
+        )
+    except Exception as e:
+        logger.warning(f"notify_owner: append_inbox failed: {e}")
+
+    # 0b. WS realtime для приложения
+    if owner:
+        try:
+            from tools.owner_channel import push_to_owner
+            push_to_owner({
+                "channel": "tech",
+                "type": "system",
+                "ts": datetime.now().isoformat(),
+                "body": message,
+                "buttons": buttons or [],
+            })
+        except Exception as e:
+            logger.warning(f"notify_owner: WS push failed: {e}")
 
     # 1. FCM (push в мобильное приложение, если установлено и юзер залогинен)
     if owner:
         try:
             from tools import fcm_tools
-            # user_id формата tg_<id> — совпадает с тем, что веб использует
-            # при сохранении push-токена через /m/register_push_token.
             fcm_tools.send_push(
                 user_id=f"tg_{owner}",
                 title="Mira",
@@ -309,22 +355,29 @@ def notify_owner(message: str, user_id: str = "", buttons: list | None = None) -
     if not token or not owner:
         return
 
+    chunks = _tg_split(message)
+    reply_markup_json = None
+    if buttons:
+        reply_markup_json = json.dumps({
+            "inline_keyboard": [
+                [{"text": b["text"], "callback_data": b["callback_data"]}]
+                for b in buttons
+            ]
+        })
+
     import threading
     def _send():
         try:
-            payload: dict = {"chat_id": owner, "text": message}
-            if buttons:
-                payload["reply_markup"] = json.dumps({
-                    "inline_keyboard": [
-                        [{"text": b["text"], "callback_data": b["callback_data"]}]
-                        for b in buttons
-                    ]
-                })
-            data = urllib.parse.urlencode(payload).encode()
-            urllib.request.urlopen(
-                f"https://api.telegram.org/bot{token}/sendMessage",
-                data=data, timeout=8,
-            )
+            for i, chunk in enumerate(chunks):
+                payload: dict = {"chat_id": owner, "text": chunk}
+                # Кнопки крепим только к последнему чанку
+                if reply_markup_json and i == len(chunks) - 1:
+                    payload["reply_markup"] = reply_markup_json
+                data = urllib.parse.urlencode(payload).encode()
+                urllib.request.urlopen(
+                    f"https://api.telegram.org/bot{token}/sendMessage",
+                    data=data, timeout=8,
+                )
         except Exception as e:
             logger.warning(f"notify_owner: ошибка отправки: {e}")
 
@@ -334,8 +387,10 @@ def notify_owner(message: str, user_id: str = "", buttons: list | None = None) -
 def notify_new_user(user_id: str, name: str, source: str = "telegram") -> None:
     """Уведомляет владельца о новом пользователе с кнопками одобрения.
 
-    Telegram — основной канал с inline-кнопками.
-    WS (owner_channel) — параллельно, для мобайла/веба.
+    Каналы:
+    - owner_inbox (БД) — тип approval_request с user_id/name/source в payload
+    - WS — channel=tech, type=approval_request (для drawer/тех-чата)
+    - Telegram — sendMessage с inline-кнопками (callback_data)
     """
     msg = (
         f"Новый пользователь хочет пообщаться!\n"
@@ -343,22 +398,69 @@ def notify_new_user(user_id: str, name: str, source: str = "telegram") -> None:
         f"ID: {user_id}\n"
         f"Источник: {source}"
     )
-    # Telegram
-    notify_owner(msg, user_id=user_id, buttons=[
+    buttons = [
         {"text": "Одобрить ✅",  "callback_data": f"u_ap_{user_id}"},
         {"text": "Отклонить ❌", "callback_data": f"u_rj_{user_id}"},
-    ])
-    # WS — approval_request для drawer/веба
+    ]
+    payload = {"user_id": user_id, "name": name, "source": source, "buttons": buttons}
+
+    # 1. owner_inbox
+    inbox_id = 0
+    try:
+        from tools import db as _db
+        inbox_id = _db.append_inbox(
+            type_="approval_request",
+            title="Новый пользователь",
+            body=msg,
+            importance="MAJOR",
+            payload=payload,
+        )
+    except Exception as e:
+        logger.warning(f"notify_new_user: append_inbox failed: {e}")
+
+    # 2. WS realtime
     try:
         from tools.owner_channel import push_to_owner
         push_to_owner({
+            "channel": "tech",
             "type": "approval_request",
+            "id": inbox_id,
             "user_id": user_id,
             "name": name,
             "source": source,
+            "body": msg,
+            "buttons": buttons,
         })
     except Exception as e:
         logger.warning(f"notify_new_user: WS push failed: {e}")
+
+    # 3. Telegram (sendMessage напрямую — мимо notify_owner, чтобы
+    #    не дублировать запись в owner_inbox)
+    owner = os.getenv("OWNER_TELEGRAM_ID", "")
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    if not owner or not token:
+        return
+    import threading
+    def _send():
+        try:
+            tg_payload = {
+                "chat_id": owner,
+                "text": msg,
+                "reply_markup": json.dumps({
+                    "inline_keyboard": [
+                        [{"text": b["text"], "callback_data": b["callback_data"]}]
+                        for b in buttons
+                    ]
+                }),
+            }
+            data = urllib.parse.urlencode(tg_payload).encode()
+            urllib.request.urlopen(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                data=data, timeout=8,
+            )
+        except Exception as e:
+            logger.warning(f"notify_new_user: TG send failed: {e}")
+    threading.Thread(target=_send, daemon=True).start()
 
 
 def _log_decision(event: str, msg: str) -> None:

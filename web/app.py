@@ -633,7 +633,8 @@ def _run_scheduled_task(user_id: str, prompt: str) -> str:
 
 
 def _run_ritual_background(ritual: dict, user_id: str) -> None:
-    """Выполняет ритуал в фоне, сохраняет last_run, шлёт notify_owner если IMPORTANCE >= порога."""
+    """Выполняет ритуал в фоне, сохраняет last_run, кладёт в owner_inbox и
+    при IMPORTANCE >= порога — дублирует в Telegram владельцу."""
     from tools import db as _db
     from tools.access_tools import notify_owner as _notify
 
@@ -645,13 +646,39 @@ def _run_ritual_background(ritual: dict, user_id: str) -> None:
 
     importance = parse_importance(answer)
     threshold = ritual.get("notify_threshold", "MAJOR")
+    name = ritual["name"]
+    title = f"Ритуал: {name} [{importance}]"
+
+    # 1) Тех-чат владельца в приложении — полный ответ, всегда
+    inbox_id = _db.append_inbox(
+        type_="ritual",
+        title=title,
+        body=answer,
+        importance=importance,
+        payload={"ritual": name, "threshold": threshold},
+    )
+    # 2) WS realtime → канал "tech"
+    try:
+        from tools.owner_channel import push_to_owner
+        push_to_owner({
+            "channel": "tech",
+            "type": "ritual",
+            "id": inbox_id,
+            "ts": now_iso,
+            "name": name,
+            "importance": importance,
+            "title": title,
+            "body": answer,
+        })
+    except Exception as e:
+        logger.warning(f"rituals: push_to_owner failed: {e}")
+
+    # 3) Telegram владельцу — только если IMPORTANCE >= threshold (как раньше)
     if should_notify(importance, threshold):
-        title = f"🔔 Ритуал: {ritual['name']} [{importance}]"
-        body = answer[:500]
-        _notify(title + "\n" + body)
-        logger.info(f"rituals: '{ritual['name']}' → notified ({importance})")
+        _notify(f"🔔 {title}\n{answer}")
+        logger.info(f"rituals: '{name}' → inbox#{inbox_id} + tg ({importance})")
     else:
-        logger.info(f"rituals: '{ritual['name']}' → ok ({importance}, below {threshold})")
+        logger.info(f"rituals: '{name}' → inbox#{inbox_id} ({importance}, below {threshold})")
 
 
 # ---------------------------------------------------------------------------
@@ -1214,6 +1241,86 @@ async def register_push_token(request: Request):
     db.save_push_token(user_id, fcm_tok, platform=platform)
     logger.info(f"push_token registered: {user_id} ({platform}, {fcm_tok[:16]}…)")
     return {"ok": True}
+
+
+def _verify_owner_session(session: str) -> str | None:
+    """Возвращает tg_<owner_id> если токен валиден и пользователь — владелец."""
+    if not session:
+        return None
+    tg_id = _verify_session(session)
+    if not tg_id or not OWNER_TG_ID or tg_id != OWNER_TG_ID:
+        return None
+    return _web_user_id(tg_id)
+
+
+@app.get("/m/owner_inbox")
+async def owner_inbox_list(session: str = "", since_id: int = 0, limit: int = 200, unread: int = 0):
+    """История тех-чата владельца. ?since_id=N&limit=200&unread=1"""
+    if not _verify_owner_session(session):
+        raise HTTPException(status_code=401, detail="owner only")
+    from tools import db as _db
+    items = _db.list_inbox(since_id=since_id, limit=min(max(limit, 1), 500), unread_only=bool(unread))
+    return {"items": items}
+
+
+@app.post("/m/owner_inbox/{item_id}/read")
+async def owner_inbox_mark_read(item_id: int, request: Request):
+    """Отметить запись прочитанной. Body: {session}"""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not _verify_owner_session((body.get("session") or "").strip()):
+        raise HTTPException(status_code=401, detail="owner only")
+    from tools import db as _db
+    ok = _db.mark_inbox_read(item_id)
+    return {"ok": ok}
+
+
+@app.post("/m/owner_inbox/{item_id}/action")
+async def owner_inbox_action(item_id: int, request: Request):
+    """Применить действие к записи (approve/reject и пр.).
+    Body: {session, action: 'approve'|'reject'|...}"""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON")
+    if not _verify_owner_session((body.get("session") or "").strip()):
+        raise HTTPException(status_code=401, detail="owner only")
+    action = (body.get("action") or "").strip().lower()
+    if not action:
+        raise HTTPException(status_code=400, detail="action required")
+    from tools import db as _db
+    items = _db.list_inbox(since_id=item_id - 1, limit=1)
+    if not items or items[0]["id"] != item_id:
+        raise HTTPException(status_code=404, detail="not found")
+    item = items[0]
+    # Применяем действие в зависимости от типа
+    result: dict = {"ok": True}
+    if item["type"] == "approval_request" and action in ("approve", "reject"):
+        from tools import access_tools as _at
+        target = (item.get("payload") or {}).get("user_id") or ""
+        if not target:
+            raise HTTPException(status_code=400, detail="no target user")
+        if action == "approve":
+            ok = _at.approve(target)
+        else:
+            ok = _at.reject(target)
+        result["target"] = target
+        result["applied"] = ok
+    _db.set_inbox_action(item_id, action)
+    # WS notify прочим клиентам владельца
+    try:
+        from tools.owner_channel import push_to_owner
+        push_to_owner({
+            "channel": "tech",
+            "type": "inbox_update",
+            "id": item_id,
+            "action": action,
+        })
+    except Exception:
+        pass
+    return result
 
 
 @app.get("/m/auth")

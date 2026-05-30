@@ -2284,6 +2284,21 @@ async def post_init(app: Application) -> None:
         except ImportError:
             logger.warning("Rituals: croniter не установлен. pip install croniter")
             return
+
+        # Защита от дублей: ритуал может выполняться дольше 60с (LLM-вызов),
+        # а last_run пишется ПОСЛЕ ответа. На следующей итерации без флага мы
+        # запустили бы тот же ритуал повторно.
+        running: set[str] = set()
+        running_lock = threading.Lock()
+
+        def _wrapped(r, owner_id):
+            name = r["name"]
+            try:
+                _run_ritual_background(r, owner_id)
+            finally:
+                with running_lock:
+                    running.discard(name)
+
         first_pass = True  # на первом проходе после старта гоним on_startup-ритуалы (selftest)
         while True:
             try:
@@ -2293,6 +2308,9 @@ async def post_init(app: Application) -> None:
                 owner_id = f"tg_{OWNER_TG_ID}" if OWNER_TG_ID else ""
                 for r in rituals:
                     name = r["name"]
+                    with running_lock:
+                        if name in running:
+                            continue
                     is_startup = bool(first_pass and r.get("on_startup"))
                     should_run = False
                     if is_startup:
@@ -2310,8 +2328,10 @@ async def post_init(app: Application) -> None:
                             if now >= next_from_last and (now - last_run).total_seconds() >= 60:
                                 should_run = True
                     if should_run:
+                        with running_lock:
+                            running.add(name)
                         threading.Thread(
-                            target=_run_ritual_background, args=(r, owner_id),
+                            target=_wrapped, args=(r, owner_id),
                             daemon=True
                         ).start()
                         logger.info(f"Rituals: запущен '{name}'" + (" (startup selftest)" if is_startup else ""))

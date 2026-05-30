@@ -7,6 +7,8 @@ import type {
   ServerMessage,
   ClientMessage,
   ProfileForm,
+  OwnerInboxItem,
+  TechEvent,
 } from '../types';
 import type { SessionStorage } from '../types/session-storage';
 
@@ -70,6 +72,7 @@ export class MiraClient {
   private mock: boolean;
   private ws: WebSocket | null = null;
   private listeners: Map<string, Set<(msg: ServerMessage) => void>> = new Map();
+  private techListeners: Set<(ev: TechEvent) => void> = new Set();
   private awaiters: Array<{
     types: ServerMessage['type'][];
     resolve: (msg: ServerMessage) => void;
@@ -409,6 +412,13 @@ export class MiraClient {
   }
 
   private _emit(msg: ServerMessage): void {
+    // Технический канал — owner-only поток: ритуалы, system, approval_request.
+    // Не попадает в общий чат и не разбирается awaiter'ами.
+    const raw = msg as unknown as { channel?: string };
+    if (raw.channel === 'tech') {
+      this.techListeners.forEach((h) => h(msg as unknown as TechEvent));
+      return;
+    }
     // First, try to deliver to awaiters (first-come-first-served).
     // If an awaiter is waiting for this message type, it consumes the message
     // and public listeners will NOT receive it. This prevents modal responses
@@ -424,6 +434,49 @@ export class MiraClient {
     // If no awaiter, deliver to public listeners
     const set = this.listeners.get(msg.type);
     if (set) set.forEach((h) => h(msg));
+  }
+
+  // ── Tech channel ───────────────────────────────────────────────
+  onTech(handler: (ev: TechEvent) => void): () => void {
+    this.techListeners.add(handler);
+    return () => this.techListeners.delete(handler);
+  }
+
+  async listOwnerInbox(sinceId = 0, unreadOnly = false): Promise<OwnerInboxItem[]> {
+    if (this.mock) return [];
+    const params = new URLSearchParams({
+      session: this.session ?? '',
+      since_id: String(sinceId),
+      limit: '200',
+      unread: unreadOnly ? '1' : '0',
+    });
+    const res = await fetch(`${this.baseUrl}/m/owner_inbox?${params}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = (await res.json()) as { items: OwnerInboxItem[] };
+    return data.items;
+  }
+
+  async markInboxRead(id: number): Promise<boolean> {
+    if (this.mock) return true;
+    const res = await fetch(`${this.baseUrl}/m/owner_inbox/${id}/read`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: this.session ?? '' }),
+    });
+    if (!res.ok) return false;
+    const data = (await res.json()) as { ok: boolean };
+    return !!data.ok;
+  }
+
+  async inboxAction(id: number, action: string): Promise<{ ok: boolean; applied?: boolean; target?: string }> {
+    if (this.mock) return { ok: true };
+    const res = await fetch(`${this.baseUrl}/m/owner_inbox/${id}/action`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: this.session ?? '', action }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as { ok: boolean; applied?: boolean; target?: string };
   }
 
   get connected(): boolean {
