@@ -35,6 +35,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from dotenv import load_dotenv
 load_dotenv()
 
+from tools.env_guard import check_env_permissions
+check_env_permissions()
+
 import providers as _providers
 _providers.init()
 import memory_crypto
@@ -87,6 +90,8 @@ logger.addHandler(_stdout_handler)
 # Redaction filter — маскировка секретов в логах (ASVS V7.1)
 from tools.redaction_filter import install as _install_redact
 _install_redact()
+from tools import observability as _observability
+_observability.init("web")
 
 BOT_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN", "")
 BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")   # например: MyMiraBot (без @)
@@ -1067,7 +1072,7 @@ UPLOAD_MAX_BYTES = 20 * 1024 * 1024
 
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...), session: str = ""):
+async def upload_file(request: Request, file: UploadFile = File(...), session: str = ""):
     """Загружает файл в workspace/inbox пользователя."""
     tg_id = _verify_session(session) if session else None
     if not tg_id:
@@ -1090,21 +1095,38 @@ async def upload_file(file: UploadFile = File(...), session: str = ""):
     if dest is None:
         raise HTTPException(status_code=400, detail="Недопустимое имя файла")
 
-    content = await file.read()
-    if len(content) > UPLOAD_MAX_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=rate_limit.friendly_message("size", 0),
-        )
+    # Предпроверка по Content-Length — отсекаем заведомо большие тела до чтения.
+    clen = request.headers.get("content-length", "")
+    if clen.isdigit() and int(clen) > UPLOAD_MAX_BYTES:
+        raise HTTPException(status_code=413, detail=rate_limit.friendly_message("size", 0))
+
+    # Потоковое чтение с жёстким лимитом: не доверяем Content-Length и не
+    # буферизуем в память больше лимита (защита от DoS большим аплоадом).
+    total = 0
+    overflow = False
     with open(dest, "wb") as f:
-        f.write(content)
-    logger.info(f"upload: {user_id} → {filename} ({len(content)} bytes)")
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > UPLOAD_MAX_BYTES:
+                overflow = True
+                break
+            f.write(chunk)
+    if overflow:
+        try:
+            os.unlink(dest)
+        except OSError:
+            pass
+        raise HTTPException(status_code=413, detail=rate_limit.friendly_message("size", 0))
+    logger.info(f"upload: {user_id} → {filename} ({total} bytes)")
     # Системную пометку в сессию НЕ добавляем — иначе Мира начнёт
     # анализировать файл, ещё не получив задание от пользователя.
     # Привязка к ходу делается в WS-обработчике: клиент шлёт
     # {content: "...", attachment: "filename"} — там и подкладываем
     # маркер «[Прикреплён: ...]» к тексту пользователя.
-    return {"ok": True, "filename": filename, "size": len(content)}
+    return {"ok": True, "filename": filename, "size": total}
 
 
 @app.get("/files/{file_path:path}")

@@ -11,7 +11,9 @@ tools/shell_tools.py — выполнение Python-кода в изолиро�
       --nosound       нет доступа к звуку
       --nodbus        нет D-Bus
       --private-tmp   изолированный /tmp
-    Без firejail — предупреждение в лог, запуск без изоляции.
+    Без firejail выполнение БЛОКИРУЕТСЯ (fail-closed): LLM-сгенерированный код
+    без изоляции на сервере под root — это путь к RCE. Для локальной разработки,
+    где firejail не нужен, выставь MIRA_ALLOW_UNSANDBOXED=1.
 
 Установить firejail на сервере: apt install firejail
 """
@@ -30,12 +32,18 @@ MAX_OUTPUT_CHARS = 8000
 
 # Определяем один раз при импорте — есть ли firejail в системе
 _FIREJAIL = shutil.which("firejail")
+_ALLOW_UNSANDBOXED = os.getenv("MIRA_ALLOW_UNSANDBOXED") == "1"
 if _FIREJAIL:
     logger.info(f"run_python: изоляция через firejail ({_FIREJAIL})")
+elif _ALLOW_UNSANDBOXED:
+    logger.warning(
+        "run_python: firejail не найден, но MIRA_ALLOW_UNSANDBOXED=1 — "
+        "код выполняется БЕЗ изоляции. Это допустимо только для локальной разработки."
+    )
 else:
     logger.warning(
-        "run_python: firejail не найден — код выполняется БЕЗ изоляции. "
-        "Установи: apt install firejail"
+        "run_python: firejail не найден — выполнение кода ЗАБЛОКИРОВАНО (fail-closed). "
+        "Установи: apt install firejail. Для локалки без изоляции: MIRA_ALLOW_UNSANDBOXED=1"
     )
 
 
@@ -47,6 +55,19 @@ def run_python(code: str, user_id: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
         {"ok": bool, "stdout": str, "stderr": str, "exit_code": int,
          "sandboxed": bool, "truncated": bool}
     """
+    if not _FIREJAIL and not _ALLOW_UNSANDBOXED:
+        return {
+            "ok":        False,
+            "stdout":    "",
+            "stderr":    "Песочница недоступна: firejail не установлен, выполнение "
+                         "кода заблокировано в целях безопасности. Установи firejail "
+                         "(apt install firejail) или выставь MIRA_ALLOW_UNSANDBOXED=1 "
+                         "для локальной разработки.",
+            "exit_code": -1,
+            "sandboxed": False,
+            "truncated": False,
+        }
+
     work_dir = os.path.join("workspace", user_id)
     os.makedirs(work_dir, exist_ok=True)
 

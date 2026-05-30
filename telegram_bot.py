@@ -18,7 +18,6 @@ telegram_bot.py — Telegram-интерфейс для Mira.
 import asyncio
 import os
 import re
-import stat
 import json
 import base64
 import logging
@@ -45,21 +44,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Проверка прав .env при старте
-def _check_env_permissions() -> None:
-    for name in (".env", "../.env"):
-        path = os.path.abspath(name)
-        if not os.path.exists(path):
-            continue
-        mode = os.stat(path).st_mode
-        if mode & (stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH):
-            import logging as _log
-            _log.getLogger("MiraBot").warning(
-                f"БЕЗОПАСНОСТЬ: {path} доступен другим пользователям "
-                f"(права: {oct(mode & 0o777)}). Исправь: chmod 600 {path}"
-            )
-
-_check_env_permissions()
+from tools.env_guard import check_env_permissions
+check_env_permissions()
 
 # ---------------------------------------------------------------------------
 # Импорт ядра Mira
@@ -137,6 +123,8 @@ logger = logging.getLogger("MiraBot")
 # Redaction filter — маскировка секретов в логах (ASVS V7.1)
 from tools.redaction_filter import install as _install_redact
 _install_redact()
+from tools import observability as _observability
+_observability.init("bot")
 
 # Безопасность: httpx/httpcore логируют полный URL запроса на уровне INFO,
 # а python-telegram-bot шлёт getUpdates на https://api.telegram.org/bot<TOKEN>/...

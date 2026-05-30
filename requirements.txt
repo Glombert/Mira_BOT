@@ -40,5 +40,8 @@ firebase-admin>=6.5.0
 # Rituals scheduling
 croniter>=2.0.0
 
+# Наблюдаемость — отправка ошибок в Sentry (опционально, активируется SENTRY_DSN)
+sentry-sdk>=2.0.0
+
 # Тесты (dev)
 pytest>=8.0.0

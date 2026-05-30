@@ -337,7 +337,22 @@ def _call_anthropic_native(model: str, messages: list, temperature: float,
 # Основная функция
 # ---------------------------------------------------------------------------
 
+# Потолок одновременных LLM-вызовов на процесс. Защищает маленький VPS (на нём
+# ещё VPN) от шторма: при 10 пользователях не даём 10 турам жечь память/деньги
+# разом — лишние ждут своей очереди. agent.run крутится в asyncio.to_thread,
+# поэтому threading.Semaphore блокирует рабочий поток, а не event loop.
+_MAX_CONCURRENT_LLM = int(os.getenv("MIRA_MAX_CONCURRENT_LLM", "6"))
+_llm_semaphore = threading.Semaphore(_MAX_CONCURRENT_LLM)
+
+
 def call(model_chain: list[dict], messages: list, **kwargs) -> object:
+    """Публичная точка вызова LLM. Ограничивает одновременность семафором,
+    затем делегирует в _call_impl (цепочка провайдеров с fallback)."""
+    with _llm_semaphore:
+        return _call_impl(model_chain, messages, **kwargs)
+
+
+def _call_impl(model_chain: list[dict], messages: list, **kwargs) -> object:
     """
     Вызывает API, идя по цепочке при сбоях провайдера.
 

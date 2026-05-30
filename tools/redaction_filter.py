@@ -32,14 +32,22 @@ _PATTERNS = [
 ]
 
 
+def redact(text: str) -> str:
+    """Маскирует известные секреты в произвольной строке.
+
+    Переиспользуется и фильтром логов, и Sentry-скрабом (tools/observability.py),
+    чтобы маскировка была в одном месте.
+    """
+    for pattern, replacement in _PATTERNS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
 class SecretRedactionFilter(logging.Filter):
     """Маскирует известные паттерны секретов в log-сообщениях."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        msg = record.getMessage()
-        for pattern, replacement in _PATTERNS:
-            msg = pattern.sub(replacement, msg)
-        record.msg = msg
+        record.msg = redact(record.getMessage())
         record.args = ()  # сбрасываем args чтобы избежать повторного форматирования
         return True
 

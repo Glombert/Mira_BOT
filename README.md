@@ -224,11 +224,18 @@ API_ANTHROPIC_KEY=sk-ant-...
 TELEGRAM_BOT_TOKEN=...
 OWNER_TELEGRAM_ID=123456789
 OWNER_CLI_USER=andrey
+
+# Опционально:
+MEMORY_ENCRYPTION_KEY=...            # Fernet-ключ — шифрование памяти (см. ниже)
+SENTRY_DSN=...                       # сбор ошибок в Sentry (без него — выключено)
+MIRA_MAX_CONCURRENT_LLM=6            # потолок одновременных LLM-вызовов на процесс
 ```
 
 Запуск для разработки:
 
 ```bash
+# Локально без firejail run_python заблокирован (fail-closed). Для разработки:
+export MIRA_ALLOW_UNSANDBOXED=1
 python telegram_bot.py              # Telegram Bot
 python web/app.py                   # Веб-интерфейс (порт 8000)
 python agent.py --profile dev --user andrey   # CLI
@@ -599,9 +606,11 @@ Sliding-window лимит на пользователя:
 | Vision | Claude Sonnet 4.6 (фото в чате и веб) | ✓ |
 | Excel | openpyxl | ✓ |
 | Поиск | Perplexity sonar-pro → DuckDuckGo (ddgs) | ✓ |
-| Изоляция кода | firejail `--net=none` | ✓ |
+| Изоляция кода | firejail `--net=none` (fail-closed: без firejail `run_python` отказывает) | ✓ |
 | Шифрование | Fernet (mira.db), GPG (.env на Drive) | ✓ |
 | Память | SQLite WAL (mira.db) + структурированное резюме + ChromaDB (семантика) | ✓ |
+| Наблюдаемость | Sentry (опционально, `SENTRY_DSN`) + redaction секретов | ✓ |
+| Защита от перегрузки | семафор одновременных LLM-вызовов (`MIRA_MAX_CONCURRENT_LLM`) | ✓ |
 | Google Drive | OAuth 2.0 (личный аккаунт пользователя) + rclone (бэкап памяти) | ✓ |
 | Google Calendar | API (gcal_list, gcal_create, gcal_quick_add) | ✓ |
 | Google Sheets | API (gsheet_read, gsheet_write, gsheet_create) | ✓ |
