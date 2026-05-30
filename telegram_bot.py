@@ -2059,14 +2059,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     except Exception as e:
         logger.warning(f"semantic_memory search failed: {e}")
 
+    # Подсказка про новые возможности (если профиль их ещё не «увидел»)
+    from web.app import _changelog_augment, _mark_changelog_seen
+    changelog_aug = _changelog_augment(user_id)
+    combined_aug = "\n\n".join(filter(None, [semantic_augment, changelog_aug]))
+
     def _augmented(orig: list) -> list:
         # Всегда shallow-copy: agent.run() мутирует свой аргумент (добавляет
         # assistant-ответ). Если возвращать orig, мутации попадают в сохранённую
         # историю. Если возвращать копию — теряем ответ. Решение: всегда копия,
         # а ответ дописываем явно после run() (см. ниже).
         out = list(orig)
-        if semantic_augment and out and out[0].get("role") == "system":
-            out[0] = {**out[0], "content": out[0]["content"] + "\n\n" + semantic_augment}
+        if combined_aug and out and out[0].get("role") == "system":
+            out[0] = {**out[0], "content": out[0]["content"] + "\n\n" + combined_aug}
         return out
 
     ts_before = datetime.now().timestamp()
@@ -2087,6 +2092,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await _send_long(update, _strip_md_for_tg(answer))
         await _send_output_files(context, update.effective_chat.id, user_id, ts_before)
         _save_session(user_id, msgs)
+        if changelog_aug:
+            _mark_changelog_seen(user_id)
 
         # Фоновые задачи памяти — не блокируют ответ
         model_chain = alpha.model_chain if alpha else []

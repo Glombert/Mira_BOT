@@ -24,6 +24,7 @@ from tools.gdrive_tools import gsheet_read, gsheet_write, gsheet_create
 from tools.metrics_tools import metrics_read
 from tools.scheduler import schedule_reminder, list_reminders, cancel_reminder
 from tools.openrouter_tools import list_models as _openrouter_list_models
+from tools.whats_new import whats_new as _whats_new, latest_entries_since as _whats_new_since, changelog_mtime as _changelog_mtime
 import memory_manager as _memory_manager
 import memory_crypto
 from tools.git_tools   import sync_with_git, ensure_dev_branch, release_to_main
@@ -602,7 +603,21 @@ _TOOL_REGISTRY = {
     ),
     "generate_image":     lambda u, a: image_tools.generate_image(u, a["prompt"], a.get("model", "google/gemini-2.5-flash-image")),
     "attach_file":       lambda u, a: file_tools.attach_file(u, a["path"]),
+    "whats_new":         lambda u, a: _whats_new(
+        audience=("owner" if _is_owner_user(u) else "all"),
+        limit=int(a.get("limit", 6)),
+    ),
 }
+
+
+def _is_owner_user(user_id: str) -> bool:
+    """Проверка статуса owner по user_id (формат tg_<id> или cli_<id>)."""
+    try:
+        from tools import db as _db
+        profile = _db.load_user_profile(user_id)
+        return bool(profile and profile.get("status") == "owner")
+    except Exception:
+        return False
 
 
 def execute_tool(tool_name: str, tool_args: dict, user_id: str) -> str:

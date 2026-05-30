@@ -356,6 +356,51 @@ def _persona_block(profile: dict | None) -> str:
             + "\n".join("— " + p for p in parts))
 
 
+def _changelog_augment(user_id: str) -> str:
+    """Подсказка Мире про новые возможности, если профиль их ещё «не видел».
+
+    Сравнивает mtime WHATS_NEW.md с profile.last_changelog_seen.
+    Возвращает строку, которую WS handler аугментирует к system-промпту
+    ОДНОРАЗОВО — после успешного ответа _mark_changelog_seen фиксирует
+    текущий mtime, и следующая итерация подсказку уже не добавит.
+    """
+    from tools.whats_new import changelog_mtime, latest_entries_since
+    mtime = changelog_mtime()
+    if mtime <= 0:
+        return ""
+    profile = load_user_profile(user_id) or {}
+    seen = float(profile.get("last_changelog_seen") or 0.0)
+    if seen >= mtime:
+        return ""
+    audience = "owner" if profile.get("status") == "owner" else "all"
+    entries = latest_entries_since(seen, audience=audience, limit=5)
+    if not entries:
+        return ""
+    bullets = "\n".join(f"- ({e['date']}) {e['text']}" for e in entries)
+    return (
+        "У тебя появились новые возможности с момента, когда этот собеседник "
+        "тебя в последний раз видел. Если уместно по теме разговора — кратко "
+        "упомяни самое релевантное (без рекламы и без полного списка). Если не "
+        "уместно — молчи. Список свежих фич:\n" + bullets
+    )
+
+
+def _mark_changelog_seen(user_id: str) -> None:
+    """Фиксирует, что Мира уже учла последний апдейт для этого пользователя."""
+    from tools.whats_new import changelog_mtime
+    mtime = changelog_mtime()
+    if mtime <= 0:
+        return
+    profile = load_user_profile(user_id)
+    if not profile:
+        return
+    profile["last_changelog_seen"] = mtime
+    try:
+        save_user_profile(user_id, profile)
+    except Exception as e:
+        logger.warning(f"_mark_changelog_seen {user_id}: {e}")
+
+
 def _system_prompt_for(user_id: str) -> str:
     profile   = load_user_profile(user_id)
     base      = SYSTEM_PROMPT + f"\n\n{time_context(user_id)}"
@@ -2349,8 +2394,10 @@ async def chat(websocket: WebSocket, session: str = ""):
                 logger.warning(f"semantic_memory search: {e}")
             _msgs_since_card += 1  # кулдаун карточки «Из памяти»
             llm_msgs = [{k: v for k, v in m.items() if k != "ts"} for m in msgs]
-            if augment and llm_msgs and llm_msgs[0].get("role") == "system":
-                llm_msgs[0] = {**llm_msgs[0], "content": llm_msgs[0]["content"] + "\n\n" + augment}
+            changelog_aug = _changelog_augment(user_id)
+            extra_aug = "\n\n".join(filter(None, [augment, changelog_aug]))
+            if extra_aug and llm_msgs and llm_msgs[0].get("role") == "system":
+                llm_msgs[0] = {**llm_msgs[0], "content": llm_msgs[0]["content"] + "\n\n" + extra_aug}
 
             await websocket.send_json({"type": "thinking"})
 
@@ -2364,6 +2411,12 @@ async def chat(websocket: WebSocket, session: str = ""):
                 logger.error(f"alpha.run: {e}", exc_info=True)
                 await websocket.send_json({"type": "error", "content": "Что-то пошло не так. Попробуй ещё раз."})
                 continue
+
+            # Если подсказка про новые фичи показывалась — фиксируем, что
+            # пользователь её «увидел» (Мира получила её в контекст). Дальше
+            # _changelog_augment вернёт "" пока WHATS_NEW.md снова не обновится.
+            if changelog_aug:
+                _mark_changelog_seen(user_id)
 
             # Снимок output/ ПОСЛЕ хода — diff с _output_before даёт список
             # файлов, созданных/обновлённых Мирой за этот ход. Плюс явные
