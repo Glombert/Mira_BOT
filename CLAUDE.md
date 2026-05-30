@@ -111,14 +111,20 @@ retention 30 дней), WS-push с `channel='tech'`, отдельная сесс
   Fernet. Тесты используют `_close_thread_conn` фикстуру и `monkeypatch`
   на `DB_PATH`.
 
-## 11. Self-editable persona — грабли деплоя
+## 11. Self-editable persona (overlay)
 
-Mira пишет в `persona.json` через `write_persona`. На проде `git pull` упадёт
-с конфликтом, если Мира изменила файл между деплоями. **При деплое: либо
-сделать `git checkout -- persona.json` перед pull (потеряем эволюцию), либо
-вручную перенести её правки в репозиторную версию и коммитнуть до pull.**
-Долгосрочный TODO: вынести self-editable поля (curiosity/emotions/
-self_awareness) в git-untracked overlay-файл `memory/persona_overlay.json`.
+Mira правит soft-поля (`curiosity`, `emotions`, `self_awareness`) через
+инструмент `write_persona`. Эти изменения теперь **не идут в `persona.json`**
+— они пишутся в **`memory/persona_overlay.json`** (git-untracked).
+`load_persona()` читает базу из `persona.json` и накладывает overlay сверху.
+
+Первый запуск после миграции — `_ensure_persona_overlay_from_base()` сам
+перенесёт уже эволюционировавшие на проде поля из `persona.json` в overlay.
+**Деплой `git pull` больше не падает с конфликтом**, потому что репозиторный
+`persona.json` остаётся стабильным базовым шаблоном.
+
+`reflections` (наблюдения Миры о себе) живут отдельно в
+`memory/reflections.json` — это было сделано раньше, не меняем.
 
 ## 12. Стиль ответов Миры (если будешь править поведение)
 

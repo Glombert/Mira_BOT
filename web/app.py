@@ -437,18 +437,24 @@ def _mark_changelog_seen(user_id: str) -> None:
 
 
 def _system_prompt_for(user_id: str) -> str:
+    """Собирает system-промпт. Между статичным ядром (характер + регламент,
+    кэшируется через cache_control) и динамической частью (время, профиль,
+    summary, шаблоны) ставим маркер DYNAMIC_MARKER — providers разрезает по
+    нему и кэширует только static."""
+    from providers import DYNAMIC_MARKER
     profile   = load_user_profile(user_id)
-    base      = SYSTEM_PROMPT + f"\n\n{time_context(user_id)}"
+    static    = SYSTEM_PROMPT
+    dyn       = time_context(user_id)
     persona   = _persona_block(profile)
     summary   = memory_manager.get_summary(user_id, load_user_profile)
     templates = memory_manager.get_templates_prompt(user_id)
     if persona:
-        base += f"\n\n{persona}"
+        dyn += f"\n\n{persona}"
     if summary:
-        base += f"\n\nЧто ты знаешь об этом пользователе из прошлых разговоров:\n{summary}"
+        dyn += f"\n\nЧто ты знаешь об этом пользователе из прошлых разговоров:\n{summary}"
     if templates:
-        base += f"\n\n{templates}"
-    return base
+        dyn += f"\n\n{templates}"
+    return f"{static}\n\n{DYNAMIC_MARKER}\n\n{dyn}"
 
 
 def _is_approved(user_id: str) -> bool:

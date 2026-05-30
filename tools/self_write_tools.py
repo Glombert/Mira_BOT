@@ -13,9 +13,10 @@ import json
 import shutil
 from datetime import datetime
 
-PERSONA_FILE     = "persona.json"
-REFLECTIONS_FILE = os.path.join("memory", "reflections.json")
-DECISIONS_LOG    = os.path.join("memory", "decisions.log")
+PERSONA_FILE         = "persona.json"
+PERSONA_OVERLAY_FILE = os.path.join("memory", "persona_overlay.json")
+REFLECTIONS_FILE     = os.path.join("memory", "reflections.json")
+DECISIONS_LOG        = os.path.join("memory", "decisions.log")
 
 # Поля которые Мира может менять самостоятельно
 _ALLOWED_FIELDS = {"curiosity", "emotions", "self_awareness", "reflections"}
@@ -55,43 +56,46 @@ def write_persona(field: str, value) -> dict:
     if field == "reflections":
         return _append_reflection(value)
 
-    if not os.path.exists(PERSONA_FILE):
-        return {"ok": False, "error": "persona.json не найден"}
+    # Soft-поля (curiosity/emotions/self_awareness) пишем в overlay
+    # (memory/persona_overlay.json, git-untracked). persona.json в репо
+    # остаётся неизменным — git pull на проде не падает с конфликтом.
+    os.makedirs(os.path.dirname(PERSONA_OVERLAY_FILE), exist_ok=True)
+    overlay: dict = {}
+    if os.path.exists(PERSONA_OVERLAY_FILE):
+        try:
+            with open(PERSONA_OVERLAY_FILE, "r", encoding="utf-8") as f:
+                overlay = json.load(f) or {}
+        except Exception as e:
+            return {"ok": False, "error": f"Ошибка чтения overlay: {e}"}
 
-    try:
-        with open(PERSONA_FILE, "r", encoding="utf-8") as f:
-            persona = json.load(f)
-    except Exception as e:
-        return {"ok": False, "error": f"Ошибка чтения: {e}"}
+    # Бэкап перед изменением (overlay)
+    backup_path = ""
+    if os.path.exists(PERSONA_OVERLAY_FILE):
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_dir = os.path.join("versions", "persona")
+        os.makedirs(backup_dir, exist_ok=True)
+        backup_path = os.path.join(backup_dir, f"persona_overlay_{ts}.json")
+        shutil.copy2(PERSONA_OVERLAY_FILE, backup_path)
 
-    # Бэкап перед изменением
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_dir = os.path.join("versions", "persona")
-    os.makedirs(backup_dir, exist_ok=True)
-    backup_path = os.path.join(backup_dir, f"persona_{ts}.json")
-    shutil.copy2(PERSONA_FILE, backup_path)
-
-    old_value = persona.get(field)
-    persona[field] = value
+    old_value = overlay.get(field)
+    overlay[field] = value
     new_value = value
 
     try:
-        with open(PERSONA_FILE, "w", encoding="utf-8") as f:
-            json.dump(persona, f, ensure_ascii=False, indent=2)
+        with open(PERSONA_OVERLAY_FILE, "w", encoding="utf-8") as f:
+            json.dump(overlay, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        return {"ok": False, "error": f"Ошибка записи: {e}"}
+        return {"ok": False, "error": f"Ошибка записи overlay: {e}"}
 
-    # Лог
     _log_persona_change(field, old_value, new_value, backup_path)
-
-    # Уведомление владельцу
     _notify_persona_change(field, new_value)
 
     return {
         "ok": True,
         "field": field,
+        "overlay": PERSONA_OVERLAY_FILE,
         "backup": backup_path,
-        "note": "Изменение вступит в силу при следующем сообщении (персона перечитывается).",
+        "note": "Изменение в overlay (memory/persona_overlay.json). Видно в следующем сообщении.",
     }
 
 

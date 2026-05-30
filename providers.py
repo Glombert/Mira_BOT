@@ -247,10 +247,16 @@ def _notify_switch(from_str: str, to_str: str, reason: str) -> None:
         pass  # Не блокируем основной поток
 
 
+DYNAMIC_MARKER = "<<MIRA_DYNAMIC>>"
+
+
 def _apply_prompt_caching(messages: list, provider: str, model: str) -> list:
     """
     Добавляет cache_control к системному сообщению для Claude через OpenRouter.
-    Для остальных провайдеров возвращает список без изменений.
+    Разделяет system по маркеру DYNAMIC_MARKER на две части:
+      static (характер + регламент) — попадает в кэш
+      dynamic (время, summary, augments) — НЕ кэшируется
+    Без маркера — кэширует всё (legacy).
     """
     if not (provider == "openrouter" and model.startswith("anthropic/")):
         return messages
@@ -258,14 +264,25 @@ def _apply_prompt_caching(messages: list, provider: str, model: str) -> list:
     result = []
     for msg in messages:
         if msg.get("role") == "system" and isinstance(msg.get("content"), str):
-            result.append({
-                "role": "system",
-                "content": [{
+            content = msg["content"]
+            if DYNAMIC_MARKER in content:
+                static, dynamic = content.split(DYNAMIC_MARKER, 1)
+                static = static.rstrip()
+                dynamic = dynamic.lstrip()
+                blocks: list = [{
                     "type": "text",
-                    "text": msg["content"],
+                    "text": static,
                     "cache_control": {"type": "ephemeral"},
-                }],
-            })
+                }]
+                if dynamic:
+                    blocks.append({"type": "text", "text": dynamic})
+            else:
+                blocks = [{
+                    "type": "text",
+                    "text": content,
+                    "cache_control": {"type": "ephemeral"},
+                }]
+            result.append({"role": "system", "content": blocks})
         else:
             result.append(msg)
     return result

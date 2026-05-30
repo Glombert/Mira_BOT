@@ -446,17 +446,67 @@ def _load_behavior() -> str:
         return ""
 
 
-def load_persona() -> str:
-    """Собирает ядро Миры: ХАРАКТЕР (persona.json) + ПРАВИЛА (behavior.md).
+PERSONA_OVERLAY_FILE = os.path.join("memory", "persona_overlay.json")
 
-    Характер живёт в persona.json и саморедактируем через write_persona.
-    Правила поведения — в behavior.md (канон с объяснениями — RULES.md),
-    Мире недоступны для правки. Дубли убраны: язык/blacklist/Конклав/границы
-    больше не в persona.json, они в behavior.md.
+
+def _load_persona_overlay() -> dict:
+    """Читает git-untracked overlay (self-editable поля). Возвращает {} если нет."""
+    if not os.path.exists(PERSONA_OVERLAY_FILE):
+        return {}
+    try:
+        with open(PERSONA_OVERLAY_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception as e:
+        logger.warning(f"_load_persona_overlay: {e}")
+        return {}
+
+
+def _ensure_persona_overlay_from_base() -> None:
+    """Однократная миграция: если overlay ещё не создан и в persona.json
+    есть curiosity/emotions/self_awareness (эволюционировавшие через
+    write_persona на проде) — переносит их в overlay, чтобы дальше
+    write_persona писал туда, а persona.json в репо оставался чистым.
     """
+    if os.path.exists(PERSONA_OVERLAY_FILE):
+        return
+    if not os.path.exists(PERSONA_FILE):
+        return
     try:
         with open(PERSONA_FILE, "r", encoding="utf-8") as f:
             p = json.load(f)
+        moved: dict = {}
+        for field in ("curiosity", "emotions", "self_awareness"):
+            if field in p:
+                moved[field] = p[field]
+        if not moved:
+            return
+        os.makedirs(os.path.dirname(PERSONA_OVERLAY_FILE), exist_ok=True)
+        with open(PERSONA_OVERLAY_FILE, "w", encoding="utf-8") as f:
+            json.dump(moved, f, ensure_ascii=False, indent=2)
+        logger.info(f"persona overlay создан из {PERSONA_FILE}: {list(moved.keys())}")
+    except Exception as e:
+        logger.warning(f"_ensure_persona_overlay_from_base: {e}")
+
+
+def load_persona() -> str:
+    """Собирает ядро Миры: ХАРАКТЕР (persona.json + overlay) + ПРАВИЛА (behavior.md).
+
+    Характер живёт в persona.json (база, git-tracked) с overlay'ем в
+    memory/persona_overlay.json (git-untracked). write_persona пишет
+    soft-поля (curiosity/emotions/self_awareness) в overlay — так
+    эволюционирующая часть не конфликтует с git pull на проде.
+
+    Правила поведения — в behavior.md (канон с объяснениями — RULES.md),
+    Мире недоступны для правки.
+    """
+    _ensure_persona_overlay_from_base()
+    try:
+        with open(PERSONA_FILE, "r", encoding="utf-8") as f:
+            p = json.load(f)
+        overlay = _load_persona_overlay()
+        if overlay:
+            p.update(overlay)
         emo = p.get("emotions", {})
 
         # Последние reflections (до 5) — Мира видит свои недавние наблюдения
