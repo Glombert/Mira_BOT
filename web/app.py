@@ -93,9 +93,12 @@ _install_redact()
 from tools import observability as _observability
 _observability.init("web")
 
-BOT_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN", "")
-BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")   # например: MyMiraBot (без @)
-OWNER_TG_ID  = int(os.getenv("OWNER_TELEGRAM_ID", "0"))
+from web.deps import (
+    BOT_TOKEN, BOT_USERNAME, OWNER_TG_ID,
+    make_session as _make_session,
+    verify_session as _verify_session,
+    web_user_id as _web_user_id,
+)
 MAX_HISTORY  = 20
 # Next.js статический бандл клиента (см. clients/apps/web).
 # Собирается командой: cd clients && npm install && npm run build:web
@@ -208,28 +211,13 @@ def _verify_telegram(data: dict) -> bool:
 
 
 from web.security import (
-    SESSION_SIG_LEN, SESSION_MAX_AGE,
-    make_session as _ws_make, verify_session as _ws_verify,
     safe_filename as _safe_filename, resolve_under as _resolve_under,
 )
-
-
-def _make_session(tg_id: int, name: str) -> str:
-    return _ws_make(BOT_TOKEN, tg_id, name)
-
-
-def _verify_session(token: str) -> int | None:
-    return _ws_verify(BOT_TOKEN, token)
 
 
 # ---------------------------------------------------------------------------
 # Memory helpers
 # ---------------------------------------------------------------------------
-
-def _web_user_id(tg_id: int) -> str:
-    """Web и Telegram делят профиль — user_id одинаковый."""
-    return f"tg_{tg_id}"
-
 
 # Одноразовая миграция: пользователи, у которых до унификации копилась
 # отдельная web-сессия (ключ web_<user_id>) — склеиваем её с tg-сессией
@@ -1357,84 +1345,9 @@ async def register_push_token(request: Request):
     return {"ok": True}
 
 
-def _verify_owner_session(session: str) -> str | None:
-    """Возвращает tg_<owner_id> если токен валиден и пользователь — владелец."""
-    if not session:
-        return None
-    tg_id = _verify_session(session)
-    if not tg_id or not OWNER_TG_ID or tg_id != OWNER_TG_ID:
-        return None
-    return _web_user_id(tg_id)
-
-
-@app.get("/m/owner_inbox")
-async def owner_inbox_list(session: str = "", since_id: int = 0, limit: int = 200, unread: int = 0):
-    """История тех-чата владельца. ?since_id=N&limit=200&unread=1"""
-    if not _verify_owner_session(session):
-        raise HTTPException(status_code=401, detail="owner only")
-    from tools import db as _db
-    items = _db.list_inbox(since_id=since_id, limit=min(max(limit, 1), 500), unread_only=bool(unread))
-    return {"items": items}
-
-
-@app.post("/m/owner_inbox/{item_id}/read")
-async def owner_inbox_mark_read(item_id: int, request: Request):
-    """Отметить запись прочитанной. Body: {session}"""
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    if not _verify_owner_session((body.get("session") or "").strip()):
-        raise HTTPException(status_code=401, detail="owner only")
-    from tools import db as _db
-    ok = _db.mark_inbox_read(item_id)
-    return {"ok": ok}
-
-
-@app.post("/m/owner_inbox/{item_id}/action")
-async def owner_inbox_action(item_id: int, request: Request):
-    """Применить действие к записи (approve/reject и пр.).
-    Body: {session, action: 'approve'|'reject'|...}"""
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="invalid JSON")
-    if not _verify_owner_session((body.get("session") or "").strip()):
-        raise HTTPException(status_code=401, detail="owner only")
-    action = (body.get("action") or "").strip().lower()
-    if not action:
-        raise HTTPException(status_code=400, detail="action required")
-    from tools import db as _db
-    items = _db.list_inbox(since_id=item_id - 1, limit=1)
-    if not items or items[0]["id"] != item_id:
-        raise HTTPException(status_code=404, detail="not found")
-    item = items[0]
-    # Применяем действие в зависимости от типа
-    result: dict = {"ok": True}
-    if item["type"] == "approval_request" and action in ("approve", "reject"):
-        from tools import access_tools as _at
-        target = (item.get("payload") or {}).get("user_id") or ""
-        if not target:
-            raise HTTPException(status_code=400, detail="no target user")
-        if action == "approve":
-            ok = _at.approve(target)
-        else:
-            ok = _at.reject(target)
-        result["target"] = target
-        result["applied"] = ok
-    _db.set_inbox_action(item_id, action)
-    # WS notify прочим клиентам владельца
-    try:
-        from tools.owner_channel import push_to_owner
-        push_to_owner({
-            "channel": "tech",
-            "type": "inbox_update",
-            "id": item_id,
-            "action": action,
-        })
-    except Exception:
-        pass
-    return result
+# Тех-канал владельца (owner_inbox) — вынесен в web/routes/owner_inbox.py
+from web.routes.owner_inbox import router as _owner_inbox_router
+app.include_router(_owner_inbox_router)
 
 
 @app.get("/m/auth")
