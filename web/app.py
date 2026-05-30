@@ -2531,17 +2531,23 @@ async def chat(websocket: WebSocket, session: str = ""):
             # Дробление: длинный ответ на 2-3 сообщения для живого ритма.
             # Attachments крепим к ПЕРВОМУ куску (там и галерея на клиенте),
             # cards — к ПОСЛЕДНЕМУ (карточка «Из памяти» — это эпилог реплики).
+            # Задержка перед следующим чанком пропорциональна длине предыдущего —
+            # имитируем typewriter (~45 символов/сек). Без этого второй чанк
+            # появляется ещё пока первый «печатается», и оба прыгают одновременно.
             from tools.chunking import split_for_chat
             parts = split_for_chat(answer) or [answer]
+            prev_chars = 0
             for idx, chunk in enumerate(parts):
+                if idx > 0:
+                    wait = max(0.45, min(prev_chars / 45.0 + 0.35, 4.0))
+                    await asyncio.sleep(wait)
                 ws_payload: dict = {"type": "message", "content": chunk}
                 if idx == 0 and merged:
                     ws_payload["attachments"] = merged
                 if idx == len(parts) - 1 and cards_payload:
                     ws_payload["cards"] = cards_payload
                 await websocket.send_json(ws_payload)
-                if idx < len(parts) - 1:
-                    await asyncio.sleep(0.45)
+                prev_chars = len(chunk)
 
             _save_session(user_id, msgs)
 

@@ -324,11 +324,16 @@ async def _send_long(update: Update, text: str, *, split_for_chat: bool = False,
     else:
         chunks = [text]
     import asyncio as _aio
+    prev_chars = 0
     for i, logical in enumerate(chunks):
+        if i > 0:
+            # Имитация typewriter: пауза пропорциональна длине предыдущей
+            # реплики, чтобы не валить два чанка одновременно.
+            wait = max(0.6, min(prev_chars / 45.0 + 0.35, 4.0))
+            await _aio.sleep(wait)
         for part in _split_message(logical):
             await target.reply_text(part, **kwargs)
-        if i < len(chunks) - 1:
-            await _aio.sleep(0.5)
+        prev_chars = len(logical)
 
 
 async def _send_output_files(context, chat_id: int, user_id: str, since_ts: float) -> None:
@@ -2338,20 +2343,26 @@ async def post_init(app: Application) -> None:
                             continue
                     is_startup = bool(first_pass and r.get("on_startup"))
                     should_run = False
-                    if is_startup:
-                        should_run = True  # selftest при каждом перезапуске процесса
-                    else:
-                        cron = croniter(r["schedule"], now)
-                        next_run = cron.get_next(datetime)
-                        last_run_str = runs.get(name, {}).get("last_run")
-                        last_run = _dt.fromisoformat(last_run_str) if last_run_str else None
-                        if last_run is None:
+                    last_run_str = runs.get(name, {}).get("last_run")
+                    last_run = _dt.fromisoformat(last_run_str) if last_run_str else None
+                    if last_run is None:
+                        # Никогда не запускался — гоним, даже если не on_startup
+                        # (cron всё равно бы догнал на следующей итерации).
+                        should_run = True
+                    elif is_startup:
+                        # При рестарте on_startup-ритуал запускаем ТОЛЬКО если
+                        # очередной запуск по cron уже просрочен. Иначе ждём
+                        # своего cron-времени, чтобы не дёргать ритуал каждый
+                        # раз когда процесс перезапускают несколько раз за день.
+                        cron_past = croniter(r["schedule"], last_run)
+                        next_from_last = cron_past.get_next(datetime)
+                        if now >= next_from_last:
                             should_run = True
-                        else:
-                            cron_past = croniter(r["schedule"], last_run)
-                            next_from_last = cron_past.get_next(datetime)
-                            if now >= next_from_last and (now - last_run).total_seconds() >= 60:
-                                should_run = True
+                    else:
+                        cron_past = croniter(r["schedule"], last_run)
+                        next_from_last = cron_past.get_next(datetime)
+                        if now >= next_from_last and (now - last_run).total_seconds() >= 60:
+                            should_run = True
                     if should_run:
                         with running_lock:
                             running.add(name)
