@@ -1,7 +1,7 @@
 {
   "profile_name": "default",
   "description": "Профиль по умолчанию — обычный пользователь",
-  "allowed_tools": ["read_file", "list_files", "web_search", "list_self", "read_self", "git_log", "recall", "save_template", "list_templates", "metrics_read", "gsheet_read", "schedule_reminder", "list_reminders", "cancel_reminder", "openrouter_list_models", "whats_new"],
+  "allowed_tools": ["read_file", "list_files", "web_search", "list_self", "read_self", "git_log", "recall", "save_template", "list_templates", "metrics_read", "gsheet_read", "schedule_reminder", "list_reminders", "cancel_reminder", "openrouter_list_models", "whats_new", "find_user", "send_to_user", "confirm_send_to_user", "cancel_send_to_user", "block_sender", "unblock_sender"],
   "max_history": 20,
   "max_tool_rounds": 30,
   "language": "ru",

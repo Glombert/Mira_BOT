@@ -139,6 +139,37 @@ def init_db(path: str | None = None) -> None:
                     expiry       REAL NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS user_messages (
+                    -- Письма между пользователями (через Миру как посредника).
+                    -- delivered: True когда доставлено получателю (БД +
+                    -- TG-DM + WS push). seen: True когда Мира зачитала
+                    -- получателю в разговоре.
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    from_user_id TEXT NOT NULL,
+                    from_name    TEXT NOT NULL DEFAULT '',
+                    to_user_id   TEXT NOT NULL,
+                    body         TEXT NOT NULL,
+                    ts           TEXT NOT NULL,
+                    delivered    INTEGER NOT NULL DEFAULT 0,
+                    seen         INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE INDEX IF NOT EXISTS idx_user_messages_to
+                    ON user_messages(to_user_id, seen, ts);
+
+                CREATE TABLE IF NOT EXISTS pending_sends (
+                    -- Промежуточная очередь: send_to_user кладёт сюда,
+                    -- confirm_send переносит в user_messages и доставляет.
+                    -- Двухфактор: один зов готовит, второй отправляет.
+                    -- TTL 10 минут.
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    from_user_id TEXT NOT NULL,
+                    to_user_id   TEXT NOT NULL,
+                    target_name  TEXT NOT NULL DEFAULT '',
+                    body         TEXT NOT NULL,
+                    ts           TEXT NOT NULL,
+                    expires_at   TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS owner_inbox (
                     -- Технический канал владельца: ритуалы, ошибки,
                     -- approval_request и пр. system-сообщения. Двусторонний
@@ -684,4 +715,95 @@ def cleanup_inbox(older_than_days: int = 30) -> int:
     conn = get_conn()
     with conn:
         cur = conn.execute("DELETE FROM owner_inbox WHERE ts < ?", (cutoff,))
+        return cur.rowcount
+
+
+# ---------------------------------------------------------------------------
+# User-to-user messaging (через Миру как посредника)
+# ---------------------------------------------------------------------------
+
+def add_pending_send(
+    from_user_id: str,
+    to_user_id: str,
+    target_name: str,
+    body: str,
+    ttl_seconds: int = 600,
+) -> int:
+    """Создаёт pending-запись. Возвращает её id."""
+    now = datetime.now()
+    expires = now + timedelta(seconds=ttl_seconds)
+    conn = get_conn()
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO pending_sends (from_user_id, to_user_id, target_name, body, ts, expires_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (from_user_id, to_user_id, target_name, body, now.isoformat(), expires.isoformat()),
+        )
+        return int(cur.lastrowid or 0)
+
+
+def get_pending_send(pending_id: int, from_user_id: str) -> dict | None:
+    """Достаёт pending-запись, ПРИНАДЛЕЖАЩУЮ from_user_id. Защита от чужих id."""
+    row = get_conn().execute(
+        "SELECT id, from_user_id, to_user_id, target_name, body, ts, expires_at "
+        "FROM pending_sends WHERE id = ? AND from_user_id = ?",
+        (pending_id, from_user_id),
+    ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def delete_pending_send(pending_id: int) -> None:
+    conn = get_conn()
+    with conn:
+        conn.execute("DELETE FROM pending_sends WHERE id = ?", (pending_id,))
+
+
+def cleanup_pending_sends() -> int:
+    """Удаляет истёкшие pending (TTL). Возвращает количество удалённых."""
+    now = datetime.now().isoformat()
+    conn = get_conn()
+    with conn:
+        cur = conn.execute("DELETE FROM pending_sends WHERE expires_at < ?", (now,))
+        return cur.rowcount
+
+
+def deliver_user_message(
+    from_user_id: str,
+    from_name: str,
+    to_user_id: str,
+    body: str,
+) -> int:
+    """Сохраняет доставленное сообщение в user_messages. Возвращает id."""
+    ts = datetime.now().isoformat()
+    conn = get_conn()
+    with conn:
+        cur = conn.execute(
+            "INSERT INTO user_messages (from_user_id, from_name, to_user_id, body, ts, delivered, seen) "
+            "VALUES (?, ?, ?, ?, ?, 1, 0)",
+            (from_user_id, from_name, to_user_id, body, ts),
+        )
+        return int(cur.lastrowid or 0)
+
+
+def list_unseen_messages(to_user_id: str, limit: int = 10) -> list[dict]:
+    """Сообщения, которые Мира ещё НЕ зачитала получателю."""
+    rows = get_conn().execute(
+        "SELECT id, from_user_id, from_name, body, ts FROM user_messages "
+        "WHERE to_user_id = ? AND seen = 0 ORDER BY id ASC LIMIT ?",
+        (to_user_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_messages_seen(to_user_id: str) -> int:
+    """Помечает все непрочитанные сообщения как seen после того, как Мира
+    их зачитала. Возвращает количество отмеченных."""
+    conn = get_conn()
+    with conn:
+        cur = conn.execute(
+            "UPDATE user_messages SET seen = 1 WHERE to_user_id = ? AND seen = 0",
+            (to_user_id,),
+        )
         return cur.rowcount

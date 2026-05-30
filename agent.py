@@ -25,6 +25,14 @@ from tools.metrics_tools import metrics_read
 from tools.scheduler import schedule_reminder, list_reminders, cancel_reminder
 from tools.openrouter_tools import list_models as _openrouter_list_models
 from tools.whats_new import whats_new as _whats_new, latest_entries_since as _whats_new_since, changelog_mtime as _changelog_mtime
+from tools.messaging import (
+    find_user as _find_user,
+    send_to_user as _send_to_user,
+    confirm_send_to_user as _confirm_send_to_user,
+    cancel_send_to_user as _cancel_send_to_user,
+    block_sender as _block_sender,
+    unblock_sender as _unblock_sender,
+)
 import memory_manager as _memory_manager
 import memory_crypto
 from tools.git_tools   import sync_with_git, ensure_dev_branch, release_to_main
@@ -607,6 +615,12 @@ _TOOL_REGISTRY = {
         audience=("owner" if _is_owner_user(u) else "all"),
         limit=int(a.get("limit", 6)),
     ),
+    "find_user":              lambda u, a: _find_user(a.get("query", ""), caller_id=u),
+    "send_to_user":           lambda u, a: _send_to_user(a.get("target", ""), a.get("body", ""), caller_id=u),
+    "confirm_send_to_user":   lambda u, a: _confirm_send_to_user(int(a.get("pending_id", 0)), caller_id=u),
+    "cancel_send_to_user":    lambda u, a: _cancel_send_to_user(int(a.get("pending_id", 0)), caller_id=u),
+    "block_sender":           lambda u, a: _block_sender(a.get("target", ""), caller_id=u),
+    "unblock_sender":         lambda u, a: _unblock_sender(a.get("target", ""), caller_id=u),
 }
 
 
@@ -653,6 +667,12 @@ _TOOL_HUMAN = {
     "generate_image":         "рисует",
     "attach_file":            "прикрепляет файл",
     "whats_new":              "сверяется со списком новых возможностей",
+    "find_user":              "ищет человека",
+    "send_to_user":           "готовит письмо",
+    "confirm_send_to_user":   "отправляет письмо",
+    "cancel_send_to_user":    "отменяет черновик",
+    "block_sender":           "включает блокировку",
+    "unblock_sender":         "снимает блокировку",
 }
 
 

@@ -778,6 +778,118 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "find_user",
+            "description": (
+                "Ищет одобренного пользователя по имени или фрагменту имени. "
+                "Возвращает либо точное совпадение, либо список вариантов, "
+                "если несколько подходят. Используй ПЕРЕД send_to_user, "
+                "если не уверена, кому именно адресовано сообщение."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Имя или часть имени."},
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_to_user",
+            "description": (
+                "ПОДГОТОВИТЬ передачу сообщения другому одобренному пользователю. "
+                "Это ПЕРВЫЙ шаг двухфактора: создаётся черновик (pending), "
+                "но НЕ отправляется. После вызова покажи пользователю превью "
+                "и спроси «отправить?». При «да» — позови confirm_send_to_user "
+                "с тем же pending_id. При «нет» — cancel_send_to_user. "
+                "TTL черновика 10 минут. Гости отправлять не могут."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "description": "Имя получателя."},
+                    "body":   {"type": "string", "description": "Тело сообщения, до 4000 символов."},
+                },
+                "required": ["target", "body"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "confirm_send_to_user",
+            "description": (
+                "ВТОРОЙ шаг отправки: реально доставляет ранее подготовленный "
+                "черновик (Telegram-DM получателю + БД + FCM push). Зови ТОЛЬКО "
+                "после явного «да» от отправителя. pending_id — id из ответа "
+                "send_to_user."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pending_id": {"type": "integer", "description": "id черновика."},
+                },
+                "required": ["pending_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_send_to_user",
+            "description": (
+                "Отменить ранее подготовленный черновик передачи. Зови если "
+                "пользователь передумал. Идемпотентно — повторный вызов не сломает."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pending_id": {"type": "integer", "description": "id черновика."},
+                },
+                "required": ["pending_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "block_sender",
+            "description": (
+                "Заблокировать отправителя — больше не передавать пользователю "
+                "сообщения от этого человека. Используй когда собеседник просит "
+                "«больше не передавай от X»."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "description": "Имя отправителя для блокировки."},
+                },
+                "required": ["target"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "unblock_sender",
+            "description": (
+                "Снять блокировку отправителя — снова разрешить передавать "
+                "сообщения от него."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "description": "Имя отправителя."},
+                },
+                "required": ["target"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "attach_file",
             "description": (
                 "Прикрепляет существующий файл из workspace пользователя к следующему ответу Миры. "

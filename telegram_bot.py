@@ -2071,10 +2071,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     except Exception as e:
         logger.warning(f"semantic_memory search failed: {e}")
 
-    # Подсказка про новые возможности (если профиль их ещё не «увидел»)
-    from web.app import _changelog_augment, _mark_changelog_seen
+    # Подсказка про новые возможности и непрочитанные входящие письма
+    from web.app import (
+        _changelog_augment, _mark_changelog_seen,
+        _incoming_augment, _mark_incoming_seen,
+    )
     changelog_aug = _changelog_augment(user_id)
-    combined_aug = "\n\n".join(filter(None, [semantic_augment, changelog_aug]))
+    incoming_aug = _incoming_augment(user_id)
+    combined_aug = "\n\n".join(filter(None, [semantic_augment, changelog_aug, incoming_aug]))
 
     def _augmented(orig: list) -> list:
         # Всегда shallow-copy: agent.run() мутирует свой аргумент (добавляет
@@ -2106,6 +2110,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         _save_session(user_id, msgs)
         if changelog_aug:
             _mark_changelog_seen(user_id)
+        if incoming_aug:
+            _mark_incoming_seen(user_id)
 
         # Фоновые задачи памяти — не блокируют ответ
         model_chain = alpha.model_chain if alpha else []

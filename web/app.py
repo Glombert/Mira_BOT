@@ -385,6 +385,41 @@ def _changelog_augment(user_id: str) -> str:
     )
 
 
+def _incoming_augment(user_id: str) -> str:
+    """Подсказка Мире о непрочитанных входящих от других пользователей.
+
+    Возвращает блок «У тебя N писем от X: «...»; от Y: «...»». Зачитай
+    их собеседнику уместно — не списком, а живой репликой».
+    Сразу НЕ помечает как seen — это сделает _mark_incoming_seen после
+    успешного ответа Миры.
+    """
+    from tools import db as _db
+    msgs = _db.list_unseen_messages(user_id, limit=5)
+    if not msgs:
+        return ""
+    lines = []
+    for m in msgs:
+        body = (m.get("body") or "").strip()
+        preview = body if len(body) <= 220 else (body[:220] + "…")
+        lines.append(f"— от {m['from_name']}: «{preview}»")
+    return (
+        "Тебе передали через тебя сообщения (ещё не зачитанные). "
+        "Зачитай вслух от имени отправителя в подходящий момент разговора — "
+        "своими словами, не в виде списка, без служебных пометок. Не выдумывай "
+        "то, чего нет в тексте. После — спроси, хочет ли собеседник ответить.\n"
+        + "\n".join(lines)
+    )
+
+
+def _mark_incoming_seen(user_id: str) -> None:
+    """Помечает входящие как зачитанные после успешного ответа Миры."""
+    try:
+        from tools import db as _db
+        _db.mark_messages_seen(user_id)
+    except Exception as e:
+        logger.warning(f"_mark_incoming_seen {user_id}: {e}")
+
+
 def _mark_changelog_seen(user_id: str) -> None:
     """Фиксирует, что Мира уже учла последний апдейт для этого пользователя."""
     from tools.whats_new import changelog_mtime
@@ -2404,7 +2439,8 @@ async def chat(websocket: WebSocket, session: str = ""):
             _msgs_since_card += 1  # кулдаун карточки «Из памяти»
             llm_msgs = [{k: v for k, v in m.items() if k != "ts"} for m in msgs]
             changelog_aug = _changelog_augment(user_id)
-            extra_aug = "\n\n".join(filter(None, [augment, changelog_aug]))
+            incoming_aug = _incoming_augment(user_id)
+            extra_aug = "\n\n".join(filter(None, [augment, changelog_aug, incoming_aug]))
             if extra_aug and llm_msgs and llm_msgs[0].get("role") == "system":
                 llm_msgs[0] = {**llm_msgs[0], "content": llm_msgs[0]["content"] + "\n\n" + extra_aug}
 
@@ -2439,6 +2475,12 @@ async def chat(websocket: WebSocket, session: str = ""):
             # _changelog_augment вернёт "" пока WHATS_NEW.md снова не обновится.
             if changelog_aug:
                 _mark_changelog_seen(user_id)
+            # Аналогично — входящие сообщения Мира получила в контекст, помечаем
+            # их seen. Не идеально (Мира могла не упомянуть), но достаточно:
+            # если важно, она их зачитала; если не зачитала и человек спросит —
+            # они есть в БД и она сможет их найти позже (другой инструмент).
+            if incoming_aug:
+                _mark_incoming_seen(user_id)
 
             # Снимок output/ ПОСЛЕ хода — diff с _output_before даёт список
             # файлов, созданных/обновлённых Мирой за этот ход. Плюс явные
