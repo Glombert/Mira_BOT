@@ -373,6 +373,26 @@ export function ChatPage() {
     c.reconnect().catch(() => setConnectionStatus('offline'));
   }, []);
 
+  // Авто-реконнект: вкладка снова видима или вернулась сеть. Пока вкладка в фоне,
+  // браузер тормозит пинги, и сервер рвёт молчащую WS-линию через таймаут —
+  // возвращаемся и сразу переподключаемся, не дожидаясь backoff.
+  useEffect(() => {
+    const resume = () => {
+      const c = clientRef.current;
+      if (c && session && !c.connected) {
+        setConnectionStatus('reconnecting');
+        c.reconnect().catch(() => setConnectionStatus('offline'));
+      }
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') resume(); };
+    window.addEventListener('online', resume);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('online', resume);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [session]);
+
   const handleAuthRef = useRef(handleAuth);
   handleAuthRef.current = handleAuth;
 
