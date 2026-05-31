@@ -1,0 +1,100 @@
+name: Build Mobile APK
+
+# Сборка Android APK мобильного клиента (mobile/) внутри монорепо.
+# Только СОБИРАЕТ + выкладывает артефакт. Публикацию релиза делает release.sh
+# (скачивает артефакт → gh release create в Glombert/Mira_Mobile, чтобы бэкенд
+# /mobile/version и OTA не менялись).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version name (e.g. 1.1.2)'
+        required: false
+        default: ''
+  push:
+    # merge-mobile + путь воркфлоу — временно, для валидационной тест-сборки.
+    # После проверки подписи свести к: branches [mira-dev, main], paths ['mobile/**'].
+    branches: [merge-mobile, mira-dev, main]
+    paths: ['mobile/**', '.github/workflows/build-mobile-apk.yml']
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+defaults:
+  run:
+    working-directory: mobile
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android licenses
+        run: yes | sdkmanager --licenses
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('mobile/android/**/*.gradle*', 'mobile/android/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      # google-services.json в монорепо gitignore (репо публичный) → подставляем из секрета
+      - name: Inject google-services.json
+        env:
+          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+        run: echo "$GOOGLE_SERVICES_JSON_B64" | base64 -d > android/app/google-services.json
+
+      - name: Decode release keystore
+        env:
+          MIRA_RELEASE_KEYSTORE_B64: ${{ secrets.MIRA_RELEASE_KEYSTORE_B64 }}
+        run: echo "$MIRA_RELEASE_KEYSTORE_B64" | base64 -d > android/app/mira-release.keystore
+
+      - name: Build Release APK
+        env:
+          MIRA_RELEASE_STORE_FILE: mira-release.keystore
+          MIRA_RELEASE_STORE_PASSWORD: ${{ secrets.MIRA_RELEASE_STORE_PASSWORD }}
+          MIRA_RELEASE_KEY_ALIAS: ${{ secrets.MIRA_RELEASE_KEY_ALIAS }}
+          MIRA_RELEASE_KEY_PASSWORD: ${{ secrets.MIRA_RELEASE_KEY_PASSWORD }}
+        run: cd android && ./gradlew assembleRelease --no-daemon
+
+      - name: Rename APK with version
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION=$(node -p "require('./package.json').version")
+          fi
+          APK_DIR="android/app/build/outputs/apk/release"
+          mv "${APK_DIR}/app-release.apk" "${APK_DIR}/mira-mobile-v${VERSION}.apk" 2>/dev/null || true
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mira-mobile-apk
+          path: mobile/android/app/build/outputs/apk/release/*.apk
+          retention-days: 30
