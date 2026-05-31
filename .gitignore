@@ -6,6 +6,8 @@ client_secret*.json
 # Firebase Admin SDK service account JSON — закрытый ключ для отправки FCM
 .firebase-service-account.json
 firebase-service-account*.json
+# Firebase client config мобайла — подставляется в CI из секрета (репо публичный)
+mobile/android/app/google-services.json
 
 # История диалога (личные данные)
 chat_history.json
@@ -53,3 +55,5 @@ clients/**/target/
 clients/**/.env
 clients/**/.env.*
 clients/**/tsconfig.tsbuildinfo
+# RN env-файл со ссылкой на локальный node (не секрет, но триггерит secret-scan)
+mobile/ios/.xcode.env
