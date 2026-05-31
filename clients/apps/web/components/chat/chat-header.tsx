@@ -1,6 +1,6 @@
 'use client';
 
-import { User, Trash2, Bell, Cloud, Menu } from 'lucide-react';
+import { User, Trash2, Bell, Cloud, Menu, RefreshCw } from 'lucide-react';
 import { StatusDot, type ConnectionStatus } from '@/components/ui/status-dot';
 
 interface ChatHeaderProps {
@@ -11,14 +11,15 @@ interface ChatHeaderProps {
   onOpenPalette: () => void;
   onOpenReminders: () => void;
   onOpenDrive: () => void;
+  onReconnect: () => void;
 }
 
-export function ChatHeader({ userName, connectionStatus, onClear, onWhoami, onOpenPalette, onOpenReminders, onOpenDrive }: ChatHeaderProps) {
+export function ChatHeader({ userName, connectionStatus, onClear, onWhoami, onOpenPalette, onOpenReminders, onOpenDrive, onReconnect }: ChatHeaderProps) {
   const statusText = connectionStatus === 'online'
     ? 'на связи · слушает'
     : connectionStatus === 'reconnecting'
     ? 'переподключается...'
-    : 'офлайн';
+    : 'офлайн · нажми чтобы переподключиться';
   const statusColorClass = connectionStatus === 'offline' ? 'text-rose' : 'text-gold';
 
   return (
@@ -43,12 +44,31 @@ export function ChatHeader({ userName, connectionStatus, onClear, onWhoami, onOp
 
         <div>
           <h1 className="font-serif text-[23px] font-medium text-text-primary leading-tight tracking-wide">Мира</h1>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <StatusDot status={connectionStatus} />
-            <span className={`text-[11px] tracking-wide ${statusColorClass}`}>
-              {statusText}
-            </span>
-          </div>
+          {connectionStatus === 'online' ? (
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <StatusDot status={connectionStatus} />
+              <span className={`text-[11px] tracking-wide ${statusColorClass}`}>
+                {statusText}
+              </span>
+            </div>
+          ) : (
+            <button
+              onClick={onReconnect}
+              disabled={connectionStatus === 'reconnecting'}
+              aria-label="Переподключиться"
+              title="Переподключиться к Мире"
+              className="flex items-center gap-1.5 mt-0.5 group disabled:opacity-70"
+            >
+              <StatusDot status={connectionStatus} />
+              <span className={`text-[11px] tracking-wide ${statusColorClass} group-hover:underline`}>
+                {statusText}
+              </span>
+              <RefreshCw
+                size={11}
+                className={`${statusColorClass} ${connectionStatus === 'reconnecting' ? 'animate-spin' : ''}`}
+              />
+            </button>
+          )}
         </div>
       </div>
 

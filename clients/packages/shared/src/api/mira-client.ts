@@ -296,6 +296,29 @@ export class MiraClient {
     }
   }
 
+  /** Принудительное немедленное переподключение (кнопка в UI).
+   * Отменяет отложенный реконнект-таймер, сбрасывает backoff и сразу
+   * подключается заново. Слушатели (on/onTech) переживают реконнект —
+   * их перерегистрировать не нужно. */
+  reconnect(): Promise<void> {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempts = 0;
+    this._manualDisconnect = false;
+    if (this.ws) {
+      try {
+        this.ws.close();
+      } catch {
+        // ignore
+      }
+      this.ws = null;
+    }
+    this._cleanup();
+    return this.connect();
+  }
+
   private _cleanup(): void {
     this._connected = false;
     this._connecting = false;

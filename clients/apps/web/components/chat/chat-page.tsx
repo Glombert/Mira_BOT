@@ -366,6 +366,13 @@ export function ChatPage() {
     [client, connectClient, addMessage]
   );
 
+  const handleReconnect = useCallback(() => {
+    const c = clientRef.current;
+    if (!c) return;
+    setConnectionStatus('reconnecting');
+    c.reconnect().catch(() => setConnectionStatus('offline'));
+  }, []);
+
   const handleAuthRef = useRef(handleAuth);
   handleAuthRef.current = handleAuth;
 
@@ -652,6 +659,7 @@ export function ChatPage() {
         onOpenPalette={handleOpenPalette}
         onOpenReminders={handleOpenReminders}
         onOpenDrive={handleOpenDrive}
+        onReconnect={handleReconnect}
       />
 
       {showAuth ? (
