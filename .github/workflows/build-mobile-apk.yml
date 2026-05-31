@@ -13,10 +13,8 @@ on:
         required: false
         default: ''
   push:
-    # merge-mobile + путь воркфлоу — временно, для валидационной тест-сборки.
-    # После проверки подписи свести к: branches [mira-dev, main], paths ['mobile/**'].
-    branches: [merge-mobile, mira-dev, main]
-    paths: ['mobile/**', '.github/workflows/build-mobile-apk.yml']
+    branches: [mira-dev, main]
+    paths: ['mobile/**']
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
