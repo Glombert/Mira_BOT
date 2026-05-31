@@ -1,8 +1,10 @@
 name: Deploy to VPS
 
+# Ручной деплой прода из mira-dev (рабочая ветка прода).
+# Только по кнопке (workflow_dispatch) — без авто-деплоя на push, чтобы обычные
+# пуши в mira-dev не выкатывались в прод сами собой.
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -14,25 +16,29 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          command_timeout: 20m
           script: |
+            set -e
             cd /root/mira_agent
-            git pull origin main
+            git pull origin mira-dev
             /root/mira_agent/venv/bin/pip install -r requirements.txt -q
-            # Изоляция run_python
+            # Изоляция run_python обязательна (fail-closed без firejail)
             which firejail >/dev/null 2>&1 || apt-get install -y firejail -q
             chmod +x /root/mira_agent/scripts/notify.sh
-            # Watchdog: cron каждые 5 минут проверяет что бот жив
+            # Watchdog: cron каждые 2 минуты проверяет что бот жив
             (crontab -l 2>/dev/null | grep -v "notify.sh"; \
              echo "*/2 * * * * systemctl is-active --quiet mira-bot || /root/mira_agent/scripts/notify.sh") \
              | crontab -
+            # Веб-клиент: пересборка Next.js + рестарт mira-web
+            if [ -f /root/mira_agent/scripts/deploy_web.sh ]; then
+              bash /root/mira_agent/scripts/deploy_web.sh || echo "deploy_web.sh завершился с ошибкой — проверь вручную"
+            fi
             systemctl restart mira-bot
-            systemctl status mira-bot --no-pager
-            # Веб-интерфейс
+            systemctl status mira-bot --no-pager | head -5
             if [ -f /etc/systemd/system/mira-web.service ]; then
               systemctl restart mira-web
-              systemctl status mira-web --no-pager
+              systemctl status mira-web --no-pager | head -5
             fi
-            # Nginx — перезагружаем конфиг если запущен
             if systemctl is-active --quiet nginx; then
               systemctl reload nginx
             fi

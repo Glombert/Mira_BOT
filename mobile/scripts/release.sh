@@ -47,8 +47,9 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     exit 1
 fi
 
-TAG="v${VERSION}"
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+TAG="v${VERSION}"               # тег релиза в Mira_Mobile (приложение читает версию отсюда)
+MONO_TAG="mobile-v${VERSION}"   # git-тег в монорепо Mira_BOT (чтобы не путать с бэкендом)
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"   # = Mira_BOT/mobile
 cd "$REPO_ROOT"
 
 # --- preflight ---
@@ -60,14 +61,14 @@ if [[ -n "$(git status --porcelain)" ]]; then
     exit 1
 fi
 
-if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-    red "✗ Тег $TAG уже существует. Удали или возьми другой номер."
+if git rev-parse -q --verify "refs/tags/$MONO_TAG" >/dev/null; then
+    red "✗ Тег $MONO_TAG уже существует. Удали или возьми другой номер."
     exit 1
 fi
 
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-if [[ "$CURRENT_BRANCH" != "main" ]]; then
-    yellow "⚠ Ты на ветке '$CURRENT_BRANCH', не на main. Продолжить? [y/N]"
+if [[ "$CURRENT_BRANCH" != "mira-dev" ]]; then
+    yellow "⚠ Ты на ветке '$CURRENT_BRANCH', не на mira-dev. Продолжить? [y/N]"
     read -r ans
     [[ "$ans" =~ ^[yY]$ ]] || exit 0
 fi
@@ -87,20 +88,21 @@ blue "▸ Commit + push (триггерит CI APK-сборку)"
 git add package.json src/config.ts android/app/build.gradle
 git commit -m "release: v$VERSION"
 
-LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+# Заметки — только по коммитам, затронувшим mobile/ (cwd = mobile/, поэтому "-- .")
+LAST_TAG=$(git describe --tags --match 'mobile-v*' --abbrev=0 HEAD^ 2>/dev/null || echo "")
 if [[ -n "$LAST_TAG" ]]; then
-    AUTO_NOTES=$(git log "${LAST_TAG}..HEAD^" --pretty=format:"- %s" \
+    AUTO_NOTES=$(git log "${LAST_TAG}..HEAD^" --pretty=format:"- %s" -- . \
                  | grep -vE "^- (chore|docs)(\(|:)" || true)
 else
-    AUTO_NOTES=$(git log HEAD^ -n 20 --pretty=format:"- %s")
+    AUTO_NOTES=$(git log HEAD^ -n 20 --pretty=format:"- %s" -- .)
 fi
 
 git push origin "$CURRENT_BRANCH"
 
-# --- 3. tag + push ---
-blue "▸ Тег $TAG"
-git tag -a "$TAG" -m "$TAG"
-git push origin "$TAG"
+# --- 3. tag + push (в монорепо — с префиксом mobile-) ---
+blue "▸ Тег $MONO_TAG"
+git tag -a "$MONO_TAG" -m "$MONO_TAG"
+git push origin "$MONO_TAG"
 
 # --- 4. ждём CI ---
 blue "▸ Жду пока CI соберёт APK (5-10 минут)…"
@@ -108,7 +110,7 @@ sleep 15  # дать Actions время триггернуться
 
 RUN_ID=""
 for attempt in {1..40}; do
-    LINE=$($GH run list --repo Glombert/Mira_Mobile --workflow build-apk.yml \
+    LINE=$($GH run list --repo Glombert/Mira_BOT --workflow build-mobile-apk.yml \
            --branch "$CURRENT_BRANCH" --limit 1 \
            --json databaseId,headSha,status,conclusion \
            --jq '.[0]' 2>/dev/null || echo "")
@@ -133,7 +135,7 @@ for attempt in {1..40}; do
             break
         else
             red "✗ CI упал: conclusion=$CONCL"
-            echo "  Лог: gh run view $LINE --repo Glombert/Mira_Mobile --log-failed"
+            echo "  Лог: gh run view $LINE --repo Glombert/Mira_BOT --log-failed"
             exit 1
         fi
     fi
@@ -149,7 +151,7 @@ fi
 # --- 5. download APK ---
 blue "▸ Скачиваю APK"
 TMP=$(mktemp -d)
-$GH run download "$RUN_ID" --repo Glombert/Mira_Mobile --dir "$TMP" >/dev/null
+$GH run download "$RUN_ID" --repo Glombert/Mira_BOT --dir "$TMP" >/dev/null
 APK=$(find "$TMP" -name "*.apk" | head -1)
 if [[ ! -f "$APK" ]]; then
     red "✗ APK не найден в артефактах $RUN_ID"
