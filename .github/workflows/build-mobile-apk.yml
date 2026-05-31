@@ -13,8 +13,7 @@ on:
         required: false
         default: ''
   push:
-    # design-tokens — временно, для валидации шаринга токенов через metro.
-    branches: [design-tokens, mira-dev, main]
+    branches: [mira-dev, main]
     paths: ['mobile/**']
 
 env:
