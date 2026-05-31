@@ -1,72 +1,61 @@
-// Aurora Design System — Mira UI tokens
-// Colors: midnight blue + amber gold mystic
-// Fonts: Cormorant Garamond (serif), Manrope (sans), JetBrains Mono (mono)
+// Aurora Design System — Mira UI tokens (мобайл).
+// Цвета/шрифты/радиусы/отступы берутся из ОБЩЕГО источника @mira/shared/tokens
+// (монорепо clients/packages/shared), чтобы веб и мобайл не расходились.
+// Платформенные части (RN-typography, RN-shadow) остаются здесь.
 
-export const fonts = {
-  serif: 'Cormorant Garamond',
-  sans: 'Manrope',
-  mono: 'JetBrains Mono',
-} as const;
+import {
+  palette,
+  rawColor,
+  alpha,
+  fonts as sharedFonts,
+  radii as sharedRadii,
+  spacing as sharedSpacing,
+} from '@mira/shared/tokens';
+
+export const fonts = sharedFonts;
 
 export const colors = {
   bg: {
-    page: '#0b1226',
-    deep: '#070c1c',
-    surface: '#101a30',
-    sidebar: '#080d1d',
-    composer: 'rgba(13, 21, 42, 0.88)',
+    page: palette.midnight,
+    deep: palette.abyss,
+    surface: palette.surface,
+    sidebar: palette.sidebar,
+    composer: rawColor.composer,
   },
   text: {
-    primary: '#f4ead6',
-    dim: 'rgba(244, 234, 214, 0.62)',
-    muted: 'rgba(244, 234, 214, 0.36)',
-    faint: 'rgba(244, 234, 214, 0.22)',
+    primary: palette.ink,
+    dim: alpha(palette.ink, 0.62),
+    muted: alpha(palette.ink, 0.36),
+    faint: alpha(palette.ink, 0.22),
   },
   gold: {
-    DEFAULT: '#f5bc7a',
-    soft: 'rgba(245, 188, 122, 0.22)',
-    glow: 'rgba(245, 188, 122, 0.55)',
-    dim: 'rgba(245, 188, 122, 0.10)',
+    DEFAULT: palette.gold,
+    soft: alpha(palette.gold, 0.22),
+    glow: alpha(palette.gold, 0.55),
+    dim: alpha(palette.gold, 0.1),
   },
   mystic: {
-    DEFAULT: '#b9a3ff',
-    soft: 'rgba(185, 163, 255, 0.20)',
+    DEFAULT: palette.mystic,
+    soft: alpha(palette.mystic, 0.2),
   },
-  sage: '#8dd0a7',
-  rose: '#e88a8a',
+  sage: palette.sage,
+  rose: palette.rose,
   border: {
-    subtle: 'rgba(244, 234, 214, 0.10)',
-    strong: 'rgba(245, 188, 122, 0.30)',
-    divider: 'rgba(244, 234, 214, 0.06)',
+    subtle: alpha(palette.ink, 0.1),
+    strong: alpha(palette.gold, 0.3),
+    divider: alpha(palette.ink, 0.06),
   },
   bubble: {
-    userBg: 'rgba(245, 188, 122, 0.10)',
-    userBorder: 'rgba(245, 188, 122, 0.32)',
-    miraBg: 'rgba(20, 30, 55, 0.85)',
-    miraBorder: 'rgba(244, 234, 214, 0.08)',
+    userBg: alpha(palette.gold, 0.1),
+    userBorder: alpha(palette.gold, 0.32),
+    miraBg: rawColor.bubbleMiraBg,
+    miraBorder: alpha(palette.ink, 0.08),
   },
 } as const;
 
-export const spacing = {
-  xs: 4,
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 18,
-  '2xl': 22,
-  '3xl': 28,
-  '4xl': 36,
-} as const;
+export const spacing = sharedSpacing;
 
-export const radii = {
-  bubble: 16,
-  card: 12,
-  pill: 999,
-  button: 10,
-  input: 18,
-  inputMobile: 22,
-  sidebarItem: 8,
-} as const;
+export const radii = sharedRadii;
 
 export const typography = {
   topbarName: { fontFamily: fonts.serif, fontSize: 23, lineHeight: 26, fontWeight: '500' as const, letterSpacing: 0.01 },
@@ -99,7 +88,7 @@ export const shadow = {
     elevation: 8,
   },
   composer: {
-    shadowColor: 'rgba(245, 188, 122, 0.04)',
+    shadowColor: alpha(palette.gold, 0.04),
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 1,
     shadowRadius: 30,
