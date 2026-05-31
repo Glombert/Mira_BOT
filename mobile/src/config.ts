@@ -11,3 +11,8 @@ export const IS_MOCK = false;
 // «Войти через Telegram» и в подсказках. Должен совпадать с TELEGRAM_BOT_USERNAME
 // на сервере и с тем, что зарегистрировано в @BotFather через /setdomain.
 export const BOT_USERNAME = 'mira_changing_bot';
+
+// Bugsink (self-hosted, Sentry-совместимый) DSN мобильного проекта.
+// Ingest-ключ — клиентский (он всё равно в APK), прятать в репо смысла нет.
+// Пусто → Sentry выключен (no-op).
+export const SENTRY_DSN = 'https://8798b4a0820c4dd7993fd1739686b4c3@mira-errors.duckdns.org/2';

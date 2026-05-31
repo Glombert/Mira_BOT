@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { colors, fonts, spacing, radii } from '../theme';
+import { Sentry } from '../sentry';
 
 // Ловит ошибку рендера в дереве, чтобы краш не давал чёрный/белый экран.
 // Показывает дружелюбный фолбэк с кнопкой «попробовать снова».
@@ -16,8 +17,8 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: unknown) {
-    // В консоль (и в Sentry, когда подключим на мобайле — Фаза 3.2)
     console.error('Mira UI error:', error);
+    Sentry.captureException(error);
   }
 
   render() {
