@@ -69,3 +69,22 @@ class TestStripMdForTg:
     def test_plain_text_unchanged(self):
         s = "обычный текст без разметки"
         assert tb._strip_md_for_tg(s) == s
+
+
+class TestHelpKeyboard:
+    @staticmethod
+    def _callbacks(kb):
+        return [b.callback_data for row in kb.inline_keyboard for b in row]
+
+    def test_non_owner_basic_no_admin(self):
+        cbs = self._callbacks(tb._help_keyboard(False))
+        assert "cmd_files" in cbs and "cmd_whoami" in cbs
+        assert "cmd_reflect" not in cbs  # admin-кнопки только владельцу
+        assert "cmd_users" not in cbs
+
+    def test_owner_has_admin(self):
+        cbs = self._callbacks(tb._help_keyboard(True))
+        assert {"cmd_reflect", "cmd_rollback", "cmd_release", "cmd_users"} <= set(cbs)
+
+    def test_owner_more_rows(self):
+        assert len(tb._help_keyboard(True).inline_keyboard) > len(tb._help_keyboard(False).inline_keyboard)
