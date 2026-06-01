@@ -490,13 +490,18 @@ def load_persona() -> str:
             p.update(overlay)
         emo = p.get("emotions", {})
 
-        # Последние reflections (до 5) — Мира видит свои недавние наблюдения
+        # Последние reflections (до 5) — Мира видит свои недавние наблюдения.
+        # БД отдаёт ключ 'content', старый persona.json-формат — 'text': берём
+        # любой. Пустые пропускаем, кривая запись НЕ должна ронять всю персону.
         reflections_block = ""
-        reflections = load_reflections()
-        if reflections:
-            recent = reflections[-5:]
-            lines = "\n".join(f"— [{r['date']}] {r['text']}" for r in recent)
-            reflections_block = f"\n\n=== МОИ ПОСЛЕДНИЕ НАБЛЮДЕНИЯ О СЕБЕ ===\n{lines}"
+        recent = [r for r in load_reflections()[-5:] if isinstance(r, dict)]
+        rlines = [
+            f"— [{r.get('date', '?')}] {txt}"
+            for r in recent
+            if (txt := (r.get("text") or r.get("content") or "").strip())
+        ]
+        if rlines:
+            reflections_block = "\n\n=== МОИ ПОСЛЕДНИЕ НАБЛЮДЕНИЯ О СЕБЕ ===\n" + "\n".join(rlines)
 
         character = f"""=== КТО ТЫ ===
 Тебя зовут {p["name"]}. {p["origin"]}
