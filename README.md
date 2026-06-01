@@ -2,9 +2,11 @@
 
 # 🌟 Mira
 
-### Личный AI-ассистент, который живёт сразу в Telegram, в браузере и в твоём телефоне
+### Личный AI-ассистент, который живёт сразу в Telegram, в браузере, на десктопе и в телефоне
 
-[![Version](https://img.shields.io/badge/version-2.3-brightgreen?style=for-the-badge)](https://github.com/Glombert/Mira_BOT/releases/tag/v2.3)
+<sub>🇷🇺 Русский · [🇬🇧 English](README.en.md)</sub>
+
+[![Version](https://img.shields.io/badge/version-2.4-brightgreen?style=for-the-badge)](https://github.com/Glombert/Mira_BOT/releases)
 [![Mobile](https://img.shields.io/badge/Mobile-Android_APK-FF8C42?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Glombert/Mira_Mobile/releases/latest)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-22C55E?style=for-the-badge)](LICENSE)
@@ -13,7 +15,7 @@
 
 <br/>
 
-> *«Что нужно сделать завтра в 8 утра?» — пишешь в любом интерфейсе, в 8 утра Мира сама присылает то что нужно.*
+> *«Что нужно сделать завтра в 8 утра?» — пишешь в любом интерфейсе, в 8 утра Мира сама присылает то, что нужно.*
 
 </div>
 
@@ -21,14 +23,14 @@
 
 ## Что это такое (по-человечески)
 
-Mira — это **твой собственный AI-ассистент**, к которому ты можешь обратиться через любое удобное окно: Telegram-бот, приложение на телефоне, веб-сайт или десктоп. **Один и тот же диалог, один и тот же контекст** — всё синхронизируется.
+Mira — это **твой собственный AI-ассистент**, к которому можно обратиться через любое удобное окно: Telegram-бот, приложение на телефоне, веб-сайт или десктоп. **Один и тот же диалог, один и тот же контекст** — всё синхронизируется.
 
-В отличие от ChatGPT, Мира:
+В отличие от облачных чат-ботов, Мира:
 
-- 🧠 **Помнит тебя** между сессиями — твоё имя, проекты, привычки, разговоры неделями назад
-- 🔧 **Делает дела сама** — не просто отвечает, а реально лезет в твои файлы, открывает календарь, читает Google Sheets, скачивает с диска
-- ⏰ **Работает в фоне** — задаёшь задачу «завтра в 8:00 подготовь отчёт по продажам» — в 8:00 уходишь в push с готовым результатом
-- 🤖 **Проверяет себя** — раз в несколько часов сама находит баги в собственном коде, мониторит сервер, шлёт алерты
+- 🧠 **Помнит тебя** между сессиями — имя, проекты, привычки, разговоры неделями назад
+- 🔧 **Делает дела сама** — не просто отвечает, а лезет в твои файлы, открывает календарь, читает Google Sheets, качает с Drive
+- ⏰ **Работает в фоне** — «завтра в 8:00 подготовь отчёт по продажам» → в 8:00 приходит push с готовым результатом
+- 🤖 **Проверяет и улучшает себя** — раз в две недели сама ревьюит свой код, ищет уязвимости, разбирает логи на ошибки, следит за выходом новых моделей
 - 🔄 **Не падает на одном провайдере** — Claude недоступен → DeepSeek → Gemini, всё прозрачно
 - 🛡 **Твоя** — крутится на твоём VPS, никаких облачных подписок, ключи API только у тебя
 
@@ -39,30 +41,30 @@ Mira — это **твой собственный AI-ассистент**, к к
 Мира:  Смотрит твою историю, calendar, последние сообщения → выдаёт сводку.
 
 ты:    [прикрепляешь PDF] «Что тут?»
-Мира:  Читает, выдает резюме, при желании создаёт Excel с ключевыми данными.
+Мира:  Читает, выдаёт резюме, при желании создаёт Excel с ключевыми данными.
 
 ты:    «/task в пятницу 15:00 проверь статус задач у команды и подготовь отчёт»
-Мира:  В пятницу 15:00 — push на твой телефон с готовым отчётом.
+Мира:  В пятницу 15:00 — push на телефон с готовым отчётом.
 
-ты:    «Поищи в интернете последние новости по Python 3.13»
-Мира:  DuckDuckGo, выдержки, ссылки.
+ты:    «Поищи последние новости по Python 3.13»
+Мира:  Веб-поиск, выдержки, ссылки.
 
 ты:    «Создай Google Sheet с расходами за май»
 Мира:  Sheet создан, файл расшарен на твой email.
 ```
 
-## Архитектура (для тех кому интересно)
+## Архитектура (для тех, кому интересно)
 
 <div align="center">
 
 ```
                   ┌─────────────────────────────────────┐
-                  │      ТЫ — один голос, любое окно    │
+                  │      ТЫ — один голос, любое окно     │
                   └──────────────┬──────────────────────┘
        ┌──────────┬──────────────┼──────────────┬──────────┐
        ▼          ▼              ▼              ▼          ▼
    📱 Mobile   💻 Web        🖥 Desktop      💬 Telegram   🔧 CLI
-   (RN 0.85)  (Next.js)     (Tauri v2)      (бот)        (terminal)
+   (RN)       (Next.js)     (Tauri v2)      (бот)        (terminal)
        │          │              │              │          │
        └──────────┴──────┬───────┴──────────────┴──────────┘
                          │ WebSocket / HTTP
@@ -77,7 +79,7 @@ Mira — это **твой собственный AI-ассистент**, к к
               ┌────────────┴─────────────┐
               ▼                          ▼
        ╔═════════════╗           ╔═══════════════╗
-       ║   КОНКЛАВ   ║           ║  АВТОНОМИЯ    ║
+       ║   КОНКЛАВ   ║           ║   АВТОНОМИЯ   ║
        ╠═════════════╣           ╠═══════════════╣
        ║ Coder       ║           ║ Ритуалы       ║
        ║ Scout       ║           ║ (cron + LLM)  ║
@@ -89,110 +91,92 @@ Mira — это **твой собственный AI-ассистент**, к к
 
 </div>
 
-**Один голос — Мира.** Сложность скрыта: внутри она сама решает, отвечать ли коротко из памяти или дёргать Конклав специалистов. Пользователь даже не знает что было.
+**Один голос — Мира.** Сложность скрыта: внутри она сама решает, ответить ли коротко из памяти или дёрнуть Конклав специалистов. Пользователь даже не знает, что было под капотом.
 
 ## Что под капотом
 
 | Слой | Технологии |
 |---|---|
-| **LLM-стек** | Claude Sonnet 4.6 (Anthropic) · DeepSeek V4 · Gemini Flash · OpenRouter (failover chain) |
+| **LLM-стек** | Claude Sonnet 4.6 / Opus 4.8 (Anthropic) · DeepSeek V4 · Gemini · OpenRouter (failover chain) |
 | **Бэкенд** | Python 3.12 · FastAPI · WebSocket · python-telegram-bot · SQLite (WAL) · Fernet-шифрование памяти |
+| **Контракт** | `web/ws_protocol.py` (pydantic) — единый источник истины WS/REST, парити-тест с TypeScript ловит дрейф |
 | **Память** | Структурированное резюме · профили · ChromaDB (семантический поиск) |
-| **Клиенты** | React Native 0.85 (мобайл) · Next.js 14 (веб) · Tauri v2 (десктоп) |
+| **Клиенты** | React Native (мобайл) · Next.js (веб) · Tauri v2 (десктоп) — монорепо с общими дизайн-токенами |
 | **Push** | Firebase Cloud Messaging (FCM) |
 | **Интеграции** | Google Drive · Calendar · Sheets · rclone · DuckDuckGo Search · Claude Vision |
-| **Безопасность** | firejail-изоляция Python · workspace per user · path traversal protection · HMAC сессии |
-| **Самоэволюция** | `/evolve` — Мира сама правит свой код через 5-слойную валидацию (whitelist → syntax → smoke test → atomic rollback) |
+| **Безопасность** | firejail-изоляция Python (fail-closed) · workspace per user · path traversal protection · HMAC-сессии |
+| **Наблюдаемость** | Sentry-совместимый сбор ошибок (`SENTRY_DSN`) + redaction секретов в логах |
+| **Самоэволюция** | `/evolve` — Мира правит свой код через многослойную валидацию (whitelist → syntax → smoke test → atomic rollback) |
 
-## v2.4 — живое общение (в работе)
+## Структура монорепо
 
-| Категория | Фичи |
-|---|---|
-| 📜 **Регламент поведения** | `RULES.md` (канон для людей) + `behavior.md` (инжект-форма): blacklist канцелярита/AI-клише, активный залог, рваный ритм, hedging, честность («не объявляй готовым, пока не готово»), приватность. Склеивается в единое **ядро** с характером из `persona.json` — без дублей и лишних токенов. |
-| 🗣 **Инверсия маршрутизации** | Убран router-гейт: каждое сообщение идёт к Мире с полным ядром и профилем, она отвечает сама и сама зовёт инструменты. Чинит «отвечала не как Мира / путала собеседника / спрашивала то, что знает». |
-| 🧠 **Recall строже** | Память подмешивается в ответ только на близкие совпадения (0.35 вместо 0.95) и с рамкой «справка для контекста, не вывод о личности собеседника». |
-| 🩺 **Ритуалы оживлены** | Исправлен `NameError` в цикле ритуалов — `self_review`/`server_health`/`weekly_summary` не запускались ни разу. Плюс **on_startup-селфтест**: после каждого перезапуска процесса гонятся ритуалы с флагом `on_startup`. |
-| 🆕 **Ритуал `agent_versions`** | Ежедневно в 9:00 + при старте Мира через `openrouter_list_models` и `web_search` смотрит, не вышли ли модели новее её основной (`claude-sonnet-4.6`) / запасной (`deepseek-v4-pro`); сама переключение не делает — пинг владельцу только при MAJOR. |
-| 🛠 **Тех-чат владельца** | Отдельный канал в приложении для системных событий: ритуалы, ошибки, заявки новых пользователей. Полный текст в БД (`owner_inbox`, retention 30 дней) + WS-push в realtime + Telegram-fallback с разбивкой на чанки 3900. Снята обрезка `[:500]`. Дубль ритуалов исправлен (in-memory флаг «уже бежит»). Эндпоинты: `GET/POST /m/owner_inbox`. |
-| 🔧 **Двусторонний tech-режим** | Внутри тех-чата — отдельный разговор с Мирой в роли разработчика: сырые логи, стеки, диагностика. Сессия `tech_<owner>` отдельная от основной. На бэке `Agent.run(extra_system)`, на клиенте `sendMessage(text, atts, 'tech')`. История в `/history?scope=tech`. Веб + desktop + Mira_Mobile v1.0.7. |
-| 📰 **Журнал «что нового»** | `WHATS_NEW.md` — лента новых фич с пометкой `[ALL]` / `[OWNER]` и датой. Мира видит его через инструмент `whats_new()` и сама упоминает новинку, когда уместно. При первом обращении после обновления — система подсказывает ей контекстом (`profile.last_changelog_seen` vs mtime файла). Только фичи; багфиксы не пишутся. |
-| ✂️ **Живой ритм ответов** | `tools/chunking.py:split_for_chat` режет длинный ответ на 2-3 сообщения по `\n\n` (реакция / основа / эпилог) с микро-задержкой 0.4-0.5 с между ними. WS, Telegram, мобайл — везде. Код-блоки и markdown-таблицы не дробятся. В БД сохраняется одна запись (полный ответ), не N. |
-| 🕒 **Реальные timestamps** | `/history` отдаёт `ts` для каждого сообщения, клиенты (веб + мобайл, обычный и tech-чат) теперь показывают реальное время, а не «сейчас» для всей подгруженной истории. |
-| 💭 **Облако мысли** | `Agent.run(on_progress)` — перед каждым tool_call вызывает коллбэк с человекообразным описанием инструмента (`web_search` → «ищет в интернете: «...»», `gcal_quick_add` → «добавляет событие», и т.д.). WS-handler через `run_coroutine_threadsafe` шлёт `{type: 'thought', content}` из потока `asyncio.to_thread`. На клиенте заменяет последний `thinking`-индикатор. Работает и в основном чате, и в tech-режиме. |
-| ✉️ **Сообщения между пользователями** | `tools/messaging.py` + 6 инструментов: `find_user`, `send_to_user`, `confirm_send_to_user`, `cancel_send_to_user`, `block_sender`, `unblock_sender`. Двухфактор: send_to_user готовит pending (TTL 10 мин), Мира показывает превью и спрашивает «отправить?»; при «да» — confirm_send_to_user доставляет (TG-DM + БД + FCM push). Получатель видит, от кого. Блокировка по имени отправителя. Гостям отправлять нельзя. Augment `_incoming_augment` подсказывает Мире, что у собеседника есть непрочитанные письма — она зачитывает уместно и предлагает ответить. |
-| ⚡ **Cache-split system-промпта** | Маркер `<<MIRA_DYNAMIC>>` между статичным ядром (характер + регламент) и динамикой (время, профиль, summary, augments). `providers._apply_prompt_caching` режет по маркеру и кэширует только static — токены и латентность вниз для Anthropic через OpenRouter. |
-| 🧬 **Persona overlay** | Soft-поля (`curiosity`, `emotions`, `self_awareness`), которые Мира правит через `write_persona`, теперь пишутся в `memory/persona_overlay.json` (git-untracked) — `git pull` на проде больше не падает с конфликтом. `load_persona()` мерджит overlay поверх базы. Первая миграция автоматическая. |
+После слияния клиентов и бэкенда — один репозиторий:
 
-## Что в v2.3 нового
+```
+mira_agent/
+├── agent.py, conclave.py, router.py, providers.py   ← ядро: агент, Конклав, failover
+├── agent_tools.py                                   ← реестр инструментов + execute_tool
+├── telegram_bot.py                                  ← Telegram-бот + циклы ритуалов/задач
+├── web/                                             ← FastAPI + WebSocket
+│   ├── app.py                                       ← WS-хендлер, REST
+│   ├── ws_protocol.py                               ← pydantic-контракт (источник истины)
+│   ├── routes/                                      ← вынесенные роутеры (mobile, files, owner_inbox)
+│   └── deps.py, security.py                         ← сессии, безопасность
+├── agents/*.json                                    ← конфиги агентов (один класс, разные модели)
+│   └── rituals/*.json                               ← фоновые задачи (cron + on_startup)
+├── tools/                                           ← инструменты (Google, файлы, память, логи, …)
+├── clients/                                         ← npm-воркспейсы веб/десктоп
+│   ├── apps/web/                                    ← Next.js
+│   ├── apps/desktop/                                ← Tauri v2
+│   └── packages/shared/                             ← общие типы + дизайн-токены (TS)
+├── mobile/                                          ← React Native (APK через CI → Mira_Mobile)
+├── memory/                                          ← оперативные данные (mira.db, chroma, overlay)
+└── scripts/                                         ← деплой, бэкап, релиз, smoke
+```
 
-| Категория | Фичи |
-|---|---|
-| 🔒 **Security-аудит** | По OWASP (ASVS 5.0 / API Top-10 / LLM Top-10 2025): фикс path-traversal в Google Drive, одноразовые коды `/m/auth` (токен больше не в URL), security-заголовки + HSTS + современные TLS-шифры в nginx, redaction-фильтр секретов в логах, `run_python` в firejail-песочнице. Закрыта утечка токена бота в логи. |
-| 📲 **In-app обновление мобайла** | `/mobile/version` + `/mobile/download` — раздача APK из приватного репо через PAT-прокси (302 на CDN GitHub, не хранится на сервере). В приложении обновление качается и ставится **без браузера** (как 2ГИС/Telegram). |
-| 🩹 **Надёжность LLM** | `providers.call` ловит `choices=null` от OpenRouter → понятный failover вместо криптичной ошибки. |
-| 👥 **Структурные данные для UI** | Счётчики в сайдбаре (файлы/напоминания/задачи/пользователи/ритуалы), `users_data` → список пользователей для раскрывающегося меню, `id` в `/users` для `/rename`. |
-| 🧹 **Retention** | Авточистка сессий старше `RETENTION_DAYS` (по умолчанию 90; `0` отключает). |
-| 🎨 **Aurora-веб (1:1 с мобайлом)** | Браузерный клиент переведён на Aurora (полночь+золото, 3 шрифта, фирменные SVG-иконки через SVGR): справочные команды и список пользователей раскрываются в боковом меню (не в чате), подменю действий по пользователям, кнопка прыжка вниз. |
-| ✨ **Карточки памяти + чистая лента** | Под ответом Миры — карточка «Из памяти», когда ответ реально опирался на близкое воспоминание (строгий гейт по релевантности, не на каждом сообщении). Действия из меню (очистить/забыть/создать напоминание…) подтверждаются всплывающим тостом, а не сообщением в чате — лента остаётся чистой. Счётчики из `ready.counts` показываются бейджами в меню. Веб + мобайл. |
-| 👤 **Экран «Профиль» + анкета** | WS-команда `profile_data` отдаёт структурированный профиль (дней вместе/бесед/фактов памяти/Drive/что Мира знает). Экран «Профиль» = редактируемая **анкета**: как обращаться + на «ты»/«вы», **манера Миры** (8 чипов), откуда/занятие, **часовой пояс из списка** (picker вместо ручного ввода), свободные заметки. Анкета **авто-открывается после одобрения** новому пользователю (`profile_save` → `onboarded`), её поля инъектятся в системный промпт через `_persona_block()` — Мира подстраивает **тон** под каждого, оставаясь собой (характер из `SYSTEM_PROMPT` неизменен). «Забыть меня» с подтверждением. Веб + мобайл. |
-
-## Что в v2.2 нового
-
-| Категория | Фичи |
-|---|---|
-| 🌍 **Per-user timezone** | `/tz Asia/Khabarovsk` — Мира знает локальное время каждого юзера, парсит «завтра 8:00» в его зоне. Storage везде UTC. |
-| 🖼 **Vision из приложений** | Прикрепил фото через скрепку в mobile/web → Мира видит и описывает (раньше только через Telegram). |
-| ✏️ **Rename пользователей** | `/rename <user_id> <имя>` (owner) — для тестеров: понятные имена в `/users` вместо подтянутых из Telegram. |
-| 🩺 **Smoke-suite** | `scripts/smoke.sh` — 29 end-to-end проверок (HTTP, WS, upload, БД, Google API, FCM, парсер времени). Cron-обёртка `smoke_cron.py` запускается ежедневно, алертит владельца при fail. |
-| 🚀 **Auto-release** | `scripts/release.sh` для бэка и мобайла — bump+tag+CI+APK+GitHub Release одной командой. |
-| 📦 **logrotate** | `mira_smoke.log` / `mira_autosync.log` — daily/weekly ротация, прекращает бесконечный рост. |
-
-## Что было в v2.0–v2.1
-
-| Категория | Фичи |
-|---|---|
-| 📱 **Клиенты** | Mobile (RN), Web (Next.js), Desktop (Tauri), one-tap Telegram-логин |
-| ☰ **Drawer-меню** | Выезжающая панель со ВСЕМИ командами, иконки, серые при отсутствии прав |
-| 🔔 **Уведомления** | FCM push на ответы и напоминания · mirror в Telegram |
-| 🤖 **Автономия** | Ритуалы по cron (self-review каждые 4ч, server health daily) · Scheduled tasks |
-| 📎 **Файлы** | Прикрепления через скрепку · multi-attachments (до 5) · download через тап |
-| 🔧 **Owner-команды** | `/stats`, `/users`, `/versions`, `/rituals`, `/approve`, `/block`, `/reflect`, `/image` в приложениях |
-| 🛡 **Инфра** | Pre-commit hook, SSH deploy keys, 250+ тестов, nginx 25MB, fix-timezone reminders |
-
-[**→ Все релизы**](https://github.com/Glombert/Mira_BOT/releases)
+`clients/packages/shared/src/tokens.ts` — единый источник дизайн-токенов (палитра, шрифты, радиусы): и веб (Tailwind), и мобайл (theme) берут значения отсюда — цвета не расходятся.
 
 ---
 
-## Скриншоты
+## Версии
 
-<div align="center">
+### v2.4 — живое общение + самоулучшение
 
-| Mobile login | Mobile chat | Web (browser) |
-|:---:|:---:|:---:|
-| <sub>Telegram one-tap auth</sub> | <sub>Звезда-логотип, typewriter, attachments</sub> | <sub>Next.js + WebSocket</sub> |
+| Категория | Что |
+|---|---|
+| 🗣 **Голос Миры** | Убран router-гейт: каждое сообщение идёт к Мире с полным **ядром** (характер `persona.json` + регламент `RULES.md`/`behavior.md` + профиль), она отвечает сама и сама зовёт инструменты. Регламент: blacklist канцелярита/AI-клише, активный залог, рваный ритм, честность. |
+| ✂️ **Живой ритм** | Длинный ответ дробится на 2–3 сообщения (реакция / основа / эпилог) с микро-задержкой; код-блоки и таблицы не режутся. |
+| 💭 **Облако мысли** | Перед каждым `tool_call` — человекообразная подпись действия (`web_search` → «ищет в интернете…»). |
+| 🤖 **Ритуалы самоулучшения** | Раз в 2 недели: `self_review` (рефакторинг + безопасность + идеи, на Opus), `log_audit` (повторяющиеся ошибки из логов), `agent_versions` (выход новых моделей), `weekly_summary` (статистика/стоимость). Ежедневно — `server_health` (живость + диск). |
+| 🛠 **Тех-канал владельца** | Отдельный канал в приложении: ритуалы, ошибки, заявки. Двусторонний tech-режим (Мира в роли разработчика, сырые логи/стеки). `owner_inbox` (retention 30 дней) + WS-push + Telegram-fallback. |
+| ✉️ **Сообщения между пользователями** | `find_user` / `send_to_user` с двухфактором (превью → подтверждение → доставка TG+FCM), блокировка отправителей. |
+| ⚡ **Cache-split + persona overlay** | Маркер `<<MIRA_DYNAMIC>>` кэширует статичное ядро (Anthropic prompt caching). Soft-поля характера пишутся в `memory/persona_overlay.json` (git-untracked) — `git pull` на проде не конфликтует. |
 
-</div>
+### Раньше
 
-> *Скриншоты добавь сам через PR — рекомендуемое разрешение 1080×2400 для mobile, 1440×900 для web/desktop.*
+- **v2.3** — security-аудит (OWASP ASVS/API/LLM Top-10), in-app обновление мобайла (PAT-прокси APK), Aurora-веб (1:1 с мобайлом), карточки памяти, экран «Профиль» + анкета.
+- **v2.2** — per-user timezone, vision из приложений, smoke-suite, auto-release, logrotate.
+- **v2.0–2.1** — мобайл/веб/десктоп-клиенты, one-tap Telegram-логин, drawer-меню, FCM push, ритуалы и scheduled tasks.
+
+[**→ Полная история релизов**](https://github.com/Glombert/Mira_BOT/releases)
 
 ---
 
-## 28 инструментов в одном тулбоксе
+## Инструменты (39)
 
 <details>
 <summary>Развернуть полный список</summary>
 
 | Категория | Инструменты |
 |---|---|
-| Файлы | `list_files`, `read_file`, `write_file`, `excel_read`, `excel_write`, `save_template`, `list_templates` |
-| Само-рефлексия | `list_self`, `read_self`, `recall`, `git_log`, `write_persona`, `write_agent_config` |
-| Веб + поиск | `web_search` (DuckDuckGo) |
+| Файлы | `list_files`, `read_file`, `write_file`, `excel_read`, `excel_write`, `attach_file`, `save_template`, `list_templates` |
+| Само-рефлексия | `list_self`, `read_self`, `recall`, `git_log`, `read_logs`, `metrics_read`, `write_persona`, `write_agent_config` |
+| Веб + код | `web_search`, `run_python` (firejail-изоляция), `generate_image`, `openrouter_list_models`, `whats_new` |
 | Google Drive | `gdrive_list`, `gdrive_read`, `gdrive_write` |
 | Google Calendar | `gcal_list`, `gcal_create`, `gcal_quick_add` |
 | Google Sheets | `gsheet_read`, `gsheet_write`, `gsheet_create` |
 | Напоминания | `schedule_reminder`, `list_reminders`, `cancel_reminder` |
-| Метрики | `metrics_read` |
-| Код | `run_python` (firejail-изоляция) |
+| Сообщения | `find_user`, `send_to_user`, `confirm_send_to_user`, `cancel_send_to_user`, `block_sender`, `unblock_sender` |
 
 </details>
 
@@ -200,7 +184,7 @@ Mira — это **твой собственный AI-ассистент**, к к
 
 ## Быстрый старт
 
-### Локальная разработка
+### Локальная разработка (бэкенд)
 
 ```bash
 git clone https://github.com/Glombert/Mira_BOT.git mira_agent
@@ -215,425 +199,225 @@ pip install -r requirements.txt
 ```env
 API_OPENROUTER_KEY=sk-or-v1-...
 API_OPENROUTER_URL=https://openrouter.ai/api/v1
-
 API_DEEPSEEK_KEY=sk-...
 API_DEEPSEEK_URL=https://api.deepseek.com/v1
-
 API_ANTHROPIC_KEY=sk-ant-...
 
 TELEGRAM_BOT_TOKEN=...
 OWNER_TELEGRAM_ID=123456789
-OWNER_CLI_USER=andrey
 
 # Опционально:
-MEMORY_ENCRYPTION_KEY=...            # Fernet-ключ — шифрование памяти (см. ниже)
-SENTRY_DSN=...                       # сбор ошибок в Sentry (без него — выключено)
+MEMORY_ENCRYPTION_KEY=...            # Fernet-ключ — шифрование памяти
+SENTRY_DSN=...                       # сбор ошибок (без него выключено)
 MIRA_MAX_CONCURRENT_LLM=6            # потолок одновременных LLM-вызовов на процесс
 ```
 
-Запуск для разработки:
+Запуск:
 
 ```bash
 # Локально без firejail run_python заблокирован (fail-closed). Для разработки:
 export MIRA_ALLOW_UNSANDBOXED=1
-python telegram_bot.py              # Telegram Bot
-python web/app.py                   # Веб-интерфейс (порт 8000)
-python agent.py --profile dev --user andrey   # CLI
+python telegram_bot.py                          # Telegram-бот
+uvicorn web.app:app --host 127.0.0.1 --port 8000  # веб (FastAPI)
+python agent.py --profile dev --user andrey     # CLI
 ```
 
-### Развёртывание на VPS
+### Клиенты (веб / десктоп / мобайл)
 
-**1. Клонируй и установи зависимости:**
+```bash
+cd clients && npm install            # воркспейсы web + desktop + packages/shared
+npm --workspace apps/web run dev     # Next.js
+# Desktop (Tauri): npm --workspace apps/desktop run tauri dev
+
+cd ../mobile && npm install          # React Native (APK собирается только в CI)
+```
+
+> ⚠️ Тяжёлые нативные сборки (gradle / `react-native run-android`) — **только через CI**, не локально.
+
+### Тесты
+
+```bash
+venv/bin/pytest -q                                  # бэкенд (407 тестов)
+cd clients/apps/web && npx vitest run               # веб (vitest + RTL)
+cd mobile && npx jest                               # мобайл (jest)
+```
+
+---
+
+## Развёртывание на VPS
+
+**1. Код + зависимости:**
 ```bash
 git clone https://github.com/Glombert/Mira_BOT.git mira_agent
-cd mira_agent
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+cd mira_agent && python3 -m venv venv && venv/bin/pip install -r requirements.txt
 ```
 
-**2. Настрой `.env`** (аналогично локальному).
+**2. Настрой `.env`** (как локально). **3. Восстанови память** (если переезд): `rclone copy gdrive:Mira/memory ./memory`.
 
-**3. Восстанови память из облака (если переезд):**
-```bash
-rclone copy gdrive:Mira/memory ./memory
-```
+**4. systemd-сервисы** `mira-bot` (Telegram) и `mira-web` (FastAPI). Шаблоны — в `scripts/mira-bot.service` / `scripts/mira-web.service`, включая лимиты памяти (важно, если на VPS живёт ещё и VPN):
 
-**4. Создай systemd-сервисы** — `mira-bot` (Telegram) и `mira-web` (FastAPI):
-
-`/etc/systemd/system/mira-bot.service`:
 ```ini
-[Unit]
-Description=Mira AI Bot (Telegram)
-After=network.target
-
+# /etc/systemd/system/mira-web.service
 [Service]
-Type=simple
 WorkingDirectory=/root/mira_agent
-ExecStart=/root/mira_agent/venv/bin/python telegram_bot.py
+ExecStart=/root/mira_agent/venv/bin/uvicorn web.app:app --host 127.0.0.1 --port 8000
 Restart=on-failure
 RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-```
-
-`/etc/systemd/system/mira-web.service`:
-```ini
-[Unit]
-Description=Mira Web Interface
-After=network.target
-
-[Service]
-Type=simple
-WorkingDirectory=/root/mira_agent
-ExecStart=/root/mira_agent/venv/bin/python web/app.py
-Restart=on-failure
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
+MemoryHigh=350M
+MemoryMax=450M
+TasksMax=256
 ```
 
 ```bash
-systemctl daemon-reload
-systemctl enable --now mira-bot mira-web
+systemctl daemon-reload && systemctl enable --now mira-bot mira-web
 ```
 
-**5. Настрой автодеплой (GitHub Actions):**
+**5. Автодеплой (GitHub Actions):** секреты `SSH_PRIVATE_KEY`, `VPS_HOST`, `VPS_USER`; `.github/workflows/deploy.yml` обновляет сервер при пуше.
 
-В настройках репозитория добавь три секрета: `SSH_PRIVATE_KEY`, `VPS_HOST`, `VPS_USER`.
-Файл `.github/workflows/deploy.yml` уже в репозитории — при каждом пуше в `main` сервер обновляется автоматически.
+**6. Nginx + SSL (DuckDNS + acme.sh):** шаблон в `scripts/nginx.conf.example`, DNS-01 через duckdns.
 
-**6. Nginx + SSL (DuckDNS + acme.sh):**
+**7. Бэкап памяти** (`/root/mira_backup.sh`, cron 3:00 UTC) — делает **консистентный снапшот SQLite** (online-backup API), синкает на Drive с `--backup-dir` (версионирование: изменённый/удалённый файл уезжает в датированный архив → point-in-time recovery), и шифрует `.env` GPG'ом офсайт:
+
 ```bash
-# Получить бесплатный субдомен на duckdns.org, затем:
-curl https://get.acme.sh | sh -s email=your@email.com
-export DuckDNS_Token="токен_с_duckdns.org"
-~/.acme.sh/acme.sh --issue --dns dns_duckdns -d your-name.duckdns.org --server letsencrypt
-mkdir -p /etc/ssl/mira
-~/.acme.sh/acme.sh --install-cert -d your-name.duckdns.org \
-  --fullchain-file /etc/ssl/mira/fullchain.cer \
-  --key-file /etc/ssl/mira/key.key \
-  --reloadcmd "systemctl reload nginx"
-# Шаблон Nginx конфига: scripts/nginx.conf.example
-cp scripts/nginx.conf.example /etc/nginx/sites-available/mira
-# Замени YOUR_DOMAIN, запусти: nginx -t && systemctl start nginx
+# Парольную фразу сохрани в менеджере паролей — без неё restore невозможен
+echo 'ТВОЯ_ФРАЗА' > /root/.mira_backup_pass && chmod 600 /root/.mira_backup_pass
 ```
-
-**7. Настрой бэкап памяти:**
-
-`/root/mira_backup.sh` синхронизирует `memory/` (профили, сессии, рефлексии) и `versions/` (бэкапы кода и персоны) на Drive ежедневно в 3:00 UTC:
-```bash
-cat > /root/mira_backup.sh << 'EOF'
-#!/bin/bash
-LOG=/root/mira_backup.log
-echo "=== $(date -u +%Y-%m-%dT%H:%M:%SZ) backup ===" >> $LOG
-rclone sync /root/mira_agent/memory   gdrive:Mira/memory   --log-file=$LOG
-rclone sync /root/mira_agent/versions gdrive:Mira/versions --log-file=$LOG
-EOF
-chmod +x /root/mira_backup.sh
-echo "0 3 * * * /root/mira_backup.sh" | crontab -
-```
-
-**8. Зашифруй `.env` на Drive** (без него зашифрованная память бесполезна):
-```bash
-# Придумай и сохрани пароль в менеджере паролей — он понадобится для восстановления
-BACKUP_PASSPHRASE='ТВОЙ_ПАРОЛЬ' /root/mira_agent/scripts/backup_env.sh
-```
-
-Перезапускай после любых правок `.env` — например смены ключей API.
 
 ---
 
 ## Disaster Recovery
 
-Полный перенос Миры на новый сервер.
-
-**Что нужно сохранить** (за пределами сервера):
-- Парольная фраза от `backup_env.sh` — в менеджере паролей или на бумаге
-- Доступ к Google Drive аккаунту (там зашифрованная память, .env и бэкапы кода)
-
-**Восстановление:**
+**Что хранить вне сервера:** парольную фразу `backup_env.sh` (в менеджере паролей) + доступ к Google Drive (там зашифрованная память, `.env` и бэкапы кода).
 
 ```bash
-# 1. Поставь зависимости и rclone, настрой Drive remote 'gdrive:'
-apt install -y python3.12 python3.12-venv rclone gpg firejail
-rclone config   # настрой gdrive: интерактивно
-
-# 2. Клонируй код
-git clone https://github.com/Glombert/Mira_BOT.git /root/mira_agent
-cd /root/mira_agent
+# 1. зависимости + rclone remote 'gdrive:'
+apt install -y python3.12 python3.12-venv rclone gpg firejail && rclone config
+# 2. код
+git clone https://github.com/Glombert/Mira_BOT.git /root/mira_agent && cd /root/mira_agent
 python3 -m venv venv && venv/bin/pip install -r requirements.txt
-
-# 3. Восстанови зашифрованный .env
-BACKUP_PASSPHRASE='ТВОЙ_ПАРОЛЬ' ./scripts/restore_env.sh
-
-# 4. Восстанови память и историю изменений
-rclone copy gdrive:Mira/memory   ./memory
-rclone copy gdrive:Mira/versions ./versions
-
-# 5. Запусти systemd-сервисы
-systemctl daemon-reload
-systemctl enable --now mira-bot mira-web
+# 3. зашифрованный .env
+BACKUP_PASSPHRASE='ТВОЯ_ФРАЗА' ./scripts/restore_env.sh
+# 4. память (mira.db.backup — консистентный снапшот) + история эволюции
+rclone copy gdrive:Mira/memory ./memory && rclone copy gdrive:Mira/versions ./versions
+# 5. сервисы
+systemctl daemon-reload && systemctl enable --now mira-bot mira-web
 ```
 
-После этого Мира на новом сервере знает всех пользователей, помнит прошлые разговоры, сохранила свои рефлексии и видит свою историю эволюции.
+После этого Мира знает всех пользователей, помнит разговоры, хранит свои рефлексии и видит историю эволюции.
 
 ---
 
-## Архитектура
+## Архитектура (детально)
 
 ### Мира + Конклав
 
-Один голос — Мира (агент `alpha`). Каждое сообщение идёт к ней с полным **ядром**
-(характер из `persona.json` + правила из `RULES.md`/`behavior.md` + профиль
-собеседника), и она отвечает **сама**, вызывая нужные инструменты: поиск, код,
-календарь, напоминания, картинки, таблицы. Роутера-врат, который раньше
-классифицировал запрос и уводил его «мимо» личности к исполнителю, больше нет —
-обычный разговор всегда остаётся за Мирой.
+Один голос — Мира (агент `alpha`). Каждое сообщение идёт к ней с полным ядром и профилем собеседника; она отвечает **сама**, вызывая инструменты. Роутера-врат, уводившего запрос «мимо» личности, больше нет.
 
 ```
 сообщение → Мира (alpha) с полным ядром
-                │
                 ├─ отвечает сама (1 вызов) — обычный разговор
-                │
                 └─ под тяжёлую задачу зовёт специалиста как ИНСТРУМЕНТ:
                        Кодер / Разведчик / Художник / Excel
-                       (цикл executor → editor → critic), результат
-                       Мира доносит своим голосом — вызов идёт с `💭`
+                       (цикл executor → editor → critic), результат — голосом Миры (с `💭`)
 ```
-
-Конклав (специалисты + цикл качества, максимум 3 итерации, приём при оценке
-critic ≥7/10) сохранён и подключается к Мире как инструмент для точечных тяжёлых
-задач — не как маршрут в обход неё.
 
 ### Один класс — разные конфиги
 
-Все агенты — один класс `Agent`, разные JSON в `agents/`:
-
 ```
 agents/
-  alpha.json              ← Мира, голос системы
-  coder.json              ← код (Claude Sonnet 4.6 → Opus 4.7 → Anthropic direct)
-  planner.json            ← декомпозиция задач
-  editor.json             ← редактура (DeepSeek)
-  critic.json             ← контроль качества (Gemini → Claude)
-  reviewer.json           ← финальная проверка
-  scout.json              ← веб-поиск (Perplexity sonar-pro → DuckDuckGo)
-  excel_specialist.json   ← работа с таблицами
+  alpha.json              ← Мира, голос системы (Sonnet 4.6 → DeepSeek)
+  coder.json              ← код (Opus 4.8 → Sonnet 4.6 → Anthropic direct)
+  planner / editor / critic / reviewer / scout / excel_specialist / artist
   _template.json          ← базовый шаблон
+  rituals/                ← фоновые задачи (см. ниже)
 ```
 
 ### Резервирование провайдеров
 
 ```json
-{
-  "model_chain": [
+{ "model_chain": [
     { "provider": "openrouter", "model": "anthropic/claude-sonnet-4.6" },
     { "provider": "openrouter", "model": "deepseek/deepseek-chat" },
-    { "provider": "anthropic",  "model": "claude-sonnet-4.6" }
-  ]
-}
+    { "provider": "anthropic",  "model": "claude-sonnet-4.6" } ] }
 ```
 
-При сбое первого — переход ко второму. Каждое переключение пишется в `memory/decisions.log` и уведомляет владельца в Telegram.
+При сбое первого — переход ко второму. Каждое переключение пишется в `memory/decisions.log` и уведомляет владельца. Стоимость каждого вызова — в `memory/metrics/` (видна через `metrics_read`).
 
-### Память
+### Ритуалы (автономия)
+
+`agents/rituals/*.json` — cron + промпт + агент + порог уведомления:
+
+| Ритуал | Когда | Агент | Что делает |
+|---|---|---|---|
+| `server_health` | ежедневно 00:00 | alpha | размер БД, диск, heartbeat |
+| `self_review` | 1 и 15 числа | coder/Opus | рефакторинг + безопасность + идеи |
+| `log_audit` | 1 и 15 числа | alpha | повторяющиеся ошибки из логов (`read_logs`) |
+| `agent_versions` | 1 и 15 числа | alpha | вышли ли модели новее текущей |
+| `weekly_summary` | 1 и 15 числа | alpha | статистика: юзеры, эволюции, стоимость LLM |
+
+Доставка: `owner_inbox` + WS-push + Telegram-fallback (если IMPORTANCE ≥ порога). Защита от дублей — in-memory флаг «уже бежит».
+
+### Память и логи
 
 ```
 memory/
-├── mira.db                 ← SQLite (WAL): профили, сессии, напоминания,
-│                            рефлексии, gdrive-токены
-├── chroma/                 ← векторная база ChromaDB (семантический поиск)
-├── templates/              ← пользовательские шаблоны задач
-└── decisions.log           ← лог переключений провайдеров и решений
+├── mira.db              ← SQLite WAL: профили, сессии, напоминания, рефлексии, owner_inbox
+├── mira.db.backup       ← консистентный снапшот (для бэкапа)
+├── chroma/              ← ChromaDB (семантический поиск)
+├── persona_overlay.json ← soft-поля характера (git-untracked)
+└── decisions.log        ← переключения провайдеров
+
+logs/                    ← TimedRotatingFileHandler, retention 14 дней
+└── telegram_bot.log, web.log (+ ротированные .YYYY-MM-DD)
 ```
 
-Все пользовательские данные в `mira.db` прозрачно шифруются Fernet (если задан `MEMORY_ENCRYPTION_KEY`). `decisions.log` не шифруется (технический, без личных данных).
-
-WAL-режим позволяет Telegram-боту и веб-интерфейсу писать в один профиль одновременно без гонок. До v1.6 каждый компонент имел свой JSON-файл и обновления могли затирать друг друга.
-
-Миграция со старого формата: `python -m tools.migrate_state` — читает JSON-файлы и переносит в mira.db, идемпотентно.
-
-Бэкап: `rclone sync memory/ gdrive:Mira/memory` — настраивается через cron.
-
-### Логи
-
-```
-logs/
-├── agent.log               ← текущий день
-├── agent.log.2026-05-11    ← вчера
-└── agent.log.2026-05-10    ← позавчера (старше 3 дней удаляется)
-```
-
-Ротация ежедневная, хранится 3 дня. Логи — не память: профили и сессии в `memory/`.
+Пользовательские данные в `mira.db` прозрачно шифруются Fernet (если задан `MEMORY_ENCRYPTION_KEY`). WAL-режим: бот и веб пишут в один профиль без гонок.
 
 ### Workspace
 
 ```
 workspace/{user_id}/
-├── inbox/    ← сюда отправляй файлы боту
-├── output/   ← сюда Мира кладёт результаты (автоотправка в Telegram)
-├── temp/     ← временное, чистится через 7 дней
-└── .undo/    ← бэкапы перед перезаписью
+├── inbox/    ← входящие файлы    ├── output/  ← результаты Миры (автоотправка)
+├── temp/     ← временное (7 дней) └── .undo/   ← бэкапы перед перезаписью
 ```
 
 ---
 
-## Команды
+## Команды (Telegram)
 
-### Telegram (все пользователи)
+**Все:** `/start` · `/help` · `/whoami` · `/files` · `/clear` · `/forget` · `/stop`
 
-| Команда | Что делает |
-|---|---|
-| `/start` | Начать / онбординг |
-| `/help` | Справка и меню кнопок |
-| `/whoami` | Мой профиль |
-| `/files` | Мои файлы (inbox / output) |
-| `/clear` | Очистить историю диалога |
-| `/forget` | Сбросить профиль и историю |
-| `/stop` | Остановить Конклав |
+**Одобренные:** `/remind` · `/reminders` · `/remind_cancel` · `/google_login` · `/gdrive` · `/gcal` · `/gcal_create` · `/gsheet` · `/gsheet_create`
 
-### Telegram (одобренные пользователи)
+**Владелец:** `/evolve` · `/reflect` · `/rollback` · `/versions` · `/release` · `/users` · `/blacklist` · `/kidmode` · `/restart` · `/stats`
 
-| Команда | Что делает |
-|---|---|
-| `/remind <ISO-дата> <текст>` | Создать напоминание (Мира напишет в указанное время) |
-| `/reminders` | Список активных напоминаний |
-| `/remind_cancel <id>` | Отменить напоминание |
-| `/google_login` | Привязать Google Drive (получить ссылку) |
-| `/google_auth <url>` | Завершить привязку Google Drive |
-| `/google_logout` | Отвязать Google Drive |
-| `/gdrive` | Список файлов на Google Drive |
-| `/gdrive_get <имя>` | Скачать файл с Google Drive |
-| `/gdrive_toggle` | Вкл/выкл авто-загрузку файлов на Drive |
-| `/gcal [N]` | Ближайшие N событий из Google Календаря |
-| `/gcal_create <текст>` | Создать событие через естественный язык |
-| `/gsheet <id>` | Прочитать Google Таблицу |
-| `/gsheet_create <название>` | Создать Google Таблицу |
-
-### Telegram (только владелец)
-
-| Команда | Что делает |
-|---|---|
-| `/evolve <задача>` | Изменить код агента (diff + кнопки подтверждения) |
-| `/reflect` | Агент читает и анализирует свой код |
-| `/rollback` | Откат `agent.py` на предыдущую версию |
-| `/versions` | Список резервных копий |
-| `/release` | Смержить `mira-dev` в `main` |
-| `/git [msg]` | Закоммитить изменения |
-| `/users` | Управление пользователями (inline-кнопки) |
-| `/blacklist` | Чёрный список |
-| `/kidmode <id> on\|off` | Детский режим для пользователя |
-| `/restart` | Перезапустить бота |
-| `/evolution_count` | Статистика попыток самосовершенствования |
-
-### CLI (разработчик)
-
-```bash
-python agent.py --profile dev --user andrey
-```
-
-Те же команды через `/` в терминале. Плюс `/cloud sync`, `/rollback`, `/versions`.
+CLI: `python agent.py --profile dev --user <name>` — те же команды через `/` в терминале.
 
 ---
 
 ## Безопасность
 
-### Саморедактирование под контролем
-
-Перед любым изменением `agent.py`:
-1. Переключение на ветку `mira-dev`
-2. Бэкап в `versions/`
-3. Проверка синтаксиса через `ast.parse()`
-4. Smoke-test в подпроцессе (`--self-test`)
-5. Проверка `PRINCIPLES.md` — конституция агента
-
-Если хоть один шаг не прошёл — изменения не применяются.
-
-### Система доступа
-
-| Статус | Возможности |
-|---|---|
-| `owner` | Всё, включая `/evolve`, `/release`, управление пользователями |
-| `regular` | Полный доступ к workspace, инструментам, Google Drive (опционально) |
-| `guest` | Только диалог (Gemini Flash), 10 сообщений, без файлов, ждёт одобрения |
-| `rejected` | Отклонён, история сохранена |
-| `blacklisted` | Ничего, уведомление владельцу раз в сутки |
-
-Гости авто-удаляются через 3 дня без одобрения.
-
-**Детский режим** — `/kidmode <user_id> on` включает для конкретного пользователя ограниченный системный промпт: простой язык, фильтр взрослых тем. Telegram возраст не передаёт — включается вручную владельцем.
-
-### Защита от prompt injection
-
-Содержимое файлов пользователя оборачивается в маркеры:
-```
---- BEGIN USER FILE: filename.txt ---
-содержимое
---- END USER FILE ---
-```
-Всё между маркерами — данные, не инструкции.
-
-### Thread-safe память
-
-SQLite в WAL-режиме плюс `ON CONFLICT DO UPDATE` дают атомарный upsert: одновременные записи из telegram-бота и веба сериализуются на уровне БД, никто никого не затирает. Connection-per-thread через `threading.local`.
-
-### Rate limiting
-
-Sliding-window лимит на пользователя:
-- 60 сообщений в минуту
-- 20 файлов в минуту
-- Файл больше 20 МБ — отказ с пояснением
-
-При превышении Мира отвечает в своём голосе («помедленнее, я ещё не успеваю отвечать»), а не молчит и не падает с 429. Владелец (`OWNER_TELEGRAM_ID`) не лимитируется.
-
-### Тесты
-
-`pytest tests/` — 56 тестов критических путей: session token HMAC, path traversal, безопасные filenames, CRUD профилей через SQLite, sliding-window rate limit, миграция state. Запускаются автоматически в CI; локально — изолированы (`isolated_cwd` создаёт временную базу под каждый тест).
-
----
-
-## Стек
-
-| Компонент | Технология | Статус |
-|---|---|---|
-| Язык | Python 3.12+ | ✓ |
-| LLM | OpenRouter + Anthropic direct + DeepSeek direct | ✓ |
-| Telegram | python-telegram-bot 22+ | ✓ |
-| Веб | FastAPI + WebSocket + Telegram Login Widget | ✓ |
-| Vision | Claude Sonnet 4.6 (фото в чате и веб) | ✓ |
-| Excel | openpyxl | ✓ |
-| Поиск | Perplexity sonar-pro → DuckDuckGo (ddgs) | ✓ |
-| Изоляция кода | firejail `--net=none` (fail-closed: без firejail `run_python` отказывает) | ✓ |
-| Шифрование | Fernet (mira.db), GPG (.env на Drive) | ✓ |
-| Память | SQLite WAL (mira.db) + структурированное резюме + ChromaDB (семантика) | ✓ |
-| Наблюдаемость | Sentry (опционально, `SENTRY_DSN`) + redaction секретов | ✓ |
-| Защита от перегрузки | семафор одновременных LLM-вызовов (`MIRA_MAX_CONCURRENT_LLM`) | ✓ |
-| Google Drive | OAuth 2.0 (личный аккаунт пользователя) + rclone (бэкап памяти) | ✓ |
-| Google Calendar | API (gcal_list, gcal_create, gcal_quick_add) | ✓ |
-| Google Sheets | API (gsheet_read, gsheet_write, gsheet_create) | ✓ |
-| Напоминания | таблица reminders в mira.db + фоновая проверка каждые 30с | ✓ |
-| Rate limit | sliding window (60 msg / 20 files в минуту, owner exempt) | ✓ |
-| Тесты | pytest, 56 тестов критических путей | ✓ |
-| Логи | TimedRotatingFileHandler + Drive cron | ✓ |
-| Деплой | systemd (mira-bot + mira-web) + GitHub Actions CI/CD | ✓ |
-| VPS | mira-bot.duckdns.org (Ubuntu 24.04) | ✓ |
+- **Саморедактирование под контролем** — перед изменением `agent.py`: ветка `mira-dev` → бэкап в `versions/` → `ast.parse()` → smoke-test в подпроцессе → проверка `PRINCIPLES.md`. Любой провал — откат.
+- **Система доступа** — `owner` / `regular` / `guest` (10 сообщений, без файлов, авто-удаление через 3 дня) / `rejected` / `blacklisted`. Детский режим — `/kidmode`.
+- **Prompt injection** — содержимое файлов пользователя оборачивается в маркеры `BEGIN/END USER FILE`; всё внутри — данные, не инструкции.
+- **Изоляция кода** — `run_python` в firejail `--net=none`, fail-closed (без firejail отказывает).
+- **Thread-safe память** — SQLite WAL + `ON CONFLICT DO UPDATE`, connection-per-thread.
+- **Rate limiting** — sliding-window 60 сообщений / 20 файлов в минуту, файл >20 МБ — отказ; владелец не лимитируется. Семафор одновременных LLM-вызовов (`MIRA_MAX_CONCURRENT_LLM`) защищает маленький VPS.
+- **Тесты** — `pytest` (407), парити-тест WS-контракта Python⟷TypeScript, тесты клиентов (vitest/jest). CI-gated.
 
 ---
 
 ## Дорожная карта
 
 ```
-[✓] v0.1–0.9  — Фундамент, Agent, Конклав, Excel, Telegram Bot
-[✓] v1.0      — VPS, CI/CD, шифрование, самосознание, vision, деплой
-[✓] v1.1      — Веб-интерфейс, управление пользователями, долгая память, Drive sync
-[✓] v1.2      — Живой голос в Конклаве, переработанная персона, git_log, UX-полировка
-[✓] v1.3      — Семантическая память (ChromaDB), disaster recovery, отдельные reflections
-[✓] v1.4      — Google Drive OAuth (личные аккаунты пользователей), гости на Gemini Flash
-[✓] v1.5      — Напоминания (scheduled reminders), Google Calendar + Sheets, web-паритет, чувство времени, ускорение Конклава
-[✓] v1.6      — firejail, тесты (56 шт), rate limiting, рефакторинг agent.py (2460→1725 строк), SQLite миграция memory/
+[✓] v0.1–0.9  — Фундамент: Agent, Конклав, Excel, Telegram-бот
+[✓] v1.0      — VPS, CI/CD, шифрование, самосознание, vision
+[✓] v1.1–1.3  — Веб, управление пользователями, долгая память, ChromaDB, disaster recovery
+[✓] v1.4–1.5  — Google Drive OAuth, гости, напоминания, Calendar + Sheets, чувство времени
+[✓] v1.6      — firejail, тесты, rate limiting, рефакторинг, SQLite-память
+[✓] v2.0–2.3  — Клиенты (mobile/web/desktop), security-аудит, Aurora-UI, профиль/анкета
+[✓] v2.4      — Голос Миры, ритм ответов, ритуалы самоулучшения, тех-канал, монорепо,
+                наблюдаемость, единые дизайн-токены, офлайн-кэш, DR-grade бэкапы
 ```
 
 ---
