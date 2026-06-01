@@ -26,10 +26,12 @@ Mira — личный AI-ассистент. **Две кодовые базы:**
 - Деплой Mira_BOT на VPS: `git pull origin mira-dev` + `bash scripts/deploy_web.sh`
   (билдит Next.js) + `systemctl restart mira-bot` (бот ребутается сам нечасто,
   но веб иногда нужно вместе с ботом).
-- Деплой Mira_Mobile: `scripts/release.sh X.Y.Z --notes "..."` —
-  это **bump version + commit + push + ждёт CI + публикует GitHub Release с APK**.
-  `/mobile/version` берёт латест из релизов автоматически, приложение видит и
-  предлагает обновиться.
+- Деплой Mira_Mobile: **`mobile/scripts/release.sh X.Y.Z --notes "..."`** —
+  это **bump version + commit + push + ждёт CI + публикует GitHub Release с APK**
+  (тег `mobile-vX.Y.Z`, релиз в репо Mira_Mobile). `/mobile/version` берёт латест
+  из релизов автоматически, приложение видит и предлагает обновиться.
+  ⚠️ НЕ путать с `scripts/release.sh` — это релиз **бэка** (Mira_BOT, тег `vX.Y`,
+  без APK). После слияния монорепо мобильный скрипт живёт в `mobile/scripts/`.
 
 ## 3. НЕ ДЕЛАТЬ локально
 
