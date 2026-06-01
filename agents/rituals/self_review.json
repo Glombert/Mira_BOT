@@ -1,8 +1,8 @@
 {
   "name": "self_review",
-  "schedule": "0 21 * * 0",
+  "schedule": "0 21 1,15 * *",
   "prompt": "Прочитай свой код через read_self/list_self. Найди риски, баги, устаревший код, дублирование. Если найдено критичное — коротко опиши проблему и предложи исправление. Не переписывай весь код — только факты. В конце ответа добавь строку вида #IMPORTANCE: NONE|MINOR|MAJOR|CRITICAL — оцени общее состояние.",
-  "agent": "alpha",
+  "agent": "coder",
   "owner_only": true,
   "notify_threshold": "MAJOR"
 }

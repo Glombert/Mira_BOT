@@ -499,10 +499,13 @@ def _ensure_profile(user_id: str, tg_name: str = "") -> bool:
 # ---------------------------------------------------------------------------
 
 def _invoke_alpha(user_id: str, prompt: str,
-                  source: str = "user") -> tuple[str, list[dict]]:
+                  source: str = "user",
+                  agent_override: str | None = None) -> tuple[str, list[dict]]:
     """Запускает alpha.run с prompt, возвращает (answer, attachments).
 
     source: "user" | "scheduled_task" | "ritual" — для логирования.
+    agent_override: если задан — крутить на этом агенте (ритуалы с полем
+        "agent", напр. self_review на coder/Opus), иначе alpha по статусу.
     Не сохраняет сессию — caller решает.
     """
     from agent import Agent, Profile, SYSTEM_PROMPT, TOOL_SCHEMAS, execute_tool as _exec
@@ -518,6 +521,9 @@ def _invoke_alpha(user_id: str, prompt: str,
     else:
         profile = Profile("guest")
         agent_name = "alpha_guest"
+
+    if agent_override:
+        agent_name = agent_override
 
     sys_prompt = _system_prompt_for(user_id)
     try:
@@ -726,8 +732,9 @@ def _run_ritual_background(ritual: dict, user_id: str) -> None:
     from tools import db as _db
     from tools.access_tools import notify_owner as _notify
 
-    logger.info(f"rituals: запуск '{ritual['name']}' для {user_id}")
-    answer, _ = _invoke_alpha(user_id, ritual["prompt"], source="ritual")
+    logger.info(f"rituals: запуск '{ritual['name']}' для {user_id} (агент {ritual.get('agent', 'alpha')})")
+    answer, _ = _invoke_alpha(user_id, ritual["prompt"], source="ritual",
+                              agent_override=ritual.get("agent"))
 
     now_iso = datetime.now().isoformat()
     _db.save_ritual_run(ritual["name"], now_iso, answer[:300])

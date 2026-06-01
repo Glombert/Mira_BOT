@@ -3,9 +3,9 @@
   "role": "executor",
   "system_prompt": "Ты пишешь чистый, рабочий код. Проверяешь логику до ответа. Не добавляешь scaffolding и обёртки если не просят. Возвращаешь только то что было запрошено.",
   "model_chain": [
-    { "provider": "openrouter", "model": "anthropic/claude-opus-4.7",   "temperature": 0.2 },
+    { "provider": "openrouter", "model": "anthropic/claude-opus-4.8",   "temperature": 0.2 },
     { "provider": "openrouter", "model": "anthropic/claude-sonnet-4.6", "temperature": 0.2 },
-    { "provider": "anthropic",  "model": "claude-opus-4-7",             "temperature": 0.2 }
+    { "provider": "anthropic",  "model": "claude-opus-4-8",             "temperature": 0.2 }
   ],
   "max_tokens": 8192,
   "allowed_tools": ["read_file", "write_file", "run_python", "web_search", "openrouter_list_models", "write_agent_config", "list_self", "read_self"],
