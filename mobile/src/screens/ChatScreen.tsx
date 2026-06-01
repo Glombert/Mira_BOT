@@ -18,6 +18,7 @@ import { useNavigation } from '@react-navigation/native';
 import { MiraClient } from '../api/mira-client';
 import type { ChatMessageItem, UserPermissions, SidebarCounts } from '../types';
 import { mobileSessionStorage } from '../utils/storage';
+import { loadCachedHistory, saveCachedHistory, clearCachedHistory } from '../utils/historyCache';
 import { checkForUpdate } from '../api/update';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BASE_URL, IS_MOCK } from '../config';
@@ -109,6 +110,12 @@ export function ChatScreen() {
       if (!mounted) return;
       if (stored) {
         setSession(stored);
+        // Офлайн-кэш: показываем историю мгновенно, не дожидаясь сети/реконнекта.
+        // Сервер потом пришлёт свою историю (в connectClient → 'ready') и заменит.
+        const cached = await loadCachedHistory();
+        if (mounted && cached.length) {
+          setMessages((prev) => (prev.length ? prev : cached));
+        }
         connectClient(client);
         try {
           const { registerFcm } = await import('../api/fcm');
@@ -124,6 +131,11 @@ export function ChatScreen() {
       unsubscribersRef.current = [];
     };
   }, [client]);
+
+  // Сохраняем историю в кэш при изменениях (последние сообщения, без «думает»).
+  useEffect(() => {
+    if (messages.length) saveCachedHistory(messages);
+  }, [messages]);
 
   useEffect(() => {
     (async () => {
@@ -362,6 +374,7 @@ export function ChatScreen() {
           onPress: () => {
             client.sendCommand('clear');
             setMessages([]);
+            clearCachedHistory();
           },
         },
       ]
@@ -389,7 +402,7 @@ export function ChatScreen() {
     (cmd: string) => {
       if (!client) return;
       const base = cmd.split(' ')[0];
-      if (base === 'clear') setMessages([]);
+      if (base === 'clear') { setMessages([]); clearCachedHistory(); }
       if (base === 'image' || base === 'gdrive_login') {
         client.sendCommand(cmd);
         return;

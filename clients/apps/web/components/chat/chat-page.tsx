@@ -9,6 +9,7 @@ import { TelegramLogin } from '@/components/auth/telegram-login';
 import { ChatHeader } from './chat-header';
 import { ChatInput } from './chat-input';
 import { ChatMessageBubble, type ChatMessageItem } from './chat-message';
+import { loadCachedHistory, saveCachedHistory, clearCachedHistory } from '@/lib/history-cache';
 import { WhoamiModal } from '@/components/ui/whoami-modal';
 import { RemindersModal } from '@/components/ui/reminders-modal';
 import { DriveModal } from '@/components/ui/drive-modal';
@@ -393,6 +394,15 @@ export function ChatPage() {
     };
   }, [session]);
 
+  // Офлайн-кэш истории: показываем мгновенно при открытии (до ответа сервера).
+  useEffect(() => {
+    const cached = loadCachedHistory();
+    if (cached.length) setMessages((prev) => (prev.length ? prev : cached));
+  }, []);
+  useEffect(() => {
+    if (messages.length) saveCachedHistory(messages);
+  }, [messages]);
+
   const handleAuthRef = useRef(handleAuth);
   handleAuthRef.current = handleAuth;
 
@@ -429,6 +439,7 @@ export function ChatPage() {
     if (!window.confirm('Точно очистить историю? Действие необратимо.')) return;
     client.sendCommand('clear');
     setMessages([]);
+    clearCachedHistory();
   }, [client]);
 
   const handleWhoami = useCallback(() => {
@@ -453,7 +464,7 @@ export function ChatPage() {
     (cmd: string) => {
       if (!client) return;
       const base = cmd.split(' ')[0];
-      if (base === 'clear') setMessages([]);
+      if (base === 'clear') { setMessages([]); clearCachedHistory(); }
       if (base === 'image' || base === 'gdrive_login') {
         client.sendCommand(cmd);
         return;
