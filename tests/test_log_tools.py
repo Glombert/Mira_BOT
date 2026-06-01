@@ -47,6 +47,20 @@ def test_warnings_excluded_by_default(logs_dir):
     assert log_tools.read_logs(include_warnings=True)["total_matched"] == 2
 
 
+def test_ignores_keyword_outside_level_field(logs_dir):
+    # «CRITICAL» в тексте отчёта Миры и «error» в код-payload'е INFO-строки
+    # НЕ должны считаться ошибками — матчим только поле уровня лога.
+    (logs_dir / "telegram_bot.log").write_text(
+        "2026-06-01 00:00:13,000 - MiraBot - INFO - Tool call: run_python({'code': 'try error except'})\n"
+        "2026-06-01 00:00:14,000 - MiraBot - INFO - отчёт: ### CRITICAL — проблем нет\n"
+        "2026-06-01 00:00:15,000 - MiraBot - ERROR - вот это настоящая ошибка\n",
+        encoding="utf-8",
+    )
+    r = log_tools.read_logs(days=30)
+    assert r["total_matched"] == 1
+    assert "настоящая ошибка" in r["groups"][0]["sample"]
+
+
 def test_old_files_skipped_by_window(logs_dir):
     f = logs_dir / "telegram_bot.log.2020-01-01"
     f.write_text("2020-01-01 00:00:00,000 - X - ERROR - древняя ошибка\n", encoding="utf-8")

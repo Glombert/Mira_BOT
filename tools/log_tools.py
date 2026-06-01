@@ -18,8 +18,11 @@ from datetime import datetime, timedelta
 logger = logging.getLogger("Ouroboros")
 LOGS_DIR = "logs"
 
-_ERROR_RE = re.compile(r"\b(ERROR|CRITICAL|Traceback|Exception)\b", re.IGNORECASE)
-_ERROR_WARN_RE = re.compile(r"\b(ERROR|CRITICAL|Traceback|Exception|WARNING|WARN)\b", re.IGNORECASE)
+# Матчим ПОЛЕ УРОВНЯ лога (" - ERROR - "), а не слово где угодно — иначе ловим
+# «CRITICAL» в тексте отчётов самой Миры и «error» в логируемых код-payload'ах.
+# Плюс начало трейсбэка — оно без поля уровня, но однозначно про сбой.
+_ERROR_RE = re.compile(r" - (ERROR|CRITICAL) - |Traceback \(most recent call last\)")
+_ERROR_WARN_RE = re.compile(r" - (ERROR|CRITICAL|WARNING) - |Traceback \(most recent call last\)")
 
 # Нормализация строки в «сигнатуру» для группировки повторов: вырезаем
 # изменчивое (время, id, hex, пути, голые числа) — остаётся суть ошибки.
