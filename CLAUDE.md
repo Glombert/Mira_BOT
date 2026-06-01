@@ -16,7 +16,7 @@ Mira — личный AI-ассистент. **Две кодовые базы:**
   https://github.com/Glombert/Mira_Mobile
 
 Прод: VPS `root@mira-bot.duckdns.org`, два systemd-сервиса (`mira-bot`,
-`mira-web`), отдельные процессы, общая БД SQLite (`memory/db.sqlite3`).
+`mira-web`), отдельные процессы, общая БД SQLite (`memory/mira.db`).
 
 ---
 
