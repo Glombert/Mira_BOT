@@ -108,7 +108,7 @@ _file_handler = TimedRotatingFileHandler(
     "logs/telegram_bot.log",
     when="midnight",
     interval=1,
-    backupCount=3,
+    backupCount=14,  # 2 недели — чтобы биweekly-ритуал log_audit видел весь период
     encoding="utf-8",
 )
 _file_handler.suffix = "%Y-%m-%d"

@@ -29,6 +29,7 @@ from tools.gdrive_tools import (
     gsheet_read, gsheet_write, gsheet_create,
 )
 from tools.metrics_tools import metrics_read
+from tools.log_tools import read_logs
 from tools.scheduler import schedule_reminder, list_reminders, cancel_reminder
 from tools.openrouter_tools import list_models as _openrouter_list_models
 from tools.whats_new import whats_new as _whats_new
@@ -136,6 +137,7 @@ _TOOL_REGISTRY = {
     "gdrive_read":        lambda u, a: gdrive_read(u, a["file_path"]),
     "gdrive_write":       lambda u, a: gdrive_write(u, a["workspace_path"], a.get("drive_folder", "root")),
     "metrics_read":       lambda u, a: metrics_read(a.get("days", 1)),
+    "read_logs":          lambda u, a: read_logs(a.get("days", 14), a.get("include_warnings", False)),
     "gcal_list":          lambda u, a: gcal_list(u, a.get("max_results", 10), a.get("time_min")),
     "gcal_create":        lambda u, a: gcal_create(u, a["summary"], a["start_time"], a.get("end_time", ""), a.get("description", "")),
     "gcal_quick_add":     lambda u, a: gcal_quick_add(u, a["text"]),
@@ -183,6 +185,7 @@ _TOOL_HUMAN = {
     "gdrive_read":            "читает файл из Drive",
     "gdrive_write":           "загружает в Drive",
     "metrics_read":           "смотрит метрики",
+    "read_logs":              "разбирает логи на ошибки",
     "gcal_list":              "смотрит календарь",
     "gcal_create":            "создаёт событие",
     "gcal_quick_add":         "добавляет событие",

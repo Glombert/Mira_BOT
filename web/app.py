@@ -77,7 +77,7 @@ _web_log_handler = TimedRotatingFileHandler(
     "logs/web.log",
     when="midnight",
     interval=1,
-    backupCount=3,
+    backupCount=14,  # 2 недели — чтобы биweekly-ритуал log_audit видел весь период
     encoding="utf-8",
 )
 _web_log_handler.suffix = "%Y-%m-%d"
@@ -2140,10 +2140,11 @@ async def chat(websocket: WebSocket, session: str = ""):
             except Exception as e:
                 logger.warning(f"FCM push для ответа Миры: {e}")
 
-            # Mirror в Telegram-чат: чтобы при переключении интерфейсов
-            # пользователь увидел всё в одном месте. Шлём асинхронно через
-            # threading, чтобы не блокировать WS-обработчик. tg_id уже из
-            # верифицированной сессии — никакого подделанного chat_id.
+            # Mirror в Telegram-чат — НАМЕРЕННАЯ фича, не баг: владелец хочет
+            # видеть одинаковую историю в телеге и в приложении при переключении
+            # интерфейсов. Дублирование осознанное, опт-аут не нужен. Шлём
+            # асинхронно через threading, чтобы не блокировать WS-обработчик.
+            # tg_id уже из верифицированной сессии — никакого подделанного chat_id.
             if BOT_TOKEN and tg_id:
                 def _mirror_to_telegram(uid: int, q: str, a: str):
                     try:

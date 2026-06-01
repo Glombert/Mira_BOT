@@ -471,6 +471,34 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "read_logs",
+            "description": (
+                "Дайджест ошибок из логов бота/веба за последние N дней. "
+                "Похожие строки группируются по «сигнатуре» (без таймстемпов/id/"
+                "путей) и сортируются по частоте — видно ПОВТОРЯЮЩИЕСЯ проблемы. "
+                "days — за сколько дней (1-30, по умолчанию 14). "
+                "include_warnings — включать ли WARNING (по умолчанию только ERROR/"
+                "CRITICAL/Traceback). Только чтение."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "description": "За сколько дней (1-30, по умолчанию 14)."
+                    },
+                    "include_warnings": {
+                        "type": "boolean",
+                        "description": "Включать WARNING в дайджест (по умолчанию false)."
+                    }
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "gcal_list",
             "description": (
                 "Показывает ближайшие события из Google Calendar пользователя. "

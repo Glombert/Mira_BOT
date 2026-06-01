@@ -8,7 +8,7 @@
     { "provider": "anthropic",  "model": "claude-opus-4-8",             "temperature": 0.2 }
   ],
   "max_tokens": 8192,
-  "allowed_tools": ["read_file", "write_file", "run_python", "web_search", "openrouter_list_models", "write_agent_config", "list_self", "read_self"],
+  "allowed_tools": ["read_file", "write_file", "run_python", "web_search", "openrouter_list_models", "write_agent_config", "list_self", "read_self", "read_logs", "metrics_read"],
   "created_by": "human",
   "created_at": "2026-05-07",
   "version": 2
