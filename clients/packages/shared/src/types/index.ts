@@ -40,7 +40,7 @@ export type ServerMessage =
   | { type: 'pong' }
   | { type: 'thinking' }
   | { type: 'thought'; content: string }
-  | { type: 'message'; content: string; attachments?: Array<{ name: string; size: number }>; cards?: MessageCard[] }
+  | { type: 'message'; content: string; attachments?: Array<{ name: string; size: number; dir?: string }>; cards?: MessageCard[] }
   | { type: 'system'; content: string }
   | { type: 'error'; content: string }
   | { type: 'files'; files: Array<{ name: string; dir: string; size: number }> }

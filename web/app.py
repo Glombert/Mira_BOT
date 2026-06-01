@@ -213,6 +213,15 @@ def _verify_telegram(data: dict) -> bool:
 from web.security import (
     safe_filename as _safe_filename, resolve_under as _resolve_under,
 )
+# Контракт WS — единый источник истины (web/ws_protocol.py). Импортируем
+# ws_payload под алиасом _wsp: в chat() есть локальная переменная, а имя
+# ws_payload там заняли бы под dict (UnboundLocalError на уровне функции).
+from web.ws_protocol import (
+    Ready, ProfileDataMessage, ProfileData, Files, FileEntry,
+    UsersList, UserEntry, PermissionsUpdate, GdriveAuthUrl, AuthRequired,
+    Pong, ProfileSaved, SidebarCounts,
+    ws_payload as _wsp,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1005,7 +1014,7 @@ async def chat(websocket: WebSocket, session: str = ""):
 
     tg_id = _verify_session(session) if session else None
     if not tg_id:
-        await websocket.send_json({"type": "auth_required", "bot": BOT_USERNAME})
+        await websocket.send_json(_wsp(AuthRequired(bot=BOT_USERNAME)))
         await websocket.close(code=4001)
         return
 
@@ -1038,16 +1047,15 @@ async def chat(websocket: WebSocket, session: str = ""):
     # Счётчики для сайдбара (Aurora UI design)
     _counts = _compute_sidebar_counts(user_id, is_approved_ws, is_owner_ws)
 
-    await websocket.send_json({
-        "type": "ready",
-        "name": _profile.get("name", ""),
-        "is_owner": is_owner_ws,
-        "is_approved": is_approved_ws,
-        "gdrive_authorized": _gd_auth,
-        "gdrive_email": gdrive_status(user_id).get("email", "") if _gd_auth else "",
-        "permissions": _perms,
-        "counts": _counts,
-    })
+    await websocket.send_json(_wsp(Ready(
+        name=_profile.get("name", ""),
+        is_owner=is_owner_ws,
+        is_approved=is_approved_ws,
+        gdrive_authorized=_gd_auth,
+        gdrive_email=gdrive_status(user_id).get("email", "") if _gd_auth else "",
+        permissions=_perms,
+        counts=SidebarCounts(**_counts),
+    )))
     logger.info(f"WS connect: {user_id} owner={is_owner_ws} approved={is_approved_ws}")
 
     # Фоновая задача: читаем _owner_queue и шлём в WS
@@ -1081,10 +1089,10 @@ async def chat(websocket: WebSocket, session: str = ""):
                 if int(time.time() / 300) % 1 == 0:  # каждый ping — дешёво
                     tg = _verify_session(session) if session else None
                     if not tg:
-                        await websocket.send_json({"type": "auth_required", "bot": BOT_USERNAME})
+                        await websocket.send_json(_wsp(AuthRequired(bot=BOT_USERNAME)))
                         await websocket.close(code=4001)
                         break
-                await websocket.send_json({"type": "pong"})
+                await websocket.send_json(_wsp(Pong()))
                 continue
 
             # Анкета: пользователь сам заполняет профиль (необязательно, не проверяем)
@@ -1122,7 +1130,7 @@ async def chat(websocket: WebSocket, session: str = ""):
                     logger.warning(f"profile_save session refresh: {e}")
                 logger.info(f"profile_save: {user_id} onboarded manner={form['manner']}")
                 # ack отдельным типом — не сыплем в чат
-                await websocket.send_json({"type": "profile_saved"})
+                await websocket.send_json(_wsp(ProfileSaved()))
                 continue
 
             # Команды
@@ -1186,35 +1194,32 @@ async def chat(websocket: WebSocket, session: str = ""):
                         _filled_by_mira.append("occupation")
                     if not _form.get("origin") and about.get("location"):
                         _filled_by_mira.append("origin")
-                    await websocket.send_json({
-                        "type": "profile_data",
-                        "profile": {
-                            "id": user_id,
-                            "name": p.get("name", ""),
-                            "role": _role,
-                            "status": p.get("status", "regular"),
-                            "timezone": _tz,
-                            "telegram": p.get("telegram", "") or p.get("username", ""),
-                            "about_role": about.get("role", ""),
-                            "about_project": about.get("project", ""),
-                            "summary": (p.get("conversation_summary", "") or "")[:600],
-                            "gdrive_linked": bool(_gd.get("authorized")),
-                            "gdrive_email": _gd.get("email", "") if _gd.get("authorized") else "",
-                            "memory_facts": _mem,
-                            "conversations": _conv,
-                            "days_together": max(_days, 0),
-                            # анкета (form пользователя + выученное Мирой)
-                            "onboarded": bool(_form.get("onboarded")),
-                            "addressing": _addressing,
-                            "address_form": _form.get("address_form", ""),
-                            "manner": _form.get("manner", []) or [],
-                            "origin": _origin,
-                            "occupation": _occupation,
-                            "notes": _form.get("notes", ""),
-                            "manner_options": MANNER_TRAITS,
-                            "filled_by_mira": _filled_by_mira,
-                        },
-                    })
+                    await websocket.send_json(_wsp(ProfileDataMessage(profile=ProfileData(
+                        id=user_id,
+                        name=p.get("name", ""),
+                        role=_role,
+                        status=p.get("status", "regular"),
+                        timezone=_tz,
+                        telegram=p.get("telegram", "") or p.get("username", ""),
+                        about_role=about.get("role", ""),
+                        about_project=about.get("project", ""),
+                        summary=(p.get("conversation_summary", "") or "")[:600],
+                        gdrive_linked=bool(_gd.get("authorized")),
+                        gdrive_email=_gd.get("email", "") if _gd.get("authorized") else "",
+                        memory_facts=_mem,
+                        conversations=_conv,
+                        days_together=max(_days, 0),
+                        # анкета (form пользователя + выученное Мирой)
+                        onboarded=bool(_form.get("onboarded")),
+                        addressing=_addressing,
+                        address_form=_form.get("address_form", ""),
+                        manner=_form.get("manner", []) or [],
+                        origin=_origin,
+                        occupation=_occupation,
+                        notes=_form.get("notes", ""),
+                        manner_options=MANNER_TRAITS,
+                        filled_by_mira=_filled_by_mira,
+                    ))))
 
                 elif cmd == "files":
                     files = []
@@ -1229,7 +1234,7 @@ async def chat(websocket: WebSocket, session: str = ""):
                                         "dir":  subdir,
                                         "size": os.path.getsize(fpath),
                                     })
-                    await websocket.send_json({"type": "files", "files": files})
+                    await websocket.send_json(_wsp(Files(files=[FileEntry(**f) for f in files])))
 
                 elif cmd == "forget":
                     from agent import delete_user_profile
@@ -1253,7 +1258,7 @@ async def chat(websocket: WebSocket, session: str = ""):
                     else:
                         url = get_auth_url(state=user_id)
                         if url:
-                            await websocket.send_json({"type": "gdrive_auth_url", "url": url})
+                            await websocket.send_json(_wsp(GdriveAuthUrl(url=url)))
                         else:
                             await websocket.send_json({"type": "system", "content": "Не удалось создать ссылку для авторизации."})
 
@@ -1602,7 +1607,7 @@ async def chat(websocket: WebSocket, session: str = ""):
                                 {"id": u.get("id"), "name": u.get("name") or "", "status": u.get("status") or "guest"}
                                 for u in list_users()
                             ]
-                            await websocket.send_json({"type": "users_list", "users": users})
+                            await websocket.send_json(_wsp(UsersList(users=[UserEntry(**u) for u in users])))
                         except Exception as e:
                             await websocket.send_json({"type": "system", "content": f"users_data: {e}"})
                     elif cmd == "versions":
@@ -1701,7 +1706,7 @@ async def chat(websocket: WebSocket, session: str = ""):
                          from tools.gdrive_tools import _delete_token
                          _delete_token(user_id)
                          # Уведомить клиент о смене статуса Drive
-                         await websocket.send_json({"type": "permissions_update", "gdrive_authorized": False, "gdrive_email": ""})
+                         await websocket.send_json(_wsp(PermissionsUpdate(gdrive_authorized=False, gdrive_email="")))
                          await websocket.send_json({"type": "system", "content": "Google Drive отвязан."})
 
                 elif cmd == "gdrive_toggle":
@@ -2104,12 +2109,12 @@ async def chat(websocket: WebSocket, session: str = ""):
                 if idx > 0:
                     wait = max(0.45, min(prev_chars / 45.0 + 0.35, 4.0))
                     await asyncio.sleep(wait)
-                ws_payload: dict = {"type": "message", "content": chunk}
+                _msg: dict = {"type": "message", "content": chunk}
                 if idx == 0 and merged:
-                    ws_payload["attachments"] = merged
+                    _msg["attachments"] = merged
                 if idx == len(parts) - 1 and cards_payload:
-                    ws_payload["cards"] = cards_payload
-                await websocket.send_json(ws_payload)
+                    _msg["cards"] = cards_payload
+                await websocket.send_json(_msg)
                 prev_chars = len(chunk)
 
             _save_session(user_id, msgs)

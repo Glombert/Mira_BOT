@@ -38,6 +38,8 @@ class SidebarCounts(BaseModel):
 class Attachment(BaseModel):
     name: str
     size: int
+    # Сервер кладёт папку (inbox/output) — клиент строит по ней URL скачивания.
+    dir: str | None = None
 
 
 class MessageCard(BaseModel):

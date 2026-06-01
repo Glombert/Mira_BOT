@@ -85,3 +85,86 @@ def test_chat_message_is_typeless():
 ])
 def test_type_defaults(model_cls, expected_type):
     assert P._type_literal(model_cls) == expected_type
+
+
+# ---------------------------------------------------------------------------
+# Эквивалентность миграции (Фаза 2.4): структурные WS-payload'ы в web/app.py
+# переведены с сырых dict-литералов на модели + ws_payload(). Эти тесты
+# доказывают, что сериализация байт-в-байт совпадает со старым литералом —
+# миграция не меняет провод, лишь добавляет контроль контракта.
+# ---------------------------------------------------------------------------
+
+def test_eq_auth_required():
+    assert P.ws_payload(P.AuthRequired(bot="mira_bot")) == {
+        "type": "auth_required", "bot": "mira_bot"}
+
+
+def test_eq_pong():
+    assert P.ws_payload(P.Pong()) == {"type": "pong"}
+
+
+def test_eq_profile_saved():
+    assert P.ws_payload(P.ProfileSaved()) == {"type": "profile_saved"}
+
+
+def test_eq_gdrive_auth_url():
+    assert P.ws_payload(P.GdriveAuthUrl(url="https://x/y")) == {
+        "type": "gdrive_auth_url", "url": "https://x/y"}
+
+
+def test_eq_permissions_update():
+    assert P.ws_payload(P.PermissionsUpdate(gdrive_authorized=False, gdrive_email="")) == {
+        "type": "permissions_update", "gdrive_authorized": False, "gdrive_email": ""}
+
+
+def test_eq_files():
+    files = [{"name": "a.txt", "dir": "inbox", "size": 10},
+             {"name": "b.png", "dir": "output", "size": 99}]
+    assert P.ws_payload(P.Files(files=[P.FileEntry(**f) for f in files])) == {
+        "type": "files", "files": files}
+
+
+def test_eq_users_list():
+    users = [{"id": "tg_1", "name": "Аня", "status": "owner"},
+             {"id": "tg_2", "name": "", "status": "guest"}]
+    assert P.ws_payload(P.UsersList(users=[P.UserEntry(**u) for u in users])) == {
+        "type": "users_list", "users": users}
+
+
+def test_eq_ready_with_counts():
+    counts = {"files": 3, "reminders_today": 1, "tasks": 0}
+    got = P.ws_payload(P.Ready(
+        name="Аня", is_owner=True, is_approved=True,
+        gdrive_authorized=False, gdrive_email="", permissions=["chat", "files"],
+        counts=P.SidebarCounts(**counts),
+    ))
+    assert got == {
+        "type": "ready", "name": "Аня", "is_owner": True, "is_approved": True,
+        "gdrive_authorized": False, "gdrive_email": "",
+        "permissions": ["chat", "files"], "counts": counts,
+    }
+
+
+def test_eq_ready_counts_drops_none_subfields():
+    # неодобренный юзер: только files. None-подполя SidebarCounts не уходят.
+    got = P.ws_payload(P.Ready(
+        name="", is_owner=False, is_approved=False,
+        gdrive_authorized=False, gdrive_email="", permissions=["chat", "files"],
+        counts=P.SidebarCounts(files=2),
+    ))
+    assert got["counts"] == {"files": 2}
+
+
+def test_eq_profile_data_full():
+    profile = {
+        "id": "tg_1", "name": "Аня", "role": "owner", "status": "owner",
+        "timezone": "Europe/Moscow", "telegram": "anya", "about_role": "",
+        "about_project": "", "summary": "", "gdrive_linked": False,
+        "gdrive_email": "", "memory_facts": 5, "conversations": 12,
+        "days_together": 30, "onboarded": True, "addressing": "Аня",
+        "address_form": "ты", "manner": ["тепло"], "origin": "Москва",
+        "occupation": "инженер", "notes": "", "manner_options": ["тепло", "сухо"],
+        "filled_by_mira": ["origin"],
+    }
+    got = P.ws_payload(P.ProfileDataMessage(profile=P.ProfileData(**profile)))
+    assert got == {"type": "profile_data", "profile": profile}
