@@ -13,6 +13,14 @@ ExecStart=/root/mira_agent/venv/bin/uvicorn web.app:app --host 127.0.0.1 --port 
 Restart=on-failure
 RestartSec=5s
 
+# --- Resource limits ---
+# VPS 961MB RAM, на той же машине WireGuard+sing-box. Лимиты на сервис, чтобы
+# рантайм-утечка убивала СВОЙ сервис (с авто-рестартом), а не уходила в kernel
+# OOM-killer, который может прибить VPN/sshd. ~2x от наблюдаемого пика (174MB).
+MemoryHigh=350M
+MemoryMax=450M
+TasksMax=256
+
 # SECURITY TODO: включить sandboxing после смены пользователя
 # NoNewPrivileges=true
 # PrivateTmp=true

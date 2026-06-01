@@ -15,6 +15,14 @@ ExecStart=/root/mira_agent/venv/bin/python telegram_bot.py
 Restart=on-failure
 RestartSec=5s
 
+# --- Resource limits ---
+# VPS 961MB RAM, на той же машине WireGuard+sing-box. Лимиты на сервис, чтобы
+# рантайм-утечка убивала СВОЙ сервис (с авто-рестартом), а не уходила в kernel
+# OOM-killer, который может прибить VPN/sshd. ~2x от наблюдаемого пика (145MB).
+MemoryHigh=300M
+MemoryMax=400M
+TasksMax=256
+
 # Sandboxing (enable after switching to non-root user):
 # NoNewPrivileges=true
 # PrivateTmp=true
