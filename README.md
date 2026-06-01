@@ -4,7 +4,7 @@
 
 ### Личный AI-ассистент, который живёт сразу в Telegram, в браузере и в твоём телефоне
 
-[![Version](https://img.shields.io/badge/version-2.3-brightgreen?style=for-the-badge)](https://github.com/Glombert/Mira_BOT/releases/tag/v2.3)
+[![Version](https://img.shields.io/badge/version-1.1.4-brightgreen?style=for-the-badge)](https://github.com/Glombert/Mira_BOT/releases/tag/v1.1.4)
 [![Mobile](https://img.shields.io/badge/Mobile-Android_APK-FF8C42?style=for-the-badge&logo=android&logoColor=white)](https://github.com/Glombert/Mira_Mobile/releases/latest)
 [![Python](https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-22C55E?style=for-the-badge)](LICENSE)
