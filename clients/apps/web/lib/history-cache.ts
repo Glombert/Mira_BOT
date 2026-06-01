@@ -24,6 +24,9 @@ export function saveCachedHistory(messages: ChatMessageItem[]): void {
     const persistable = messages
       .filter((m) => m.type !== 'thinking' && m.type !== 'thought')
       .slice(-MAX);
+    // Не затираем кэш пустотой: когда в messages на миг только «думает»/«мысль»
+    // (свежий чат, начало ответа), persistable пуст — иначе теряем историю.
+    if (persistable.length === 0) return;
     window.localStorage.setItem(KEY, JSON.stringify(persistable));
   } catch {
     // не критично

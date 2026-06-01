@@ -57,4 +57,11 @@ describe('historyCache', () => {
     mockStore['mira:chatHistory'] = '{не json';
     expect(await loadCachedHistory()).toEqual([]);
   });
+
+  it('не затирает кэш пустотой (в messages только thinking)', async () => {
+    await saveCachedHistory([msg('1', 'message')]);
+    await saveCachedHistory([msg('2', 'thinking')]); // persistable пуст → пропуск
+    const loaded = await loadCachedHistory();
+    expect(loaded.map((m: any) => m.id)).toEqual(['1']);
+  });
 });

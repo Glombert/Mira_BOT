@@ -44,6 +44,15 @@ const mdStyles = {
   hr: { backgroundColor: colors.border.subtle, height: 1, marginVertical: spacing.md },
 };
 
+// Выделяемый текст в Markdown: long-press → нативные маркеры → «Копировать».
+const mdSelectableRules = {
+  textgroup: (node: any, children: React.ReactNode, _parent: any, styles: any) => (
+    <Text key={node.key} style={styles.textgroup} selectable>
+      {children}
+    </Text>
+  ),
+};
+
 type FeedEntry =
   | { kind: 'inbox'; ts: number; item: OwnerInboxItem }
   | { kind: 'msg'; ts: number; role: 'user' | 'assistant'; content: string };
@@ -205,8 +214,8 @@ export function TechScreen() {
             </View>
             <Text style={styles.cardTs}>{fmtTime(it.ts)}</Text>
           </View>
-          {!!it.title && <Text style={styles.cardTitle}>{it.title}</Text>}
-          <Markdown style={mdStyles}>{it.body}</Markdown>
+          {!!it.title && <Text style={styles.cardTitle} selectable>{it.title}</Text>}
+          <Markdown style={mdStyles} rules={mdSelectableRules}>{it.body}</Markdown>
           {it.type === 'approval_request' && !it.action && (
             <View style={styles.cardActions}>
               <TouchableOpacity
@@ -238,9 +247,9 @@ export function TechScreen() {
       <View style={[styles.msgRow, mine ? styles.msgRowRight : styles.msgRowLeft]}>
         <View style={[styles.msgBubble, mine ? styles.msgBubbleMine : styles.msgBubbleHers]}>
           {mine ? (
-            <Text style={styles.msgText}>{entry.content}</Text>
+            <Text style={styles.msgText} selectable>{entry.content}</Text>
           ) : (
-            <Markdown style={mdStyles}>{entry.content}</Markdown>
+            <Markdown style={mdStyles} rules={mdSelectableRules}>{entry.content}</Markdown>
           )}
         </View>
       </View>

@@ -227,8 +227,10 @@ export function ChatScreen() {
                 content: m.content,
                 timestamp: m.ts ? Math.round(m.ts * 1000) : 0,
               }));
-              // Не затираем живые сообщения, если они уже пришли
-              setMessages((prev) => (prev.length === 0 ? historyMsgs : prev));
+              // Серверная история — источник истины: заменяем ею кэш-плейсхолдер
+              // (показанный на старте). fetchHistory бежит раз за коннект
+              // (historyLoadedRef), живых in-flight сообщений тут ещё нет.
+              setMessages(historyMsgs);
             }
           })
           .catch(() => {
@@ -560,7 +562,7 @@ export function ChatScreen() {
   );
 
   const renderMessage = useCallback(
-    ({ item }: { item: ChatMessageItem }) => {
+    ({ item, index }: { item: ChatMessageItem; index: number }) => {
       if (item.type === 'approval_request' && item.approval) {
         return (
           <ApprovalCard
@@ -573,9 +575,16 @@ export function ChatScreen() {
           />
         );
       }
-      return <AuroraMessage message={item} onFilePress={handleFilePress} onFileLink={handleFileLink} />;
+      return (
+        <AuroraMessage
+          message={item}
+          isLast={index === messages.length - 1}
+          onFilePress={handleFilePress}
+          onFileLink={handleFileLink}
+        />
+      );
     },
-    [handleApprove, handleBlock, handleFilePress, handleFileLink]
+    [handleApprove, handleBlock, handleFilePress, handleFileLink, messages.length]
   );
 
   return (
@@ -604,6 +613,7 @@ export function ChatScreen() {
         <FlatList
           ref={flatListRef}
           data={messages}
+          extraData={messages.length}
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
           removeClippedSubviews={true}

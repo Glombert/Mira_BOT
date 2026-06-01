@@ -24,6 +24,9 @@ export async function saveCachedHistory(messages: ChatMessageItem[]): Promise<vo
     const persistable = messages
       .filter((m) => m.type !== 'thinking' && m.type !== 'thought')
       .slice(-MAX);
+    // Не затираем кэш пустотой: когда в messages на миг только «думает»/«мысль»
+    // (свежий чат, начало ответа), persistable пуст — иначе теряем историю.
+    if (persistable.length === 0) return;
     await AsyncStorage.setItem(KEY, JSON.stringify(persistable));
   } catch {
     // не критично — кэш опционален

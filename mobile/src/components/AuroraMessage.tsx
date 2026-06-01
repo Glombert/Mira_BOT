@@ -114,6 +114,7 @@ const mdStyles = {
 
 interface Props {
   message: ChatMessageItem;
+  isLast?: boolean;
   onFilePress?: (dir: string, name: string) => void;
   onFileLink?: (url: string) => void;
   showAvatar?: boolean;
@@ -149,7 +150,7 @@ function MessageCards({ cards }: { cards: MessageCard[] }) {
   );
 }
 
-export function AuroraMessage({ message, onFilePress, onFileLink, showAvatar = true }: Props) {
+export function AuroraMessage({ message, isLast = true, onFilePress, onFileLink, showAvatar = true }: Props) {
   const time = message.timestamp ? formatTime(message.timestamp) : undefined;
 
   if (message.type === 'thinking') {
@@ -225,8 +226,10 @@ export function AuroraMessage({ message, onFilePress, onFileLink, showAvatar = t
     );
   }
 
-  // bot message
-  const isNew = isFreshMessage(message.timestamp);
+  // bot message. Печатаем только ПОСЛЕДНЕЕ сообщение: при дроблении ответа на
+  // чанки иначе все свежие куски анимируются разом и наезжают друг на друга.
+  // Пришёл новый чанк — предыдущий перестаёт быть последним и до-рисовывается.
+  const isNew = isLast && isFreshMessage(message.timestamp);
   const content = message.content || '';
 
   return (

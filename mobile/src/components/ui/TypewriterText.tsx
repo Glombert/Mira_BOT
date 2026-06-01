@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Text, TouchableOpacity, StyleSheet } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { colors, typography, radii, spacing } from '../../theme';
 
@@ -96,8 +96,10 @@ export function TypewriterText({ content, isNew, speed = 30, onComplete }: Props
 
   return (
     <TouchableOpacity activeOpacity={0.9} onPress={skip}>
-      <Text style={styles.typingText}>{displayed}</Text>
-      <View style={styles.cursor} />
+      <Text style={styles.typingText}>
+        {displayed}
+        <Text style={styles.cursor}>▏</Text>
+      </Text>
     </TouchableOpacity>
   );
 }
@@ -108,10 +110,10 @@ const styles = StyleSheet.create({
     fontSize: typography.body.fontSize,
     lineHeight: typography.body.lineHeight,
   },
+  // Инлайн-курсор: символом внутри того же <Text>, чтобы стоять сразу за
+  // последней буквой (имитация печати), а не уезжать на следующую строку.
   cursor: {
-    width: 2,
-    height: 16,
-    backgroundColor: colors.gold.DEFAULT,
-    marginTop: 2,
+    color: colors.gold.DEFAULT,
+    fontWeight: '700' as const,
   },
 });
