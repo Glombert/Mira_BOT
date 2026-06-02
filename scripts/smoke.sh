@@ -260,9 +260,10 @@ from tools.rituals import load_rituals
 r = load_rituals()
 print(\"count:\", len(r))
 print(\"names:\", [x[\"name\"] for x in r])
+print(\"rituals_ge3:\", len(r) >= 3)
 '" 2>&1)
 [[ "$QUIET" -eq 1 ]] || echo "$RITUALS" | sed 's/^/    /'
-check_contains "≥3 ритуала загружены" "$RITUALS" "count: 3"
+check_contains "≥3 ритуала загружены" "$RITUALS" "rituals_ge3: True"
 
 # Time-парсер с TZ
 TP=$(run_remote "cd /root/mira_agent && $VENV_PY -c '

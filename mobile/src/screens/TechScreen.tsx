@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Platform, ActivityIndicator,
+  KeyboardAvoidingView, Platform, ActivityIndicator, ToastAndroid,
 } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import Markdown from 'react-native-markdown-display';
@@ -176,6 +177,11 @@ export function TechScreen() {
   for (const m of msgs) feed.push({ kind: 'msg', ts: m.ts, role: m.role, content: m.content });
   feed.sort((a, b) => a.ts - b.ts);
 
+  const copyAll = useCallback((text: string) => {
+    Clipboard.setString(text || '');
+    if (Platform.OS === 'android') ToastAndroid.show('Скопировано', ToastAndroid.SHORT);
+  }, []);
+
   const handleSend = useCallback(() => {
     const t = draft.trim();
     if (!t || thinking) return;
@@ -212,7 +218,12 @@ export function TechScreen() {
                 <Text style={styles.cardImportance}>{it.importance}</Text>
               )}
             </View>
-            <Text style={styles.cardTs}>{fmtTime(it.ts)}</Text>
+            <View style={styles.cardHeaderRight}>
+              <TouchableOpacity onPress={() => copyAll((it.title ? it.title + '\n\n' : '') + it.body)} hitSlop={8}>
+                <Text style={styles.copyIcon}>⧉</Text>
+              </TouchableOpacity>
+              <Text style={styles.cardTs}>{fmtTime(it.ts)}</Text>
+            </View>
           </View>
           {!!it.title && <Text style={styles.cardTitle} selectable>{it.title}</Text>}
           <Markdown style={mdStyles} rules={mdSelectableRules}>{it.body}</Markdown>
@@ -251,6 +262,9 @@ export function TechScreen() {
           ) : (
             <Markdown style={mdStyles} rules={mdSelectableRules}>{entry.content}</Markdown>
           )}
+          <TouchableOpacity onPress={() => copyAll(entry.content)} hitSlop={8} style={styles.copyBtn}>
+            <Text style={styles.copyIcon}>⧉ копировать</Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -325,7 +339,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: colors.border.divider,
   },
   backBtn: { padding: spacing.sm, marginRight: spacing.sm },
-  backIcon: { fontSize: 28, color: colors.text.secondary, lineHeight: 28 },
+  backIcon: { fontSize: 28, color: colors.text.dim, lineHeight: 28 },
   title: { color: colors.text.primary, fontSize: 18, fontFamily: fonts.serif, fontWeight: '500' },
   list: { padding: spacing.md, gap: spacing.sm },
   emptyHint: {
@@ -344,6 +358,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(245,188,122,0.18)', borderRadius: 4, marginLeft: spacing.xs, fontWeight: '700',
   },
   cardTs: { color: colors.text.dim, fontSize: 11 },
+  cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  copyIcon: { color: colors.text.muted, fontSize: 12 },
+  copyBtn: { alignSelf: 'flex-end', marginTop: spacing.xs },
   cardTitle: { color: colors.gold.DEFAULT, fontSize: 15, fontWeight: '600', marginBottom: spacing.sm },
   cardActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
   cardActionResult: { color: colors.text.muted, fontSize: 11, marginTop: spacing.sm },

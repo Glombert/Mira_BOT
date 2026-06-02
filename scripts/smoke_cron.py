@@ -11,7 +11,11 @@ Cron-установка (06:00 UTC = 09:00 МСК = 16:00 Хабаровск):
 import subprocess
 import sys
 import os
+import re
 from datetime import datetime
+
+# ANSI-цвета smoke.sh (\x1b[..m) не нужны в Telegram/FCM — режут читаемость.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(REPO)
@@ -36,7 +40,7 @@ def main() -> int:
         timeout=120,
     )
     ok = result.returncode == 0
-    summary = (result.stdout or "")[-1500:]
+    summary = _ANSI.sub("", result.stdout or "")[-1500:]
     print(summary)
     if result.stderr:
         print("STDERR:", result.stderr[-500:])
