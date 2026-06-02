@@ -979,55 +979,6 @@ def reflect(model_chain: list[dict], messages: list) -> None:
         logger.error(f"Reflect Error: {e}", exc_info=True)
 
 
-def _apply_unified_diff(original: str, diff_text: str) -> tuple[bool, str]:
-    """
-    Применяет unified diff (формат diff -u) к тексту.
-    Возвращает (True, new_code) или (False, error_message).
-
-    Зачем своя реализация вместо patch: независимость от системных утилит,
-    работает на Windows и в средах без patch.
-    """
-    import re
-    orig_lines  = original.splitlines(keepends=True)
-    result      = list(orig_lines)
-    offset      = 0  # смещение индексов из-за уже применённых вставок/удалений
-
-    hunk_re = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", re.MULTILINE)
-    matches = list(hunk_re.finditer(diff_text))
-
-    if not matches:
-        return False, "Diff не содержит hunks (@@ ... @@). Проверь формат ответа модели."
-
-    for idx, m in enumerate(matches):
-        orig_start = int(m.group(1)) - 1  # 0-indexed
-
-        content_start = diff_text.index("\n", m.start()) + 1
-        content_end   = matches[idx + 1].start() if idx + 1 < len(matches) else len(diff_text)
-        hunk_lines    = diff_text[content_start:content_end].splitlines(keepends=True)
-
-        i = orig_start + offset
-        for line in hunk_lines:
-            if not line:
-                continue
-            ch = line[0]
-            body = line[1:]
-            if not body.endswith("\n"):
-                body += "\n"
-            if ch == "+":
-                result.insert(i, body)
-                i += 1
-                offset += 1
-            elif ch == "-":
-                if i < len(result):
-                    result.pop(i)
-                    offset -= 1
-            elif ch == " ":
-                i += 1
-            # \ No newline at end of file — игнорируем
-
-    return True, "".join(result)
-
-
 def _evolve_build_messages(task: str, principles: str) -> list[dict]:
     """Сообщения для Agent.run в режиме /evolve.
 
@@ -1150,63 +1101,6 @@ def _evolve_make_readonly_agent(model_chain: list, profile: "Profile") -> "Agent
     return Agent(config, profile, "", "")
 
 
-def _legacy_evolve_build_prompt(task: str, code: str, principles: str) -> str:
-    """Старый single-file промт. Оставлен на случай если кто-то импортирует.
-
-    Используй _evolve_build_messages для мульти-файла."""
-    code_lines   = code.splitlines()
-    total_lines  = len(code_lines)
-    preview_head = "\n".join(code_lines[:80])
-    preview_tail = "\n".join(code_lines[-20:]) if total_lines > 100 else ""
-    principles_block = (
-        f"\nНерушимые принципы (ОБЯЗАН соблюдать):\n{principles}\n"
-        if principles else ""
-    )
-    diff_example = (
-        "--- agent.py\n+++ agent.py\n"
-        "@@ -1,3 +1,4 @@\n"
-        "+# новая строка\n"
-        " import os\n"
-        " import ast\n"
-        " import sys\n"
-    )
-    return (
-        f"Файл agent.py содержит {total_lines} строк. Задача: {task}\n"
-        f"{principles_block}\n"
-        f"Первые 80 строк (для контекста нумерации):\n"
-        f"```python\n{preview_head}\n```\n"
-        + (f"\nПоследние 20 строк:\n```python\n{preview_tail}\n```\n" if preview_tail else "")
-        + "\nВерни ТОЛЬКО unified diff в формате `diff -u`. "
-        "НЕ возвращай полный файл — только diff. "
-        "Нумерация строк — как в исходном файле. "
-        f"Пример формата:\n{diff_example}"
-    )
-
-
-def _evolve_request_diff(model_chain: list, prompt: str) -> str | None:
-    """Зовёт модель за unified diff. Возвращает чистый diff или None если не diff."""
-    response = _providers.call(
-        model_chain,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": prompt},
-        ],
-        temperature=0.2,
-        max_tokens=2048,
-    )
-    raw_diff = response.choices[0].message.content.strip()
-
-    if raw_diff.startswith("```"):
-        raw_diff = "\n".join(
-            l for l in raw_diff.splitlines() if not l.strip().startswith("```")
-        ).strip()
-
-    if not raw_diff or "@@" not in raw_diff:
-        logger.warning(f"Evolve: модель вернула не-diff: {raw_diff[:200]}")
-        return None
-    return raw_diff
-
-
 def _evolve_show_diff(raw_diff: str, page_size: int = 60) -> None:
     """Печатает diff пользователю с пагинацией по page_size строк."""
     diff_lines = raw_diff.splitlines(keepends=True)
@@ -1224,71 +1118,6 @@ def _evolve_show_diff(raw_diff: str, page_size: int = 60) -> None:
     else:
         print(raw_diff)
     print("------------------------------")
-
-
-def _evolve_check_principles(model_chain: list, principles: str, raw_diff: str) -> None:
-    """Спрашивает у модели — нарушает ли diff принципы. Только печатает результат."""
-    if not principles:
-        return
-    print("\n[Evolve] Проверяю соответствие принципам...")
-    check_prompt = (
-        f"Принципы:\n{principles}\n\n"
-        f"Diff:\n{raw_diff}\n\n"
-        "Нарушает ли diff какой-либо принцип?\n"
-        "Отвечай ТОЛЬКО: 'OK' или кратко опиши нарушения."
-    )
-    try:
-        check_resp = _providers.call(
-            model_chain,
-            messages=[{"role": "user", "content": check_prompt}],
-            temperature=0.1,
-        )
-        check_result = check_resp.choices[0].message.content.strip()
-        if check_result.upper() != "OK":
-            print(f"\n[!] Патч нарушает принципы:\n{check_result}")
-            print("[!] Для применения всё равно введи 'y'.")
-        else:
-            print("[Evolve] Принципы не нарушены.")
-    except Exception as e:
-        logger.warning(f"Principles check failed: {e}")
-        print("[!] Не удалось проверить принципы. Продолжаю без проверки.")
-
-
-def _evolve_apply_and_validate(code: str, raw_diff: str) -> tuple[bool, str]:
-    """Применяет diff → бэкап → синтаксис → smoke-test.
-
-    Возвращает (True, new_code) при успехе, (False, описание ошибки) — иначе.
-    Печатает прогресс пользователю.
-    """
-    ok, result = _apply_unified_diff(code, raw_diff)
-    if not ok:
-        return False, f"не удалось применить diff: {result}"
-    new_code = result
-
-    print("[Evolve] Создаю резервную копию...")
-    backup_path = backup_agent()
-    print(f"[Evolve] Бэкап: {backup_path}")
-
-    print("[Evolve] Проверяю синтаксис...")
-    valid, error = validate_code(new_code)
-    if not valid:
-        return False, f"синтаксическая ошибка: {error}"
-    print("[Evolve] Синтаксис OK.")
-
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".py", delete=False, encoding="utf-8"
-    ) as tmp:
-        tmp.write(new_code)
-        tmp_path = tmp.name
-
-    print("[Evolve] Запускаю smoke-test...")
-    passed, error = smoke_test(tmp_path)
-    os.unlink(tmp_path)
-    if not passed:
-        return False, f"smoke-test провалился: {error}"
-    print("[Evolve] Smoke-test OK.")
-
-    return True, new_code
 
 
 def evolve(task: str) -> None:
