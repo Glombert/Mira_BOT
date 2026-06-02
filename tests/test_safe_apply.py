@@ -9,7 +9,32 @@ import os
 import subprocess
 import pytest
 
-from tools.safe_apply import safe_apply, ApplyResult, _git_commit_changes
+from tools.safe_apply import safe_apply, ApplyResult, _git_commit_changes, secret_free_env
+
+
+class TestSecretFreeEnv:
+    """Секреты не должны утекать в дочерние процессы (smoke-test /evolve, git)."""
+
+    def test_strips_secrets(self, monkeypatch):
+        keys = ("API_OPENROUTER_KEY", "TELEGRAM_BOT_TOKEN", "MEMORY_ENCRYPTION_KEY",
+                "SENTRY_DSN", "BACKUP_PASSPHRASE", "SOME_SECRET", "DB_PASSWORD")
+        for k in keys:
+            monkeypatch.setenv(k, "sensitive")
+        env = secret_free_env()
+        for k in keys:
+            assert k not in env, f"{k} утёк в дочерний env"
+
+    def test_keeps_safe_vars(self, monkeypatch):
+        monkeypatch.setenv("PATH", "/usr/bin")
+        monkeypatch.setenv("HOME", "/root")
+        env = secret_free_env()
+        assert env.get("PATH") == "/usr/bin"
+        assert env.get("HOME") == "/root"
+
+    def test_extra_overrides(self):
+        env = secret_free_env(PYTHONPATH="/proj", LANG="C")
+        assert env["PYTHONPATH"] == "/proj"
+        assert env["LANG"] == "C"
 
 
 def _setup_project(root):

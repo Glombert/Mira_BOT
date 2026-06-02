@@ -315,6 +315,7 @@ class Conclave:
         best_score  = -1
         prev_score  = -1
         stagnation  = 0
+        last_feedback = ""  # замечания критика прошлой итерации → следующему executor'у
         iteration   = 0   # на случай MAX_ITER=0 (иначе UnboundLocalError в финальном логе)
         t_start     = time.time()
 
@@ -334,6 +335,10 @@ class Conclave:
                 f"Предыдущая версия (улучши её):\n{best_result}"
                 if best_result else ""
             )
+            # Критик уже оценивал прошлую версию — даём executor'у его замечания,
+            # иначе он переписывает вслепую и цикл качества буксует.
+            if last_feedback:
+                exec_ctx += f"\n\nЗамечания критика к прошлой версии (учти их):\n{last_feedback}"
 
             if parallel_scout and iteration == 1 and executor_name != "scout":
                 # Запускаем Разведчика и основного исполнителя параллельно
@@ -378,6 +383,7 @@ class Conclave:
 
             # --- Critic (молча) ---
             score, feedback = self._run_critic(task, result)
+            last_feedback = feedback
             logger.info(f"Conclave: iter={iteration} critic_score={score}")
 
             if score > best_score:

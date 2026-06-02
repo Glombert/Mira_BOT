@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -32,6 +33,18 @@ from datetime import datetime
 from typing import Callable, Optional
 
 from tools.diff_tools import parse_multi_diff, apply_change, extract_paths, FileChange
+
+# Секреты НЕ должны утекать в дочерние процессы (smoke-test /evolve гоняет
+# непроверенный код; git'у ключи тоже не нужны). Вырезаем по шаблону имени.
+_SECRET_ENV_RE = re.compile(r"(KEY|TOKEN|SECRET|PASSPHRASE|PASSWORD|DSN)", re.IGNORECASE)
+
+
+def secret_free_env(**extra: str) -> dict:
+    """os.environ без секретов (API_*/…TOKEN/…KEY/…) + extra-переопределения."""
+    env = {k: v for k, v in os.environ.items()
+           if not (_SECRET_ENV_RE.search(k) or k.startswith("API_"))}
+    env.update(extra)
+    return env
 from tools.self_edit  import check_all_paths, validate_content
 
 logger = logging.getLogger("Ouroboros")
@@ -142,7 +155,7 @@ def _git_commit_changes(
 
     # LANG=C — заставляем git отвечать на английском, чтобы парсить ошибки
     # независимо от локали системы (на VPS может быть ru_RU)
-    env = {**os.environ, "LANG": "C", "LC_ALL": "C"}
+    env = secret_free_env(LANG="C", LC_ALL="C")
 
     try:
         # add

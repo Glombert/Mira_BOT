@@ -850,9 +850,12 @@ def smoke_test(code_path: str) -> tuple[bool, str]:
         project_dir = os.path.dirname(AGENT_FILE)
         # cwd не добавляет в sys.path — Python кладёт туда директорию самого скрипта.
         # PYTHONPATH гарантирует что tools/ найдётся независимо от того, где лежит скрипт.
-        env = os.environ.copy()
-        existing = env.get("PYTHONPATH", "")
-        env["PYTHONPATH"] = project_dir + (os.pathsep + existing if existing else "")
+        # Секреты НЕ передаём в self-test: непроверенный diff не должен видеть
+        # боевые API-ключи/токены. (self-test и так выходит до чтения .env —
+        # это защита на случай top-level кода в предложенном diff'е.)
+        from tools.safe_apply import secret_free_env
+        existing = os.environ.get("PYTHONPATH", "")
+        env = secret_free_env(PYTHONPATH=project_dir + (os.pathsep + existing if existing else ""))
         result = subprocess.run(
             [sys.executable, code_path, "--self-test"],
             capture_output=True, text=True, timeout=10,
