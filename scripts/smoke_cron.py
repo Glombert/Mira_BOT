@@ -12,6 +12,7 @@ import subprocess
 import sys
 import os
 import re
+import time
 from datetime import datetime
 
 # ANSI-цвета smoke.sh (\x1b[..m) не нужны в Telegram/FCM — режут читаемость.
@@ -31,14 +32,22 @@ import memory_crypto
 memory_crypto.init()
 
 
+def _run_smoke():
+    return subprocess.run(
+        ["./scripts/smoke.sh", "--local", "--quiet"],
+        capture_output=True, text=True, timeout=120,
+    )
+
+
 def main() -> int:
     print(f"[{datetime.utcnow().isoformat()}Z] smoke-suite start")
-    result = subprocess.run(
-        ["./scripts/smoke.sh", "--local", "--quiet"],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    result = _run_smoke()
+    # Транзиентный сетевой блип (curl got: 000) не должен дёргать владельца
+    # ложной тревогой. Реальный сбой провалится и со второй попытки.
+    if result.returncode != 0:
+        print("smoke fail — перепроверяю через 20с (отсев транзиента)…")
+        time.sleep(20)
+        result = _run_smoke()
     ok = result.returncode == 0
     summary = _ANSI.sub("", result.stdout or "")[-1500:]
     print(summary)
