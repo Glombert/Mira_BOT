@@ -466,9 +466,8 @@ class Conclave:
                     "hard_fail": True}
         note = "⚙ Машинная проверка: синтаксис валиден"
         try:
-            import json as _json
             from tools.shell_tools import run_python
-            out = _json.loads(run_python(code, "conclave"))
+            out = run_python(code, "conclave")   # возвращает dict, не JSON-строку
             if out.get("ok"):
                 so = (out.get("stdout") or "").strip()
                 note += "; прогон без ошибок" + (f", вывод: {so[:200]}" if so else " (без вывода)")

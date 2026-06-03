@@ -37,14 +37,14 @@ class TestMachineCheck:
     def test_valid_syntax_not_hard_fail(self, monkeypatch):
         import tools.shell_tools
         monkeypatch.setattr(tools.shell_tools, "run_python",
-                            lambda code, uid: '{"ok": true, "stdout": ""}')
+                            lambda code, uid: {"ok": True, "stdout": ""})
         r = Conclave()._machine_check("```python\nx = 1\n```", "coder")
         assert r is not None and not r["hard_fail"] and "синтаксис валиден" in r["note"]
 
     def test_run_failure_noted_not_hard_fail(self, monkeypatch):
         import tools.shell_tools
         monkeypatch.setattr(tools.shell_tools, "run_python",
-                            lambda code, uid: '{"ok": false, "stderr": "NameError: x"}')
+                            lambda code, uid: {"ok": False, "stderr": "NameError: x"})
         r = Conclave()._machine_check("```python\nprint(undefined_var)\n```", "coder")
         # прогон упал, но это не auto-reject (код мог требовать вход) — критик взвесит
         assert r is not None and not r["hard_fail"] and "ПРОГОН УПАЛ" in r["note"]
