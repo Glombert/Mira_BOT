@@ -9,7 +9,56 @@ import os
 import subprocess
 import pytest
 
-from tools.safe_apply import safe_apply, ApplyResult, _git_commit_changes, secret_free_env
+from tools.safe_apply import (
+    safe_apply, ApplyResult, _git_commit_changes, secret_free_env, check_principles,
+)
+
+
+class TestCheckPrinciples:
+    """diff не должен УДАЛЯТЬ защитную функцию, которая была до изменения."""
+
+    _GUARDS = "def validate_code(): pass\ndef can_use(): pass\ndef smoke_test(): pass\n"
+
+    def _dirs(self, tmp_path):
+        proj = tmp_path / "proj"; bak = tmp_path / "bak"
+        proj.mkdir(); bak.mkdir()
+        return proj, bak
+
+    def test_detects_removed_guard(self, tmp_path):
+        proj, bak = self._dirs(tmp_path)
+        (bak / "agent.py").write_text(self._GUARDS, encoding="utf-8")          # до
+        (proj / "agent.py").write_text("def can_use(): pass\ndef smoke_test(): pass\n", encoding="utf-8")  # после: нет validate_code
+        ok, err = check_principles(str(proj), ["agent.py"], str(bak))
+        assert not ok and "validate_code" in err
+
+    def test_ok_when_guard_preserved(self, tmp_path):
+        proj, bak = self._dirs(tmp_path)
+        (bak / "agent.py").write_text(self._GUARDS, encoding="utf-8")
+        (proj / "agent.py").write_text(self._GUARDS + "def extra(): pass\n", encoding="utf-8")
+        ok, err = check_principles(str(proj), ["agent.py"], str(bak))
+        assert ok, err
+
+    def test_synthetic_stub_not_required(self, tmp_path):
+        # Если guard'а не было ДО diff'а (заглушка) — нечего защищать.
+        proj, bak = self._dirs(tmp_path)
+        (bak / "agent.py").write_text("def foo(): pass\n", encoding="utf-8")
+        (proj / "agent.py").write_text("def bar(): pass\n", encoding="utf-8")
+        ok, _ = check_principles(str(proj), ["agent.py"], str(bak))
+        assert ok
+
+    def test_new_file_not_protected(self, tmp_path):
+        # Файл создан этим diff'ом (нет бэкапа) — нечего защищать.
+        proj, bak = self._dirs(tmp_path)
+        (proj / "agent.py").write_text("x = 1\n", encoding="utf-8")
+        ok, _ = check_principles(str(proj), ["agent.py"], str(bak))
+        assert ok
+
+    def test_deleted_protected_file_rejected(self, tmp_path):
+        proj, bak = self._dirs(tmp_path)
+        (bak / "agent.py").write_text(self._GUARDS, encoding="utf-8")   # был с guard'ами
+        # proj/agent.py отсутствует (удалён diff'ом) → after пуст → нарушение
+        ok, err = check_principles(str(proj), ["agent.py"], str(bak))
+        assert not ok
 
 
 class TestSecretFreeEnv:

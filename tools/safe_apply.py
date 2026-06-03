@@ -50,6 +50,68 @@ from tools.self_edit  import check_all_paths, validate_content
 logger = logging.getLogger("Ouroboros")
 
 
+# PRINCIPLES.md — защитные символы, которые /evolve-diff НЕ должен удалять.
+# Раньше PRINCIPLES.md инжектился только в промпт LLM («честное слово»). Теперь
+# safe_apply проверяет AST'ом, что эти функции остались определены — иначе откат.
+_REQUIRED_SYMBOLS: dict[str, set[str]] = {
+    "agent.py":            {"validate_code", "can_use", "smoke_test"},
+    "tools/self_edit.py":  {"check_all_paths", "validate_content", "ALLOWED_PATTERNS"},
+    "tools/shell_tools.py": {"run_python"},
+    "web/security.py":     {"resolve_under", "safe_filename"},
+    "tools/safe_apply.py": {"safe_apply", "_rollback", "check_principles"},
+}
+
+
+def _defined_symbols(source: str) -> set[str]:
+    """Имена функций/классов/модульных присваиваний в Python-исходнике (AST)."""
+    import ast
+    tree = ast.parse(source)
+    out: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(node.name)
+        elif isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name):
+                    out.add(t.id)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            out.add(node.target.id)
+    return out
+
+
+def check_principles(project_root: str, touched_paths: list[str],
+                     backup_dir: str) -> tuple[bool, str]:
+    """Проверяет, что diff не УДАЛИЛ защитный символ, который был ДО изменения.
+
+    Сравниваем с бэкапом (pre-diff): защищаем только то, что реально
+    присутствовало — иначе синтетические/новые файлы ложно отвергались бы.
+    Возвращает (ok, reason)."""
+    for rel in touched_paths:
+        required = _REQUIRED_SYMBOLS.get(rel)
+        if not required:
+            continue
+        backup_file = _backup_path(backup_dir, rel)
+        if not os.path.exists(backup_file):
+            continue  # файл создан этим diff'ом — нечего защищать
+        try:
+            with open(backup_file, encoding="utf-8") as f:
+                before = _defined_symbols(f.read())
+        except Exception:
+            continue  # бэкап не-Python или нечитаем — не наш случай
+        protected = required & before
+        if not protected:
+            continue
+        full = os.path.join(project_root, rel)
+        try:
+            after = _defined_symbols(open(full, encoding="utf-8").read()) if os.path.exists(full) else set()
+        except Exception as e:
+            return False, f"{rel}: не парсится после diff ({e})"
+        removed = protected - after
+        if removed:
+            return False, f"{rel}: diff удаляет защитные символы {sorted(removed)}"
+    return True, ""
+
+
 @dataclass
 class ApplyResult:
     ok:             bool
@@ -272,6 +334,13 @@ def safe_apply(
                 f"safe_apply: {change.action} {change.path} "
                 f"({'new' if not existed else 'modified'})"
             )
+
+        # 4.5 PRINCIPLES: diff не должен удалять защитные функции (path-safety,
+        # sandbox, whitelist, smoke_test, rollback). Раньше PRINCIPLES.md был
+        # «честным словом» LLM — теперь проверяется кодом, иначе откат.
+        ok_pr, pr_err = check_principles(project_root, [p for p, _ in applied], backup_dir)
+        if not ok_pr:
+            raise RuntimeError(f"PRINCIPLES нарушен: {pr_err}")
 
         # 5. Smoke-test
         if smoke_test_fn is not None:

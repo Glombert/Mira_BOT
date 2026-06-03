@@ -2251,6 +2251,8 @@ async def post_init(app: Application) -> None:
 
     def _scheduler_loop() -> None:
         _time.sleep(5)
+        _retry_counts: dict = {}   # task_id → число неудачных доставок
+        MAX_RETRIES = 5
         while True:
             try:
                 due = get_due_tasks()
@@ -2272,30 +2274,51 @@ async def post_init(app: Application) -> None:
                                 mark_done(t["id"])
                             threading.Thread(target=_run_task, daemon=True).start()
                         else:
-                            # Reminder: как раньше
+                            # Reminder
+                            tid = task["id"]
                             raw_uid = task["user_id"].replace("tg_", "")
-                            if raw_uid.isdigit():
-                                chat_id = int(raw_uid)
-                                text = f"⏰ Напоминание:\n{task['message']}"
-                                try:
-                                    from tools import fcm_tools
-                                    fcm_tools.send_push(
-                                        user_id=task["user_id"],
-                                        title="⏰ Напоминание",
-                                        body=task["message"][:240],
-                                        data={"reminder_id": task["id"]},
-                                    )
-                                except Exception as e:
-                                    logger.warning(f"Scheduler: FCM не сработал: {e}")
-                                asyncio.run_coroutine_threadsafe(
-                                    app.bot.send_message(chat_id=chat_id, text=text),
-                                    _scheduler_loop_ref,
+                            if not raw_uid.isdigit():
+                                # Доставить невозможно — не ретраим бесконечно.
+                                logger.warning(f"Scheduler: некорректный user_id {task['user_id']} у {tid}, помечаю done")
+                                mark_done(tid)
+                                continue
+                            chat_id = int(raw_uid)
+                            text = f"⏰ Напоминание:\n{task['message']}"
+                            try:
+                                from tools import fcm_tools
+                                fcm_tools.send_push(
+                                    user_id=task["user_id"],
+                                    title="⏰ Напоминание",
+                                    body=task["message"][:240],
+                                    data={"reminder_id": tid},
                                 )
-                            mark_done(task["id"])
-                            logger.info(f"Scheduler: отправлено напоминание {task['id']} → {task['user_id']}")
+                            except Exception as e:
+                                logger.warning(f"Scheduler: FCM не сработал: {e}")
+                            # ЖДЁМ подтверждения доставки в Telegram перед mark_done —
+                            # иначе при сбое API напоминание терялось бы (помечалось done).
+                            fut = asyncio.run_coroutine_threadsafe(
+                                app.bot.send_message(chat_id=chat_id, text=text),
+                                _scheduler_loop_ref,
+                            )
+                            fut.result(timeout=20)   # бросит при сбое → except → ретрай
+                            mark_done(tid)
+                            _retry_counts.pop(tid, None)
+                            logger.info(f"Scheduler: отправлено напоминание {tid} → {task['user_id']}")
                     except Exception as e:
-                        logger.warning(f"Scheduler: ошибка обработки {task.get('id')}: {e}")
-                        mark_done(task["id"])
+                        tid = task.get("id")
+                        n = _retry_counts.get(tid, 0) + 1
+                        _retry_counts[tid] = n
+                        logger.warning(f"Scheduler: доставка {tid} не удалась (попытка {n}/{MAX_RETRIES}): {e}")
+                        if n >= MAX_RETRIES:
+                            # Dead-letter: сдаёмся, но сообщаем владельцу — не молча.
+                            logger.error(f"Scheduler: {tid} — сдаюсь после {n} попыток, помечаю done")
+                            mark_done(tid)
+                            _retry_counts.pop(tid, None)
+                            try:
+                                notify_owner(f"⚠ Напоминание {tid} не доставлено после {n} попыток, сдаюсь.")
+                            except Exception:
+                                pass
+                        # иначе НЕ mark_done → повтор через 30с
             except Exception as e:
                 logger.warning(f"Scheduler: ошибка цикла: {e}")
             _time.sleep(30)
