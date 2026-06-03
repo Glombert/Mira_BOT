@@ -22,6 +22,8 @@ from conclave import Conclave, _parse_score
     ("совсем непонятный ответ без цифр", 5),
     ("OK: 99", 10),   # клампится сверху
     ("OK: 8 а ещё SCORE: 2", 8),  # OK имеет приоритет
+    ("нашёл 3 проблемы, ставлю 8", 8),  # fallback: ПОСЛЕДНЕЕ число, не первое
+    ("сначала 2, потом стало лучше — 9", 9),
 ])
 def test_parse_score(text, expected):
     assert _parse_score(text) == expected

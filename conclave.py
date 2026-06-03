@@ -122,9 +122,11 @@ def _parse_score(text: str) -> int:
     if m:
         return min(10, max(0, int(m.group(1))))
 
-    # Ищем изолированное число 0–10
-    for match in re.finditer(r"\b(10|[0-9])\b", upper):
-        return min(10, max(0, int(match.group(1))))
+    # Fallback (критик не дал OK:/SCORE:): берём ПОСЛЕДНЕЕ число, а не первое —
+    # в «нашёл 3 проблемы, ставлю 8» оценка идёт в конце, а не в начале.
+    nums = re.findall(r"\b(10|[0-9])\b", upper)
+    if nums:
+        return min(10, max(0, int(nums[-1])))
 
     return 5  # нейтральное значение при непонятном ответе
 

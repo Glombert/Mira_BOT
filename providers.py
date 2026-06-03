@@ -425,6 +425,11 @@ def _call_impl(model_chain: list[dict], messages: list, **kwargs) -> object:
                     err = getattr(result, "error", None) or "пустой ответ (choices=null)"
                     raise RuntimeError(f"{provider_name}/{model}: {err}")
                 has_tools = bool(getattr(result.choices[0].message, 'tool_calls', None))
+                # Пустой content без tool_calls (например, сработал content-filter
+                # провайдера) — не валидный ответ. Делаем failover на следующего,
+                # а не отдаём пользователю пустоту.
+                if not (result.choices[0].message.content or "").strip() and not has_tools:
+                    raise RuntimeError(f"{provider_name}/{model}: пустой content без tool_calls")
                 logger.info(f"providers.call [{i+1}/{len(model_chain)}]: {provider_name}/{model} OK ({dt:.1f}s, ответ={len(result.choices[0].message.content or '')} символов, tool_calls={has_tools})")
                 # Метрики
                 if getattr(result, 'usage', None):
