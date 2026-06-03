@@ -7,7 +7,47 @@ _call и _load_config подменяются, реальные API/конфиг�
 import pytest
 
 import conclave
-from conclave import Conclave, _parse_score
+from conclave import Conclave, _parse_score, _extract_python
+
+
+class TestExtractPython:
+    def test_fence(self):
+        assert _extract_python("текст\n```python\nx = 1\n```\nещё") == "x = 1"
+
+    def test_bare_code(self):
+        assert _extract_python("def f():\n    return 1") == "def f():\n    return 1"
+
+    def test_prose_is_none(self):
+        assert _extract_python("просто текст без кода") is None
+
+
+class TestMachineCheck:
+    """Кодовая ветка Конклава проверяется машиной, а не только critic'ом."""
+
+    def test_non_coder_returns_none(self):
+        assert Conclave()._machine_check("def f(): pass", "scout") is None
+
+    def test_non_code_returns_none(self):
+        assert Conclave()._machine_check("обычный текстовый ответ", "coder") is None
+
+    def test_syntax_error_is_hard_fail(self):
+        r = Conclave()._machine_check("```python\ndef f(\n```", "coder")
+        assert r is not None and r["hard_fail"] and "СИНТАКСИС" in r["note"]
+
+    def test_valid_syntax_not_hard_fail(self, monkeypatch):
+        import tools.shell_tools
+        monkeypatch.setattr(tools.shell_tools, "run_python",
+                            lambda code, uid: '{"ok": true, "stdout": ""}')
+        r = Conclave()._machine_check("```python\nx = 1\n```", "coder")
+        assert r is not None and not r["hard_fail"] and "синтаксис валиден" in r["note"]
+
+    def test_run_failure_noted_not_hard_fail(self, monkeypatch):
+        import tools.shell_tools
+        monkeypatch.setattr(tools.shell_tools, "run_python",
+                            lambda code, uid: '{"ok": false, "stderr": "NameError: x"}')
+        r = Conclave()._machine_check("```python\nprint(undefined_var)\n```", "coder")
+        # прогон упал, но это не auto-reject (код мог требовать вход) — критик взвесит
+        assert r is not None and not r["hard_fail"] and "ПРОГОН УПАЛ" in r["note"]
 
 
 # --- _parse_score ------------------------------------------------------------

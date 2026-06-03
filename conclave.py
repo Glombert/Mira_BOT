@@ -131,6 +131,21 @@ def _parse_score(text: str) -> int:
     return 5  # нейтральное значение при непонятном ответе
 
 
+_CODE_FENCE = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL)
+
+
+def _extract_python(text: str) -> str | None:
+    """Достаёт Python-код из ```-фенсов; если фенсов нет, но текст похож на
+    цельный код (начинается с import/def/class/@) — берём как есть. Иначе None."""
+    blocks = _CODE_FENCE.findall(text or "")
+    if blocks:
+        return "\n\n".join(b.strip() for b in blocks)
+    stripped = (text or "").strip()
+    if re.match(r"^(import |from |def |class |async def |@)", stripped):
+        return stripped
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Класс Conclave
 # ---------------------------------------------------------------------------
@@ -373,7 +388,9 @@ class Conclave:
                 try:
                     result = self.run(
                         "editor",
-                        "Улучши текст или код: убери лишнее, повысь ясность, не меняй смысл.",
+                        f"Исходная задача:\n{task}\n\n"
+                        "Улучши результат ПОД ЭТУ ЗАДАЧУ: убери лишнее, повысь ясность, "
+                        "не отклоняйся от требований и НЕ удаляй нужную логику/проверки ошибок.",
                         result,
                     )
                 except Exception as e:
@@ -383,10 +400,19 @@ class Conclave:
                 self._progress(_pick("stopped"))
                 break
 
-            # --- Critic (молча) ---
-            score, feedback = self._run_critic(task, result)
+            # --- Машинная проверка кодовой ветки (не «модель судит модель») ---
+            machine = self._machine_check(result, executor_name)
+
+            # --- Critic ---
+            score, feedback = self._run_critic(task, result, machine["note"] if machine else "")
+            # Битый синтаксис нельзя «принять по ощущению» — глушим оценку, чтобы
+            # цикл пошёл на ещё одну итерацию с конкретной машинной ошибкой.
+            if machine and machine["hard_fail"]:
+                score = min(score, 4)
+                feedback = f"{machine['note']}\n{feedback}".strip()
             last_feedback = feedback
-            logger.info(f"Conclave: iter={iteration} critic_score={score}")
+            logger.info(f"Conclave: iter={iteration} critic_score={score}"
+                        + (f" [{machine['note'][:60]}]" if machine else ""))
 
             if score > best_score:
                 best_score  = score
@@ -420,18 +446,58 @@ class Conclave:
         logger.info(f"Conclave.run_with_qa завершён: best_score={best_score}, итераций={iteration}, время={dt:.1f}s")
         return best_result
 
-    def _run_critic(self, task: str, result: str) -> tuple[int, str]:
+    def _machine_check(self, result: str, executor_name: str) -> dict | None:
+        """Кодовую ветку проверяем машиной, а не только critic'ом.
+
+        ast.parse (синтаксис) → hard_fail (битый код нельзя «принять по
+        ощущению»). Прогон в firejail-песочнице — информативно для критика, НЕ
+        hard_fail: код может требовать вход/контекст и падать вне его, это не
+        всегда дефект. Возвращает {note, hard_fail} или None если это не код."""
+        if executor_name != "coder":
+            return None
+        code = _extract_python(result)
+        if not code:
+            return None
+        import ast
+        try:
+            ast.parse(code)
+        except SyntaxError as e:
+            return {"note": f"⚙ Машинная проверка: СИНТАКСИС НЕ ВАЛИДЕН (строка {e.lineno}): {e.msg}",
+                    "hard_fail": True}
+        note = "⚙ Машинная проверка: синтаксис валиден"
+        try:
+            import json as _json
+            from tools.shell_tools import run_python
+            out = _json.loads(run_python(code, "conclave"))
+            if out.get("ok"):
+                so = (out.get("stdout") or "").strip()
+                note += "; прогон без ошибок" + (f", вывод: {so[:200]}" if so else " (без вывода)")
+            else:
+                err = (out.get("error") or out.get("stderr") or "").strip()
+                if any(k in err.lower() for k in ("firejail", "sandbox", "изоляц", "песочниц")):
+                    note += "; прогон пропущен (нет песочницы)"
+                else:
+                    note += f"; ПРОГОН УПАЛ: {err[:200]}"
+        except Exception as e:
+            note += f"; прогон не выполнен ({e})"
+        return {"note": note, "hard_fail": False}
+
+    def _run_critic(self, task: str, result: str, machine_note: str = "") -> tuple[int, str]:
         """
         Запускает critic и парсит оценку.
-        Возвращает (score: 0–10, feedback: str).
-        При ошибке возвращает нейтральный score=5.
+        machine_note — результат машинной проверки кода (синтаксис/прогон), если
+        есть; критик обязан опираться на него, а не только на «ощущение».
+        Возвращает (score: 0–10, feedback: str). При ошибке — нейтральный score=5.
         """
         try:
             config = _load_config("critic")
             prompt = (
                 f"Задача:\n{task}\n\n"
                 f"Результат:\n{result}\n\n"
-                "Оцени результат по шкале 0–10.\n"
+                + (f"{machine_note}\n\n" if machine_note else "")
+                + "Оцени результат по шкале 0–10. Если это код — оценивай РАБОТОСПОСОБНОСТЬ "
+                  "(опирайся на машинную проверку выше: синтаксис/прогон), а не только "
+                  "аккуратность.\n"
                 "Если оценка ≥ 7 — напиши: OK: <число>\n"
                 "Если оценка < 7 — напиши список конкретных проблем, затем: SCORE: <число>"
             )
