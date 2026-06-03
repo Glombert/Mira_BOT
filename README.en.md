@@ -58,37 +58,36 @@ Mira:  Sheet created and shared to your email.
                   ┌─────────────────────────────────────┐
                   │      YOU — one voice, any window     │
                   └──────────────┬──────────────────────┘
-       ┌──────────┬──────────────┼──────────────┬──────────┐
-       ▼          ▼              ▼              ▼          ▼
-   📱 Mobile   💻 Web        🖥 Desktop      💬 Telegram   🔧 CLI
-   (RN)       (Next.js)     (Tauri v2)      (bot)        (terminal)
-       │          │              │              │          │
-       └──────────┴──────┬───────┴──────────────┴──────────┘
+       ┌──────────┬──────────────┼──────────────┐
+       ▼          ▼              ▼              ▼
+   📱 Mobile   💻 Web        🖥 Desktop      💬 Telegram
+   (RN)       (Next.js)     (Tauri v2)      (bot)
+       │          │              │              │
+       └──────────┴──────┬───────┴──────────────┘
                          │ WebSocket / HTTP
                          ▼
-              ┌─────────────────────────┐
-              │      MIRA (Alpha)       │
-              │  • dialogue, context    │
-              │  • user memory          │
-              │  • routing to Conclave  │
-              └────────────┬────────────┘
-                           │ hard tasks
-              ┌────────────┴─────────────┐
-              ▼                          ▼
-       ╔═════════════╗           ╔═══════════════╗
-       ║  CONCLAVE   ║           ║   AUTONOMY    ║
-       ╠═════════════╣           ╠═══════════════╣
-       ║ Coder       ║           ║ Rituals       ║
-       ║ Scout       ║           ║ (cron + LLM)  ║
-       ║ Artist      ║           ║ Scheduled     ║
-       ║ Critic      ║           ║   tasks       ║
-       ║ Reviewer    ║           ║ Self-review   ║
-       ╚═════════════╝           ╚═══════════════╝
+              ┌──────────────────────────┐
+              │      MIRA (Alpha)        │
+              │  • dialogue, context     │
+              │  • user memory           │
+              │  • answers HERSELF +     │
+              │    calls tools           │
+              └────────────┬─────────────┘
+                           │ background (rituals, scheduled tasks)
+                           ▼
+              ┌────────────────────────────┐
+              │   AUTONOMY + CONCLAVE       │
+              ├────────────────────────────┤
+              │ Rituals (cron + LLM)       │
+              │ Scheduled tasks            │
+              │ Conclave pipeline:         │
+              │  Coder → Editor → Critic   │
+              └────────────────────────────┘
 ```
 
 </div>
 
-**One voice — Mira.** Complexity is hidden: internally she decides whether to answer briefly from memory or summon the Conclave of specialists. The user never sees the machinery.
+**One voice — Mira.** In chat she **answers herself** (`alpha.run` with tools: search, code, calendar, images). The Conclave specialist pipeline (Coder → Editor → Critic) runs in **background tasks and rituals**, not on every chat message.
 
 ## Under the hood
 
