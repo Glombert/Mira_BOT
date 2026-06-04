@@ -93,6 +93,7 @@ interface WebDrawerProps {
   open: boolean;
   onClose: () => void;
   onRun: (cmd: string) => void;
+  onNavigate?: (screen: string) => void;
   permissions: UserPermissions;
   userName: string;
   onFetchInfo?: (cmd: string) => Promise<string>;
@@ -101,7 +102,7 @@ interface WebDrawerProps {
   onOpenProfile?: () => void;
 }
 
-export function WebDrawer({ open, onClose, onRun, permissions, userName, onFetchInfo, onFetchUsers, counts = {}, onOpenProfile }: WebDrawerProps) {
+export function WebDrawer({ open, onClose, onRun, onNavigate, permissions, userName, onFetchInfo, onFetchUsers, counts = {}, onOpenProfile }: WebDrawerProps) {
   const countFor = (cmd: string): number | undefined => {
     const n = ({
       files: counts.files,
@@ -190,8 +191,23 @@ export function WebDrawer({ open, onClose, onRun, permissions, userName, onFetch
     [permissions]
   );
 
+  const SCREEN_CMDS: Record<string, string> = {
+    files: 'files',
+    reminders: 'reminders',
+    users: 'users',
+    tasks: 'tasks',
+    stats: 'metrics',
+    rituals: 'rituals',
+    versions: 'backups',
+  };
+
   const handleClick = (cmd: DrawerCommand) => {
     if (isDisabled(cmd)) return;
+    if (SCREEN_CMDS[cmd.cmd] && onNavigate) {
+      onClose();
+      onNavigate(SCREEN_CMDS[cmd.cmd]);
+      return;
+    }
     if (cmd.hasArgs) {
       setFormCmd(cmd.cmd);
       setFormValue('');

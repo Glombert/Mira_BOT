@@ -5,6 +5,15 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { FileText, Folder, Cloud } from 'lucide-react';
 import { formatBytes } from '@/lib/utils';
+import {
+  AuroraMemory,
+  AuroraThinking,
+  AuroraLearned,
+  AuroraEventCard,
+  AuroraBackupCard,
+  AuroraReactions,
+} from './aurora-cards';
+import type { MessageCard } from '@mira/shared';
 
 function formatTime(ts: number): string {
   if (!ts) return '';
@@ -41,11 +50,10 @@ function TypewriterText({ content }: { content: string }) {
   }, [content]);
   return <>{displayed}</>;
 }
-import type { ServerMessage, MessageCard } from '@mira/shared';
 
 export interface ChatMessageItem {
   id: string;
-  type: ServerMessage['type'] | 'user';
+  type: 'user' | 'message' | 'thinking' | 'thought' | 'system' | 'error' | 'approval_request' | 'gdrive_auth_url' | 'files' | 'learned';
   content?: string;
   url?: string;
   files?: Array<{ name: string; dir: string; size: number }>;
@@ -66,6 +74,35 @@ function MessageCards({ cards }: { cards: MessageCard[] }) {
   return (
     <div className="mt-2 space-y-2">
       {cards.map((c, i) => {
+        if (c.kind === 'memory' && c.fact) {
+          return <AuroraMemory key={i} label={c.label || 'Я заметила'} fact={c.fact} list={c.list ?? undefined} />;
+        }
+        if (c.kind === 'event') {
+          const ec = c as any;
+          return (
+            <AuroraEventCard
+              key={i}
+              label={c.label || 'Событие'}
+              title={ec.title || ''}
+              time={ec.time || ''}
+              sub={ec.sub}
+              date={ec.date ? { month: ec.date.month || '---', day: ec.date.day || '--' } : undefined}
+            />
+          );
+        }
+        if (c.kind === 'backup') {
+          const bc = c as any;
+          return (
+            <AuroraBackupCard
+              key={i}
+              label={c.label || 'Резервная копия'}
+              title={bc.title || ''}
+              size={bc.size || ''}
+              sub={bc.sub}
+            />
+          );
+        }
+        // fallback for unknown card kinds
         const s = CARD_STYLE[c.kind] ?? CARD_STYLE.memory;
         return (
           <div
@@ -81,7 +118,7 @@ function MessageCards({ cards }: { cards: MessageCard[] }) {
             {c.list && c.list.length > 0 ? (
               <ul className="mt-1 space-y-0.5">
                 {c.list.map((item, j) => (
-                  <li key={j} className="text-xs text-text-secondary leading-snug pl-3 relative before:content-['·'] before:absolute before:left-0" style={{ color: undefined }}>
+                  <li key={j} className="text-xs text-text-secondary leading-snug pl-3 relative before:content-['·'] before:absolute before:left-0">
                     {item}
                   </li>
                 ))}
@@ -106,9 +143,9 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
 
   if (type === 'user') {
     return (
-      <div className="flex flex-col items-end animate-fade-in-up gap-1">
+      <div className="flex flex-col items-end mira-rise gap-1">
         <div
-          className="max-w-[70%] px-4 py-3 text-text-primary text-base leading-relaxed"
+          className="max-w-[72%] px-4 py-3 text-text-primary text-sm leading-relaxed"
           style={{
             borderRadius: '16px 16px 4px 16px',
             backgroundColor: 'rgba(245, 188, 122, 0.10)',
@@ -117,19 +154,31 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
         >
           {content}
         </div>
-        {message.timestamp ? <span className="text-[11px] text-text-muted mr-1">{formatTime(message.timestamp)}</span> : null}
+        {message.timestamp ? (
+          <span className="text-[10px] text-text-muted mr-1 font-mono tracking-widest">
+            {formatTime(message.timestamp)}
+          </span>
+        ) : null}
       </div>
     );
   }
 
   if (type === 'thinking') {
     return (
-      <div className="flex items-start gap-3 animate-fade-in-up">
-        <img src="/mira-avatar-full.png" alt="Мира" className="w-7 h-7 rounded-full object-cover shrink-0 border border-gold-soft" />
-        <div className="flex items-center gap-2 px-4 py-3">
-          <span className="h-2 w-2 rounded-full bg-gold animate-pulse-think" />
-          <span className="h-2 w-2 rounded-full bg-gold animate-pulse-think [animation-delay:200ms]" />
-          <span className="h-2 w-2 rounded-full bg-gold animate-pulse-think [animation-delay:400ms]" />
+      <div className="flex items-start gap-3 max-w-[82%] mira-rise">
+        <div className="w-9 shrink-0">
+          <MiraAvatar size={36} />
+        </div>
+        <div
+          className="flex items-center gap-2 px-4 py-3 rounded-[14px]"
+          style={{
+            background: 'linear-gradient(135deg, rgba(245,188,122,0.04), rgba(185,163,255,0.04))',
+            border: '1px solid rgba(244,234,214,0.10)',
+          }}
+        >
+          <span className="h-2 w-2 rounded-full bg-gold animate-mira-twinkle" />
+          <span className="h-2 w-2 rounded-full bg-gold animate-mira-twinkle" style={{ animationDelay: '0.18s' }} />
+          <span className="h-2 w-2 rounded-full bg-gold animate-mira-twinkle" style={{ animationDelay: '0.36s' }} />
         </div>
       </div>
     );
@@ -137,9 +186,11 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
 
   if (type === 'thought') {
     return (
-      <div className="flex items-start gap-3 animate-fade-in-up">
-        <img src="/mira-avatar-full.png" alt="Мира" className="w-7 h-7 rounded-full object-cover shrink-0 border border-gold-soft opacity-70" />
-        <div className="flex items-center gap-2 px-3 py-2 text-sm text-text-secondary italic">
+      <div className="flex items-start gap-3 max-w-[82%] mira-rise">
+        <div className="w-9 shrink-0">
+          <MiraAvatar size={36} glow={false} />
+        </div>
+        <div className="flex items-center gap-2 px-3 py-2 text-sm italic" style={{ color: 'rgba(244,234,214,0.62)' }}>
           <span>💭</span>
           <span className="whitespace-pre-wrap">{content}</span>
         </div>
@@ -147,9 +198,13 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
     );
   }
 
+  if (type === 'learned') {
+    return <AuroraLearned text={content || ''} />;
+  }
+
   if (type === 'system') {
     return (
-      <div className="flex items-center justify-center gap-2 py-1 animate-fade-in-up">
+      <div className="flex items-center justify-center gap-2 py-1 mira-rise">
         <span className="text-sm text-text-secondary whitespace-pre-wrap">{content}</span>
       </div>
     );
@@ -157,7 +212,7 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
 
   if (type === 'error') {
     return (
-      <div className="flex items-center justify-center gap-2 py-1 animate-fade-in-up">
+      <div className="flex items-center justify-center gap-2 py-1 mira-rise">
         <span className="text-sm text-rose whitespace-pre-wrap">{content}</span>
       </div>
     );
@@ -166,12 +221,13 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
   if (type === 'message') {
     const isNew = isFresh(message.timestamp);
     return (
-      <div className="flex items-start gap-3 animate-fade-in-up max-w-[85%]">
-        <img src="/mira-avatar-full.png" alt="Мира" className="w-7 h-7 rounded-full object-cover shrink-0 border border-gold-soft" />
+      <div className="flex items-start gap-3 max-w-[85%] mira-rise">
+        <div className="w-9 shrink-0">
+          <MiraAvatar size={36} />
+        </div>
         <div className="flex-1 min-w-0">
-          <span className="text-xs text-text-secondary mb-1 block font-serif italic">Мира</span>
           <div
-            className="relative text-text-primary text-base leading-relaxed overflow-hidden"
+            className="relative text-text-primary text-sm leading-relaxed overflow-hidden"
             style={{
               borderRadius: '16px 16px 16px 4px',
               backgroundColor: 'rgba(20, 30, 55, 0.85)',
@@ -179,7 +235,14 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
               boxShadow: '0 8px 32px rgba(0, 0, 0, 0.35)',
             }}
           >
-            <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-gold/50" />
+            {/* gold left edge */}
+            <div
+              className="absolute left-0 top-3.5 bottom-3.5 w-[1.5px] rounded-full"
+              style={{
+                background: 'linear-gradient(180deg, transparent, #f5bc7a, transparent)',
+                opacity: 0.45,
+              }}
+            />
             <div className="px-4 py-3">
               {isNew ? (
                 <TypewriterText content={content || ''} />
@@ -213,8 +276,10 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
           {message.messageAttachments && message.messageAttachments.length > 0 && (
             <div className="mt-2 space-y-1">
               {message.messageAttachments.map((a, i) => (
-                <span key={i}
-                   className="inline-flex items-center gap-2 bg-bg-base border border-border-strong rounded-lg px-3 py-1.5 text-sm text-text-secondary">
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-2 bg-bg-base border border-border-strong rounded-lg px-3 py-1.5 text-sm text-text-secondary"
+                >
                   <FileText size={14} />
                   <span className="truncate">{a.name}</span>
                   <span className="text-text-muted text-xs">{formatBytes(a.size)}</span>
@@ -223,7 +288,11 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
             </div>
           )}
           {message.cards && message.cards.length > 0 && <MessageCards cards={message.cards} />}
-          {message.timestamp ? <span className="text-[11px] text-text-muted mt-1 block">{formatTime(message.timestamp)}</span> : null}
+          {message.timestamp ? (
+            <span className="text-[10px] text-text-muted mt-1 block font-mono tracking-widest">
+              {formatTime(message.timestamp)}
+            </span>
+          ) : null}
         </div>
       </div>
     );
@@ -234,7 +303,7 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
     const a = message.approval;
     if (resolved === 'approve') {
       return (
-        <div className="flex justify-center animate-fade-in-up">
+        <div className="flex justify-center mira-rise">
           <div className="max-w-[70%] bg-sage/10 border border-sage/30 rounded-card px-4 py-2 text-sm text-sage">
             ✅ Пользователь {a.name} одобрен
           </div>
@@ -243,7 +312,7 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
     }
     if (resolved === 'block') {
       return (
-        <div className="flex justify-center animate-fade-in-up">
+        <div className="flex justify-center mira-rise">
           <div className="max-w-[70%] bg-rose/10 border border-rose/30 rounded-card px-4 py-2 text-sm text-rose">
             ❌ Пользователь {a.name} заблокирован
           </div>
@@ -251,10 +320,12 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
       );
     }
     return (
-      <div className="flex justify-center animate-fade-in-up">
+      <div className="flex justify-center mira-rise">
         <div className="max-w-[80%] bg-bg-elevated border border-border-subtle rounded-card px-4 py-3 space-y-2">
           <p className="text-sm text-text-secondary">Новый пользователь запрашивает доступ:</p>
-          <p className="text-base text-text-primary font-medium">{a.name} <span className="text-text-muted text-sm">({a.source})</span></p>
+          <p className="text-base text-text-primary font-medium">
+            {a.name} <span className="text-text-muted text-sm">({a.source})</span>
+          </p>
           <div className="flex gap-2">
             <button
               onClick={() => { setResolved('approve'); onApprove?.(a.user_id); }}
@@ -276,7 +347,7 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
 
   if (type === 'gdrive_auth_url' && url) {
     return (
-      <div className="flex items-center justify-center gap-2 py-1 animate-fade-in-up">
+      <div className="flex items-center justify-center gap-2 py-1 mira-rise">
         <Cloud size={16} className="text-gold shrink-0" />
         <a
           href={url}
@@ -292,12 +363,16 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
 
   if (type === 'files' && files) {
     return (
-      <div className="flex justify-center animate-fade-in-up">
+      <div className="flex justify-center mira-rise">
         <div className="max-w-[70%] bg-bg-elevated rounded-card px-4 py-3 space-y-2">
           <p className="text-sm text-text-secondary font-medium">Файлы</p>
           {files.map((f) => (
             <div key={f.name} className="flex items-center gap-2 text-sm text-text-primary">
-              {f.dir === 'inbox' ? <FileText size={16} className="text-text-secondary shrink-0" /> : <Folder size={16} className="text-text-secondary shrink-0" />}
+              {f.dir === 'inbox' ? (
+                <FileText size={16} className="text-text-secondary shrink-0" />
+              ) : (
+                <Folder size={16} className="text-text-secondary shrink-0" />
+              )}
               {getFileUrl ? (
                 <a
                   href={getFileUrl(f.dir as 'inbox' | 'output', f.name)}
@@ -320,8 +395,39 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
 
   // fallback for any other types
   return (
-    <div className="flex items-center justify-center gap-2 py-1 animate-fade-in-up">
+    <div className="flex items-center justify-center gap-2 py-1 mira-rise">
       <span className="text-sm text-text-secondary whitespace-pre-wrap">{content || JSON.stringify(message)}</span>
+    </div>
+  );
+}
+
+/* ── Mira Avatar with halo ─────────────────────────────────── */
+function MiraAvatar({ size = 40, glow = true }: { size?: number; glow?: boolean }) {
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      {glow && (
+        <div
+          className="mira-breathe absolute rounded-full"
+          style={{
+            inset: -size * 0.18,
+            background: 'radial-gradient(circle, rgba(245,188,122,0.55) 0%, transparent 70%)',
+          }}
+        />
+      )}
+      <div
+        className="absolute inset-0 rounded-full overflow-hidden"
+        style={{
+          border: '1px solid rgba(245,188,122,0.30)',
+          background: '#1a1f2e',
+        }}
+      >
+        <img
+          src="/mira-avatar-full.png"
+          alt="Мира"
+          className="w-full h-full block object-cover"
+          style={{ objectPosition: '50% 22%' }}
+        />
+      </div>
     </div>
   );
 }

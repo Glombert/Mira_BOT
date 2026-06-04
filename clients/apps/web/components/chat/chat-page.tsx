@@ -14,8 +14,17 @@ import { WhoamiModal } from '@/components/ui/whoami-modal';
 import { RemindersModal } from '@/components/ui/reminders-modal';
 import { DriveModal } from '@/components/ui/drive-modal';
 import { ProfileModal } from '@/components/ui/profile-modal';
+import { CreateReminderModal } from '@/components/ui/create-reminder-modal';
 import { WebDrawer } from './web-drawer';
 import { TechInbox, type TechFeedEntry } from './tech-inbox';
+import { ProfileScreen } from '@/components/screens/profile-screen';
+import { FilesScreen } from '@/components/screens/files-screen';
+import { RemindersScreen } from '@/components/screens/reminders-screen';
+import { UsersScreen } from '@/components/screens/users-screen';
+import { TasksScreen } from '@/components/screens/tasks-screen';
+import { MetricsScreen } from '@/components/screens/metrics-screen';
+import { RitualsScreen } from '@/components/screens/rituals-screen';
+import { BackupsScreen } from '@/components/screens/backups-screen';
 
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -112,6 +121,7 @@ export function ChatPage() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [permissions, setPermissions] = useState({ is_owner: false, is_approved: true, gdrive_authorized: false, gdrive_email: null as string | null, permissions: [] as string[] });
   const [mode, setMode] = useState<'chat' | 'tech'>('chat');
+  const [screen, setScreen] = useState<string>('chat');
   const [inbox, setInbox] = useState<OwnerInboxItem[]>([]);
   const [techMessages, setTechMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string; ts: number }>>([]);
   const [techThinking, setTechThinking] = useState(false);
@@ -693,7 +703,28 @@ export function ChatPage() {
         onReconnect={handleReconnect}
       />
 
-      {showAuth ? (
+      {screen !== 'chat' && (
+        <button
+          onClick={() => setScreen('chat')}
+          className="absolute top-3 left-3 z-30 h-9 w-9 flex items-center justify-center rounded-button border border-border-subtle bg-bg-deep/50 text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors duration-fast"
+          aria-label="Назад"
+        >
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M11 4 L6 9 L11 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </button>
+      )}
+
+      {screen !== 'chat' ? (
+        <>
+          {screen === 'profile' && <ProfileScreen client={client} />}
+          {screen === 'files' && <FilesScreen client={client} />}
+          {screen === 'reminders' && <RemindersScreen client={client} />}
+          {screen === 'users' && <UsersScreen client={client} />}
+          {screen === 'tasks' && <TasksScreen client={client} />}
+          {screen === 'metrics' && <MetricsScreen />}
+          {screen === 'rituals' && <RitualsScreen />}
+          {screen === 'backups' && <BackupsScreen />}
+        </>
+      ) : showAuth ? (
         <div className="flex-1 flex items-center justify-center px-4">
           <div className="w-full max-w-sm bg-bg-elevated rounded-card p-8 shadow-elevated">
             <TelegramLogin botUsername={BOT_USERNAME} mockEnabled={IS_MOCK} onAuth={handleAuth} />
@@ -782,7 +813,7 @@ export function ChatPage() {
       )}
 
       {whoamiContent && <WhoamiModal content={whoamiContent} onClose={() => setWhoamiContent(null)} />}
-      <WebDrawer open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={handlePaletteRun} permissions={permissions} userName={userName} onFetchInfo={handleFetchInfo} onFetchUsers={handleFetchUsers} counts={counts} onOpenProfile={() => { setPaletteOpen(false); setProfileOnboarding(false); setProfileOpen(true); }} />
+      <WebDrawer open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={handlePaletteRun} onNavigate={(s) => setScreen(s)} permissions={permissions} userName={userName} onFetchInfo={handleFetchInfo} onFetchUsers={handleFetchUsers} counts={counts} onOpenProfile={() => { setPaletteOpen(false); setProfileOnboarding(false); setProfileOpen(true); }} />
       <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} client={client} onboarding={profileOnboarding} />
       <RemindersModal open={remindersOpen} onClose={() => setRemindersOpen(false)} client={client} />
       <DriveModal open={driveOpen} onClose={() => setDriveOpen(false)} client={client} />
