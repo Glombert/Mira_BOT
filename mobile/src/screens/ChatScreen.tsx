@@ -34,6 +34,10 @@ import { WhoamiModal } from '../components/WhoamiModal';
 import { RemindersModal } from '../components/RemindersModal';
 import { DriveModal } from '../components/DriveModal';
 import { ProfileModal } from '../components/ProfileModal';
+import { FilesModal } from '../components/FilesModal';
+import { MetricsModal } from '../components/MetricsModal';
+import { RitualsModal } from '../components/RitualsModal';
+import { TasksModal } from '../components/TasksModal';
 
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -74,6 +78,10 @@ export function ChatScreen() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [driveOpen, setDriveOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(false);
+  const [metricsOpen, setMetricsOpen] = useState(false);
+  const [ritualsOpen, setRitualsOpen] = useState(false);
+  const [tasksOpen, setTasksOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileOnboarding, setProfileOnboarding] = useState(false);
   const onboardCheckedRef = useRef(false);
@@ -414,6 +422,10 @@ export function ChatScreen() {
     (cmd: string) => {
       if (!client) return;
       const base = cmd.split(' ')[0];
+      if (base === 'files') { setFilesOpen(true); return; }
+      if (base === 'stats') { setMetricsOpen(true); return; }
+      if (base === 'rituals') { setRitualsOpen(true); return; }
+      if (base === 'tasks') { setTasksOpen(true); return; }
       if (base === 'clear') { setMessages([]); clearCachedHistory(); }
       if (base === 'image' || base === 'gdrive_login') {
         client.sendCommand(cmd);
@@ -695,6 +707,10 @@ export function ChatScreen() {
       <WhoamiModal visible={!!whoamiContent} content={whoamiContent || ''} onClose={() => setWhoamiContent(null)} />
       <RemindersModal visible={remindersOpen} onClose={() => setRemindersOpen(false)} client={client} />
       <DriveModal visible={driveOpen} onClose={() => setDriveOpen(false)} client={client} />
+      <FilesModal visible={filesOpen} onClose={() => setFilesOpen(false)} client={client} session={session} />
+      <MetricsModal visible={metricsOpen} onClose={() => setMetricsOpen(false)} client={client} />
+      <RitualsModal visible={ritualsOpen} onClose={() => setRitualsOpen(false)} client={client} />
+      <TasksModal visible={tasksOpen} onClose={() => setTasksOpen(false)} client={client} />
       <ProfileModal visible={profileOpen} onClose={() => setProfileOpen(false)} client={client} onboarding={profileOnboarding} />
     </View>
   );
