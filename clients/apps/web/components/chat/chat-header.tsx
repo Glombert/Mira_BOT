@@ -1,6 +1,6 @@
 'use client';
 
-import { User, Trash2, Bell, Cloud, Menu, RefreshCw } from 'lucide-react';
+import { User, Trash2, Bell, Cloud, Menu, RefreshCw, ChevronLeft } from 'lucide-react';
 import { StatusDot, type ConnectionStatus } from '@/components/ui/status-dot';
 
 interface ChatHeaderProps {
@@ -12,9 +12,10 @@ interface ChatHeaderProps {
   onOpenReminders: () => void;
   onOpenDrive: () => void;
   onReconnect: () => void;
+  onBack?: () => void;
 }
 
-export function ChatHeader({ userName, connectionStatus, onClear, onWhoami, onOpenPalette, onOpenReminders, onOpenDrive, onReconnect }: ChatHeaderProps) {
+export function ChatHeader({ userName, connectionStatus, onClear, onWhoami, onOpenPalette, onOpenReminders, onOpenDrive, onReconnect, onBack }: ChatHeaderProps) {
   const statusText = connectionStatus === 'online'
     ? 'на связи · слушает'
     : connectionStatus === 'reconnecting'
@@ -25,13 +26,23 @@ export function ChatHeader({ userName, connectionStatus, onClear, onWhoami, onOp
   return (
     <header className="flex items-center justify-between px-4 py-3 border-b border-border-divider bg-bg-base sticky top-0 z-10">
       <div className="flex items-center gap-3">
-        <button
-          onClick={onOpenPalette}
-          aria-label="Меню"
-          className="h-9 w-9 flex items-center justify-center rounded-button border border-border-subtle bg-bg-deep/50 text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors duration-fast"
-        >
-          <Menu size={20} />
-        </button>
+        {onBack ? (
+          <button
+            onClick={onBack}
+            aria-label="Назад к чату"
+            className="h-9 w-9 flex items-center justify-center rounded-button border border-border-subtle bg-bg-deep/50 text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors duration-fast"
+          >
+            <ChevronLeft size={20} />
+          </button>
+        ) : (
+          <button
+            onClick={onOpenPalette}
+            aria-label="Меню"
+            className="h-9 w-9 flex items-center justify-center rounded-button border border-border-subtle bg-bg-deep/50 text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors duration-fast"
+          >
+            <Menu size={20} />
+          </button>
+        )}
 
         <div className="relative">
           <div className="absolute inset-[-4px] rounded-full bg-gold/10 animate-mira-glow" />

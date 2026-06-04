@@ -10,7 +10,6 @@ import { ChatHeader } from './chat-header';
 import { ChatInput } from './chat-input';
 import { ChatMessageBubble, type ChatMessageItem } from './chat-message';
 import { loadCachedHistory, saveCachedHistory, clearCachedHistory } from '@/lib/history-cache';
-import { WhoamiModal } from '@/components/ui/whoami-modal';
 import { RemindersModal } from '@/components/ui/reminders-modal';
 import { DriveModal } from '@/components/ui/drive-modal';
 import { ProfileModal } from '@/components/ui/profile-modal';
@@ -98,7 +97,6 @@ export function ChatPage() {
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<'online' | 'reconnecting' | 'offline'>('offline');
   const [showAuth, setShowAuth] = useState(false);
-  const [whoamiContent, setWhoamiContent] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [counts, setCounts] = useState<SidebarCounts>({});
@@ -113,7 +111,6 @@ export function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const unsubscribersRef = useRef<(() => void)[]>([]);
-  const pendingWhoamiRef = useRef(false);
   const historyLoadedRef = useRef(false);
   const dragCounterRef = useRef(0);
   const pendingFilesRef = useRef<File[]>([]);
@@ -269,11 +266,6 @@ export function ChatPage() {
     });
 
     const unsubSystem = c.on('system', (msg) => {
-      if (pendingWhoamiRef.current) {
-        setWhoamiContent(msg.content);
-        pendingWhoamiRef.current = false;
-        return;
-      }
       const oauthMatch = msg.content.match(/https:\/\/accounts\.google\.com\/o\/oauth2\/[^\s]+/);
       if (oauthMatch) {
         window.open(oauthMatch[0], '_blank');
@@ -452,11 +444,7 @@ export function ChatPage() {
     clearCachedHistory();
   }, [client]);
 
-  const handleWhoami = useCallback(() => {
-    if (!client) return;
-    pendingWhoamiRef.current = true;
-    client.sendCommand('whoami');
-  }, [client]);
+  const handleWhoami = useCallback(() => setScreen('profile'), []);
 
   const handleOpenPalette = useCallback(() => setPaletteOpen(true), []);
   const handleOpenReminders = useCallback(() => setRemindersOpen(true), []);
@@ -701,17 +689,8 @@ export function ChatPage() {
         onOpenReminders={handleOpenReminders}
         onOpenDrive={handleOpenDrive}
         onReconnect={handleReconnect}
+        onBack={screen !== 'chat' ? () => setScreen('chat') : undefined}
       />
-
-      {screen !== 'chat' && (
-        <button
-          onClick={() => setScreen('chat')}
-          className="absolute top-3 left-3 z-30 h-9 w-9 flex items-center justify-center rounded-button border border-border-subtle bg-bg-deep/50 text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors duration-fast"
-          aria-label="Назад"
-        >
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M11 4 L6 9 L11 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
-        </button>
-      )}
 
       {screen !== 'chat' ? (
         <>
@@ -812,8 +791,7 @@ export function ChatPage() {
         </>
       )}
 
-      {whoamiContent && <WhoamiModal content={whoamiContent} onClose={() => setWhoamiContent(null)} />}
-      <WebDrawer open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={handlePaletteRun} onNavigate={(s) => setScreen(s)} permissions={permissions} userName={userName} onFetchInfo={handleFetchInfo} onFetchUsers={handleFetchUsers} counts={counts} onOpenProfile={() => { setPaletteOpen(false); setProfileOnboarding(false); setProfileOpen(true); }} />
+      <WebDrawer open={paletteOpen} onClose={() => setPaletteOpen(false)} onRun={handlePaletteRun} onNavigate={(s) => setScreen(s)} permissions={permissions} userName={userName} onFetchInfo={handleFetchInfo} onFetchUsers={handleFetchUsers} counts={counts} onOpenProfile={() => { setPaletteOpen(false); setScreen('profile'); }} />
       <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} client={client} onboarding={profileOnboarding} />
       <RemindersModal open={remindersOpen} onClose={() => setRemindersOpen(false)} client={client} />
       <DriveModal open={driveOpen} onClose={() => setDriveOpen(false)} client={client} />
