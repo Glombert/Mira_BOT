@@ -658,7 +658,6 @@ def _compute_sidebar_counts(user_id: str, is_approved: bool, is_owner: bool) -> 
         except Exception:
             counts["users"] = 1
         try:
-            from tools.rituals import load_rituals
             counts["rituals"] = len(load_rituals())
         except Exception:
             counts["rituals"] = 0
@@ -1733,7 +1732,6 @@ async def chat(websocket: WebSocket, session: str = ""):
                         # Структурные ритуалы для owner-экрана: расписание, дни недели,
                         # последний/следующий запуск (через croniter).
                         try:
-                            from tools.rituals import load_rituals
                             from tools.db import load_ritual_runs
                             runs = load_ritual_runs()
                             try:
