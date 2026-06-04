@@ -38,6 +38,7 @@ import { FilesModal } from '../components/FilesModal';
 import { MetricsModal } from '../components/MetricsModal';
 import { RitualsModal } from '../components/RitualsModal';
 import { TasksModal } from '../components/TasksModal';
+import { BackupsModal } from '../components/BackupsModal';
 
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -82,6 +83,7 @@ export function ChatScreen() {
   const [metricsOpen, setMetricsOpen] = useState(false);
   const [ritualsOpen, setRitualsOpen] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
+  const [backupsOpen, setBackupsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileOnboarding, setProfileOnboarding] = useState(false);
   const onboardCheckedRef = useRef(false);
@@ -426,6 +428,7 @@ export function ChatScreen() {
       if (base === 'stats') { setMetricsOpen(true); return; }
       if (base === 'rituals') { setRitualsOpen(true); return; }
       if (base === 'tasks') { setTasksOpen(true); return; }
+      if (base === 'versions') { setBackupsOpen(true); return; }
       if (base === 'clear') { setMessages([]); clearCachedHistory(); }
       if (base === 'image' || base === 'gdrive_login') {
         client.sendCommand(cmd);
@@ -711,6 +714,7 @@ export function ChatScreen() {
       <MetricsModal visible={metricsOpen} onClose={() => setMetricsOpen(false)} client={client} />
       <RitualsModal visible={ritualsOpen} onClose={() => setRitualsOpen(false)} client={client} />
       <TasksModal visible={tasksOpen} onClose={() => setTasksOpen(false)} client={client} />
+      <BackupsModal visible={backupsOpen} onClose={() => setBackupsOpen(false)} client={client} />
       <ProfileModal visible={profileOpen} onClose={() => setProfileOpen(false)} client={client} onboarding={profileOnboarding} />
     </View>
   );
