@@ -265,11 +265,29 @@ class TasksData(BaseModel):
     tasks: list[TaskEntry]
 
 
+class BackupEntry(BaseModel):
+    id: str
+    created_at: str
+    size: int = 0
+    type: str = "auto"
+    # Снапшоты не хранят пофактовые счётчики — отдаём ТЕКУЩИЕ (для всех одинаковы).
+    fact_count: int = 0
+    note_count: int = 0
+    is_latest: bool = False
+
+
+class BackupsData(BaseModel):
+    type: Literal["backups_data"] = "backups_data"
+    schedule: str
+    storage: str
+    backups: list[BackupEntry]
+
+
 SERVER_MESSAGES: tuple[type[BaseModel], ...] = (
     Ready, ApprovalRequest, PermissionsUpdate, AuthRequired, Pong,
     Thinking, Thought, Message, SystemMessage, ErrorMessage, Files,
     GdriveAuthUrl, UsersList, Learned, ProfileDataMessage, ProfileSaved,
-    MetricsData, RitualsData, RemindersData, TasksData,
+    MetricsData, RitualsData, RemindersData, TasksData, BackupsData,
 )
 
 

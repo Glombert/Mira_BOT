@@ -221,7 +221,7 @@ from web.ws_protocol import (
     UsersList, UserEntry, PermissionsUpdate, GdriveAuthUrl, AuthRequired,
     Pong, ProfileSaved, SidebarCounts,
     MetricsData, MetricsModelStat, MetricsDayStat, RitualsData, RitualEntry,
-    RemindersData, ReminderEntry, TasksData, TaskEntry,
+    RemindersData, ReminderEntry, TasksData, TaskEntry, BackupsData, BackupEntry,
     ws_payload as _wsp,
 )
 
@@ -1017,6 +1017,45 @@ from web.routes.owner_inbox import router as _owner_inbox_router
 app.include_router(_owner_inbox_router)
 
 
+def _collect_backups_data(user_id: str) -> BackupsData:
+    """Список снапшотов бэкапа для owner-экрана Aurora. Снапшоты — датированные
+    папки в gdrive:Mira/_archive/memory (versioned backup). rclone-вызов
+    синхронный → caller оборачивает в asyncio.to_thread, чтобы не блокировать loop.
+    Счётчики фактов/заметок — текущие (снапшоты их не хранят)."""
+    import subprocess
+    dates: list[str] = []
+    try:
+        out = subprocess.run(
+            ["rclone", "lsf", "gdrive:Mira/_archive/memory/"],
+            capture_output=True, text=True, timeout=20,
+        )
+        if out.returncode == 0:
+            dates = sorted((d.rstrip("/") for d in out.stdout.splitlines() if d.strip()),
+                           reverse=True)
+    except Exception as e:
+        logger.warning(f"backups_data: rclone недоступен ({e})")
+    try:
+        from tools import semantic_memory
+        facts = semantic_memory.count(user_id)
+    except Exception:
+        facts = 0
+    try:
+        from agent import load_reflections
+        notes = len(load_reflections() or [])
+    except Exception:
+        notes = 0
+    entries = [
+        BackupEntry(id=d, created_at=d, type="auto",
+                    fact_count=facts, note_count=notes, is_latest=(i == 0))
+        for i, d in enumerate(dates[:30])
+    ]
+    return BackupsData(
+        schedule="ежедневно 03:00 UTC",
+        storage="Google Drive (gdrive:Mira)",
+        backups=entries,
+    )
+
+
 @app.websocket("/ws")
 async def chat(websocket: WebSocket, session: str = ""):
     await websocket.accept()
@@ -1611,7 +1650,7 @@ async def chat(websocket: WebSocket, session: str = ""):
                 # пробрасываются в WS — они требуют интерактивных подтверждений
                 # и контекста, оставлены только в Telegram.
                 elif cmd in ("stats", "users", "users_data", "versions", "evolution_count",
-                             "blacklist", "metrics_data", "rituals_data"):
+                             "blacklist", "metrics_data", "rituals_data", "backups_data"):
                     is_owner_ws = OWNER_TG_ID and tg_id == OWNER_TG_ID
                     if not is_owner_ws:
                         await websocket.send_json({"type": "system", "content": "Команда доступна только владельцу."})
@@ -1732,6 +1771,13 @@ async def chat(websocket: WebSocket, session: str = ""):
                             await websocket.send_json(_wsp(RitualsData(rituals=_entries)))
                         except Exception as e:
                             await websocket.send_json({"type": "system", "content": f"rituals_data: {e}"})
+                    elif cmd == "backups_data":
+                        # rclone-листинг архива — в потоке, чтобы не блокировать loop.
+                        try:
+                            _bd = await asyncio.to_thread(_collect_backups_data, user_id)
+                            await websocket.send_json(_wsp(_bd))
+                        except Exception as e:
+                            await websocket.send_json({"type": "system", "content": f"backups_data: {e}"})
                     elif cmd == "versions":
                         try:
                             import io as _io, sys as _sys

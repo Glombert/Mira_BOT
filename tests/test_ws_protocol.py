@@ -210,6 +210,18 @@ def test_eq_tasks_data():
         {"id": "t1", "message": "отчёт по продажам", "at": "2026-06-06T15:00", "status": "pending"}]}
 
 
+def test_eq_backups_data():
+    got = P.ws_payload(P.BackupsData(
+        schedule="ежедневно 03:00 UTC", storage="Google Drive (gdrive:Mira)",
+        backups=[P.BackupEntry(id="2026-06-04", created_at="2026-06-04",
+                               fact_count=5, note_count=2, is_latest=True)],
+    ))
+    assert got["type"] == "backups_data" and got["schedule"] == "ежедневно 03:00 UTC"
+    b = got["backups"][0]
+    assert b == {"id": "2026-06-04", "created_at": "2026-06-04", "size": 0,
+                 "type": "auto", "fact_count": 5, "note_count": 2, "is_latest": True}
+
+
 def test_eq_profile_data_full():
     profile = {
         "id": "tg_1", "name": "Аня", "role": "owner", "status": "owner",
