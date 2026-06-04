@@ -106,6 +106,28 @@ CLIENT_DIST  = Path(__file__).parent.parent / "clients" / "apps" / "web" / "dist
 # Legacy vanilla-JS клиент — fallback пока новый бандл не собран.
 LEGACY_STATIC_DIR = Path(__file__).parent / "static"
 
+_MIRA_VERSION_CACHE: str | None = None
+
+
+def mira_version() -> str:
+    """Версия бэкенда Миры. Единый источник — бейдж в README (его бампит
+    scripts/release.sh при релизе), чтобы не дублировать версию в коде."""
+    global _MIRA_VERSION_CACHE
+    if _MIRA_VERSION_CACHE is None:
+        ver = ""
+        try:
+            text = (Path(__file__).parent.parent / "README.md").read_text(encoding="utf-8")
+            i = text.find("version-")
+            if i != -1:
+                tail = text[i + len("version-"):]
+                end = tail.find("-brightgreen")
+                if end != -1:
+                    ver = tail[:end]
+        except Exception:
+            ver = ""
+        _MIRA_VERSION_CACHE = ver or "—"
+    return _MIRA_VERSION_CACHE
+
 app = FastAPI(title="Mira Web")
 
 # Next.js client static assets — отдаются по /_next/...
@@ -1266,6 +1288,7 @@ async def chat(websocket: WebSocket, session: str = ""):
                         notes=_form.get("notes", ""),
                         manner_options=MANNER_TRAITS,
                         filled_by_mira=_filled_by_mira,
+                        version=mira_version(),
                     ))))
 
                 elif cmd == "files":

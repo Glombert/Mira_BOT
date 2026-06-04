@@ -231,7 +231,7 @@ def test_eq_profile_data_full():
         "days_together": 30, "onboarded": True, "addressing": "Аня",
         "address_form": "ты", "manner": ["тепло"], "origin": "Москва",
         "occupation": "инженер", "notes": "", "manner_options": ["тепло", "сухо"],
-        "filled_by_mira": ["origin"],
+        "filled_by_mira": ["origin"], "version": "2.4",
     }
     got = P.ws_payload(P.ProfileDataMessage(profile=P.ProfileData(**profile)))
     assert got == {"type": "profile_data", "profile": profile}

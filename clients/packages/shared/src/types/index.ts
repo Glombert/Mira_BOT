@@ -81,6 +81,7 @@ export interface ProfileData {
   notes: string;
   manner_options: string[];
   filled_by_mira: string[];
+  version: string;
 }
 
 /** Анкета — что пользователь сам сообщает о себе. */

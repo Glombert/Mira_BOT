@@ -98,7 +98,7 @@ export function ProfileScreen({ client }: ProfileScreenProps) {
     { label: 'мы вместе', value: String(profile?.days_together ?? 0), unit: 'дней' },
     { label: 'диалогов', value: String(profile?.conversations ?? 0), unit: '' },
     { label: 'фактов в памяти', value: String(profile?.memory_facts ?? 0), unit: '' },
-    { label: 'версия Миры', value: '0.18.0', unit: '', mono: true },
+    { label: 'версия Миры', value: profile?.version || '—', unit: '', mono: true },
   ];
 
   return (

@@ -88,6 +88,7 @@ class ProfileData(BaseModel):
     notes: str
     manner_options: list[str]
     filled_by_mira: list[str]
+    version: str
 
 
 class ProfileForm(BaseModel):
