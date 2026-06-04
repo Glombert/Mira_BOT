@@ -220,6 +220,7 @@ from web.ws_protocol import (
     Ready, ProfileDataMessage, ProfileData, Files, FileEntry,
     UsersList, UserEntry, PermissionsUpdate, GdriveAuthUrl, AuthRequired,
     Pong, ProfileSaved, SidebarCounts,
+    MetricsData, MetricsModelStat, MetricsDayStat, RitualsData, RitualEntry,
     ws_payload as _wsp,
 )
 
@@ -1568,7 +1569,8 @@ async def chat(websocket: WebSocket, session: str = ""):
                 # Деструктивные (/evolve, /rollback, /release, /git, /restart) НЕ
                 # пробрасываются в WS — они требуют интерактивных подтверждений
                 # и контекста, оставлены только в Telegram.
-                elif cmd in ("stats", "users", "users_data", "versions", "evolution_count", "blacklist"):
+                elif cmd in ("stats", "users", "users_data", "versions", "evolution_count",
+                             "blacklist", "metrics_data", "rituals_data"):
                     is_owner_ws = OWNER_TG_ID and tg_id == OWNER_TG_ID
                     if not is_owner_ws:
                         await websocket.send_json({"type": "system", "content": "Команда доступна только владельцу."})
@@ -1617,6 +1619,78 @@ async def chat(websocket: WebSocket, session: str = ""):
                             await websocket.send_json(_wsp(UsersList(users=[UserEntry(**u) for u in users])))
                         except Exception as e:
                             await websocket.send_json({"type": "system", "content": f"users_data: {e}"})
+                    elif cmd == "metrics_data":
+                        # Структурные метрики LLM для owner-экрана Aurora.
+                        try:
+                            from tools.metrics_tools import metrics_read
+                            _days = 7
+                            m = metrics_read(_days)
+                            by_model = [
+                                MetricsModelStat(
+                                    model=k,
+                                    calls=v.get("calls", 0),
+                                    tokens=v.get("prompt_tokens", 0) + v.get("completion_tokens", 0),
+                                    cost=round(v.get("cost_est", 0.0), 4),
+                                )
+                                for k, v in sorted(m.get("by_model", {}).items(),
+                                                   key=lambda kv: -kv[1].get("cost_est", 0))
+                            ]
+                            by_day = [
+                                MetricsDayStat(day=k, calls=v.get("calls", 0),
+                                               cost=round(v.get("cost_est", 0.0), 4))
+                                for k, v in sorted(m.get("by_day", {}).items())
+                            ]
+                            await websocket.send_json(_wsp(MetricsData(
+                                days=_days,
+                                total_calls=m.get("total_calls", 0),
+                                total_tokens=m.get("total_tokens", 0),
+                                cost_est=round(m.get("cost_est", 0.0), 4),
+                                by_model=by_model, by_day=by_day,
+                            )))
+                        except Exception as e:
+                            await websocket.send_json({"type": "system", "content": f"metrics_data: {e}"})
+                    elif cmd == "rituals_data":
+                        # Структурные ритуалы для owner-экрана: расписание, дни недели,
+                        # последний/следующий запуск (через croniter).
+                        try:
+                            from tools.rituals import load_rituals
+                            from tools.db import load_ritual_runs
+                            runs = load_ritual_runs()
+                            try:
+                                from croniter import croniter
+                            except ImportError:
+                                croniter = None
+                            _now = datetime.now()
+                            _entries = []
+                            for r in load_rituals():
+                                _name = r.get("name", "")
+                                _sched = r.get("schedule", "")
+                                _days = [False] * 7
+                                _next = None
+                                if croniter and _sched:
+                                    try:
+                                        _it = croniter(_sched, _now)
+                                        _first = None
+                                        for _ in range(40):
+                                            _nxt = _it.get_next(datetime)
+                                            if _first is None:
+                                                _first = _nxt
+                                            if (_nxt - _now).days > 31:
+                                                break
+                                            _days[_nxt.weekday()] = True
+                                        _next = _first.isoformat() if _first else None
+                                    except Exception:
+                                        pass
+                                _entries.append(RitualEntry(
+                                    id=_name, name=_name,
+                                    description=(r.get("prompt", "") or "")[:140],
+                                    schedule=_sched, days=_days, enabled=True,
+                                    last_run=runs.get(_name, {}).get("last_run"),
+                                    next_run=_next,
+                                ))
+                            await websocket.send_json(_wsp(RitualsData(rituals=_entries)))
+                        except Exception as e:
+                            await websocket.send_json({"type": "system", "content": f"rituals_data: {e}"})
                     elif cmd == "versions":
                         try:
                             import io as _io, sys as _sys

@@ -155,6 +155,43 @@ def test_eq_ready_counts_drops_none_subfields():
     assert got["counts"] == {"files": 2}
 
 
+def test_eq_metrics_data():
+    got = P.ws_payload(P.MetricsData(
+        days=7, total_calls=100, total_tokens=50000, cost_est=1.23,
+        by_model=[P.MetricsModelStat(model="sonnet", calls=80, tokens=40000, cost=1.0)],
+        by_day=[P.MetricsDayStat(day="2026-06-01", calls=50, cost=0.6)],
+    ))
+    assert got == {
+        "type": "metrics_data", "days": 7, "total_calls": 100, "total_tokens": 50000,
+        "cost_est": 1.23,
+        "by_model": [{"model": "sonnet", "calls": 80, "tokens": 40000, "cost": 1.0}],
+        "by_day": [{"day": "2026-06-01", "calls": 50, "cost": 0.6}],
+    }
+
+
+def test_eq_rituals_data():
+    got = P.ws_payload(P.RitualsData(rituals=[
+        P.RitualEntry(id="self_review", name="self_review", description="ревью кода",
+                      schedule="0 21 1,15 * *", days=[False, False, False, False, False, False, True],
+                      enabled=True, last_run="2026-06-01T21:00", next_run="2026-06-15T21:00"),
+    ]))
+    assert got["type"] == "rituals_data"
+    r = got["rituals"][0]
+    assert r["id"] == "self_review" and r["enabled"] is True
+    assert r["days"] == [False, False, False, False, False, False, True]
+    assert r["last_run"] == "2026-06-01T21:00" and r["next_run"] == "2026-06-15T21:00"
+
+
+def test_eq_rituals_data_omits_none_runs():
+    # last_run/next_run None не уходят на провод (exclude_none)
+    got = P.ws_payload(P.RitualsData(rituals=[
+        P.RitualEntry(id="r", name="r", description="", schedule="0 0 * * *",
+                      days=[True] * 7, enabled=True),
+    ]))
+    r = got["rituals"][0]
+    assert "last_run" not in r and "next_run" not in r
+
+
 def test_eq_profile_data_full():
     profile = {
         "id": "tg_1", "name": "Аня", "role": "owner", "status": "owner",

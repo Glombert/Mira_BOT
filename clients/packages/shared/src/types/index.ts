@@ -48,7 +48,9 @@ export type ServerMessage =
   | { type: 'users_list'; users: UserEntry[] }
   | { type: 'learned'; insight: string }
   | { type: 'profile_data'; profile: ProfileData }
-  | { type: 'profile_saved' };
+  | { type: 'profile_saved' }
+  | { type: 'metrics_data'; days: number; total_calls: number; total_tokens: number; cost_est: number; by_model: Array<{ model: string; calls: number; tokens: number; cost: number }>; by_day: Array<{ day: string; calls: number; cost: number }> }
+  | { type: 'rituals_data'; rituals: Array<{ id: string; name: string; description: string; schedule: string; days: boolean[]; enabled: boolean; last_run?: string | null; next_run?: string | null }> };
 
 /** Структурированный профиль для экрана «Профиль» (Aurora). */
 export interface ProfileData {

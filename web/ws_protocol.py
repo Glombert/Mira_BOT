@@ -195,10 +195,52 @@ class ProfileSaved(BaseModel):
     type: Literal["profile_saved"] = "profile_saved"
 
 
+# --- Owner-дашборды: структурные данные для экранов Aurora ---
+
+class MetricsModelStat(BaseModel):
+    model: str
+    calls: int
+    tokens: int
+    cost: float
+
+
+class MetricsDayStat(BaseModel):
+    day: str
+    calls: int
+    cost: float
+
+
+class MetricsData(BaseModel):
+    type: Literal["metrics_data"] = "metrics_data"
+    days: int
+    total_calls: int
+    total_tokens: int
+    cost_est: float
+    by_model: list[MetricsModelStat]
+    by_day: list[MetricsDayStat]
+
+
+class RitualEntry(BaseModel):
+    id: str
+    name: str
+    description: str
+    schedule: str
+    days: list[bool]              # пн..вс (7) — для мини-календаря
+    enabled: bool
+    last_run: str | None = None
+    next_run: str | None = None
+
+
+class RitualsData(BaseModel):
+    type: Literal["rituals_data"] = "rituals_data"
+    rituals: list[RitualEntry]
+
+
 SERVER_MESSAGES: tuple[type[BaseModel], ...] = (
     Ready, ApprovalRequest, PermissionsUpdate, AuthRequired, Pong,
     Thinking, Thought, Message, SystemMessage, ErrorMessage, Files,
     GdriveAuthUrl, UsersList, Learned, ProfileDataMessage, ProfileSaved,
+    MetricsData, RitualsData,
 )
 
 
