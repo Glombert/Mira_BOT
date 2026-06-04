@@ -236,11 +236,40 @@ class RitualsData(BaseModel):
     rituals: list[RitualEntry]
 
 
+class ReminderEntry(BaseModel):
+    id: str
+    title: str
+    at: str                       # trigger_at (ISO)
+    done: bool
+    # gcal/repeat/mira_note пока не трекаются в таблице reminders — дефолты,
+    # чтобы фронт §5 типизировался. Появятся, когда добавим поля в БД.
+    gcal: bool = False
+    repeat: str | None = None
+    mira_note: str | None = None
+
+
+class RemindersData(BaseModel):
+    type: Literal["reminders_data"] = "reminders_data"
+    reminders: list[ReminderEntry]
+
+
+class TaskEntry(BaseModel):
+    id: str
+    message: str
+    at: str                       # trigger_at
+    status: str
+
+
+class TasksData(BaseModel):
+    type: Literal["tasks_data"] = "tasks_data"
+    tasks: list[TaskEntry]
+
+
 SERVER_MESSAGES: tuple[type[BaseModel], ...] = (
     Ready, ApprovalRequest, PermissionsUpdate, AuthRequired, Pong,
     Thinking, Thought, Message, SystemMessage, ErrorMessage, Files,
     GdriveAuthUrl, UsersList, Learned, ProfileDataMessage, ProfileSaved,
-    MetricsData, RitualsData,
+    MetricsData, RitualsData, RemindersData, TasksData,
 )
 
 

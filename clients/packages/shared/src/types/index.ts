@@ -50,7 +50,9 @@ export type ServerMessage =
   | { type: 'profile_data'; profile: ProfileData }
   | { type: 'profile_saved' }
   | { type: 'metrics_data'; days: number; total_calls: number; total_tokens: number; cost_est: number; by_model: Array<{ model: string; calls: number; tokens: number; cost: number }>; by_day: Array<{ day: string; calls: number; cost: number }> }
-  | { type: 'rituals_data'; rituals: Array<{ id: string; name: string; description: string; schedule: string; days: boolean[]; enabled: boolean; last_run?: string | null; next_run?: string | null }> };
+  | { type: 'rituals_data'; rituals: Array<{ id: string; name: string; description: string; schedule: string; days: boolean[]; enabled: boolean; last_run?: string | null; next_run?: string | null }> }
+  | { type: 'reminders_data'; reminders: Array<{ id: string; title: string; at: string; done: boolean; gcal: boolean; repeat?: string | null; mira_note?: string | null }> }
+  | { type: 'tasks_data'; tasks: Array<{ id: string; message: string; at: string; status: string }> };
 
 /** Структурированный профиль для экрана «Профиль» (Aurora). */
 export interface ProfileData {

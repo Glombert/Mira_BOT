@@ -192,6 +192,24 @@ def test_eq_rituals_data_omits_none_runs():
     assert "last_run" not in r and "next_run" not in r
 
 
+def test_eq_reminders_data():
+    got = P.ws_payload(P.RemindersData(reminders=[
+        P.ReminderEntry(id="rem1", title="позвонить маме", at="2026-06-05T08:00", done=False),
+    ]))
+    assert got["type"] == "reminders_data"
+    r = got["reminders"][0]
+    assert r == {"id": "rem1", "title": "позвонить маме", "at": "2026-06-05T08:00",
+                 "done": False, "gcal": False}  # repeat/mira_note None → exclude_none
+
+
+def test_eq_tasks_data():
+    got = P.ws_payload(P.TasksData(tasks=[
+        P.TaskEntry(id="t1", message="отчёт по продажам", at="2026-06-06T15:00", status="pending"),
+    ]))
+    assert got == {"type": "tasks_data", "tasks": [
+        {"id": "t1", "message": "отчёт по продажам", "at": "2026-06-06T15:00", "status": "pending"}]}
+
+
 def test_eq_profile_data_full():
     profile = {
         "id": "tg_1", "name": "Аня", "role": "owner", "status": "owner",

@@ -221,6 +221,7 @@ from web.ws_protocol import (
     UsersList, UserEntry, PermissionsUpdate, GdriveAuthUrl, AuthRequired,
     Pong, ProfileSaved, SidebarCounts,
     MetricsData, MetricsModelStat, MetricsDayStat, RitualsData, RitualEntry,
+    RemindersData, ReminderEntry, TasksData, TaskEntry,
     ws_payload as _wsp,
 )
 
@@ -1469,6 +1470,46 @@ async def chat(websocket: WebSocket, session: str = ""):
                             for t in tasks:
                                 lines.append(f"  {t['id']} — {t['trigger_at'][:16].replace('T', ' ')} — {t['message'][:80]}")
                             await websocket.send_json({"type": "system", "content": "\n".join(lines)})
+
+                elif cmd == "reminders_data":
+                    # Структурный список напоминаний для экрана Aurora.
+                    if not _is_approved(user_id):
+                        await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    else:
+                        try:
+                            r = list_reminders(user_id)
+                            entries = [
+                                ReminderEntry(
+                                    id=str(t.get("id", "")),
+                                    title=t.get("message", ""),
+                                    at=t.get("trigger_at", ""),
+                                    done=(t.get("status") not in ("pending", None)),
+                                )
+                                for t in (r.get("reminders") or [])
+                            ]
+                            await websocket.send_json(_wsp(RemindersData(reminders=entries)))
+                        except Exception as e:
+                            await websocket.send_json({"type": "system", "content": f"reminders_data: {e}"})
+
+                elif cmd == "tasks_data":
+                    # Структурный список задач для экрана Aurora.
+                    if not _is_approved(user_id):
+                        await websocket.send_json({"type": "system", "content": "Требуется одобрение."})
+                    else:
+                        try:
+                            r = list_tasks(user_id)
+                            entries = [
+                                TaskEntry(
+                                    id=str(t.get("id", "")),
+                                    message=t.get("message", ""),
+                                    at=t.get("trigger_at", ""),
+                                    status=t.get("status", "pending"),
+                                )
+                                for t in (r.get("tasks") or [])
+                            ]
+                            await websocket.send_json(_wsp(TasksData(tasks=entries)))
+                        except Exception as e:
+                            await websocket.send_json({"type": "system", "content": f"tasks_data: {e}"})
 
                 # --- /tz: показать или установить часовую зону ---
                 elif cmd == "tz" or cmd.startswith("tz "):
