@@ -23,9 +23,19 @@ export function TasksScreen({ client }: TasksScreenProps) {
     if (!client) return;
     setLoading(true);
     try {
-      const msg = await client.sendCommandAwait('tasks', ['system', 'message'], 8000);
-      // TODO: parse structured tasks when backend supports tasks_data
-      setTasks([]);
+      const msg: any = await client.sendCommandAwait('tasks_data', ['tasks_data'], 8000);
+      if (msg && msg.type === 'tasks_data' && Array.isArray(msg.tasks)) {
+        setTasks(msg.tasks.map((t: any) => ({
+          id: String(t.id),
+          title: t.message || '',
+          status: t.status === 'done' ? 'done' : t.status === 'deferred' ? 'deferred' : 'todo',
+          due: t.at
+            ? new Date(t.at).toLocaleString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+            : undefined,
+        })));
+      } else {
+        setTasks([]);
+      }
     } catch {
       setTasks([]);
     } finally {

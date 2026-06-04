@@ -170,6 +170,27 @@ interface RemindersScreenProps {
   client: MiraClient | null;
 }
 
+function _bucketizeReminders(rems: Reminder[]): ReminderBucket[] {
+  const now = new Date();
+  const tmr = new Date(now.getTime() + 86400000);
+  const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  const today: Reminder[] = [], tomorrow: Reminder[] = [], later: Reminder[] = [], done: Reminder[] = [];
+  for (const r of rems) {
+    if (r.done) { done.push(r); continue; }
+    const d = new Date(r.at);
+    if (isNaN(d.getTime())) { later.push(r); }
+    else if (sameDay(d, now)) { today.push(r); }
+    else if (sameDay(d, tmr)) { tomorrow.push(r); }
+    else { later.push(r); }
+  }
+  const out: ReminderBucket[] = [];
+  if (today.length) out.push({ bucket: 'today', label: 'Сегодня', items: today });
+  if (tomorrow.length) out.push({ bucket: 'tomorrow', label: 'Завтра', items: tomorrow });
+  if (later.length) out.push({ bucket: 'later', label: 'Позже', items: later });
+  if (done.length) out.push({ bucket: 'done', label: 'Выполнено', items: done });
+  return out;
+}
+
 export function RemindersScreen({ client }: RemindersScreenProps) {
   const [view, setView] = useState<'list' | 'month'>('list');
   const [buckets, setBuckets] = useState<ReminderBucket[]>([]);
@@ -179,9 +200,17 @@ export function RemindersScreen({ client }: RemindersScreenProps) {
     if (!client) return;
     setLoading(true);
     try {
-      const msg = await client.sendCommandAwait('reminders', ['system', 'message'], 8000);
-      // TODO: parse structured reminders when backend supports it
-      setBuckets([]);
+      const msg: any = await client.sendCommandAwait('reminders_data', ['reminders_data'], 8000);
+      if (msg && msg.type === 'reminders_data' && Array.isArray(msg.reminders)) {
+        const rems: Reminder[] = msg.reminders.map((r: any) => ({
+          id: String(r.id), title: r.title || '', at: r.at || '',
+          gcal: !!r.gcal, repeat: r.repeat ?? null,
+          miraNote: r.mira_note ?? undefined, done: !!r.done,
+        }));
+        setBuckets(_bucketizeReminders(rems));
+      } else {
+        setBuckets([]);
+      }
     } catch {
       setBuckets([]);
     } finally {
