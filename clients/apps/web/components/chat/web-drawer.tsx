@@ -22,10 +22,12 @@ const SECTION_ICONS: Record<string, string> = {
   'ЗАДАЧИ': 'task', 'ИНСТРУМЕНТЫ': 'tool', 'ВЛАДЕЛЕЦ': 'lock',
 };
 
-// Справочные команды → результат панелью в меню (не в чат)
+// Справочные команды → результат панелью в меню (не в чат).
+// ВАЖНО: команды, у которых есть полноценный экран (SCREEN_CMDS:
+// stats/rituals/versions/reminders/tasks/users/files), сюда НЕ входят —
+// иначе инлайн-ветка рендера перехватывает клик и экран не открывается.
 const INFO_CMDS = new Set([
-  'whoami', 'help', 'stats', 'versions', 'rituals', 'blacklist',
-  'evolution_count', 'gdrive_status', 'gcal', 'reminders', 'tasks',
+  'whoami', 'help', 'blacklist', 'evolution_count', 'gdrive_status', 'gcal',
 ]);
 const STATUS_LABEL: Record<string, string> = {
   owner: 'Владелец', regular: 'Одобрен', guest: 'Гость',
