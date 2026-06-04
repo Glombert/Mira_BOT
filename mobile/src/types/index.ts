@@ -180,7 +180,7 @@ export interface TechEvent {
 
 export interface ChatMessageItem {
   id: string;
-  type: 'user' | 'message' | 'system' | 'error' | 'thinking' | 'thought' | 'files' | 'gdrive_auth_url' | 'approval_request';
+  type: 'user' | 'message' | 'system' | 'error' | 'thinking' | 'thought' | 'files' | 'gdrive_auth_url' | 'approval_request' | 'learned';
   content?: string;
   files?: Attachment[];
   attachments?: Attachment[];
@@ -193,6 +193,7 @@ export interface ChatMessageItem {
     source: string;
     resolved?: 'approve' | 'block';
   };
+  insight?: string;
 }
 
 export interface HistoryMessage {

@@ -327,6 +327,16 @@ export function ChatScreen() {
       });
     });
 
+    const unsubLearned = c.on('learned', (msg) => {
+      addMessage({
+        id: generateId(),
+        type: 'learned',
+        content: msg.insight,
+        insight: msg.insight,
+        timestamp: Date.now(),
+      });
+    });
+
     // Tech-channel: только для unread-badge (полноценный экран — TechScreen)
     const unsubTech = c.onTech((ev) => {
       if (ev.type === 'inbox_update') return;
@@ -337,7 +347,7 @@ export function ChatScreen() {
     unsubscribersRef.current = [
       unsubReady, unsubAuthRequired, unsubThinking, unsubThought, unsubMessage,
       unsubSystem, unsubError, unsubPong, unsubFiles, unsubGdrive,
-      unsubPermissions, unsubApproval, unsubTech,
+      unsubPermissions, unsubApproval, unsubLearned, unsubTech,
     ];
 
     c.connect().catch(() => setConnectionStatus('offline'));

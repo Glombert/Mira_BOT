@@ -5,6 +5,7 @@ import Markdown from 'react-native-markdown-display';
 import { TypewriterText } from './ui/TypewriterText';
 import { AuroraUserBubble } from './AuroraUserBubble';
 import { AuroraMiraBubble } from './AuroraMiraBubble';
+import { AuroraThinkingRing } from './AuroraThinkingRing';
 import { colors, spacing, radii, typography, fonts } from '../theme';
 import { BASE_URL } from '../config';
 
@@ -154,12 +155,7 @@ export function AuroraMessage({ message, isLast = true, onFilePress, onFileLink,
   const time = message.timestamp ? formatTime(message.timestamp) : undefined;
 
   if (message.type === 'thinking') {
-    return (
-      <View style={styles.thinkingBubble}>
-        <Text style={styles.thinkingText}>Мира думает</Text>
-        <Text style={styles.dots}>...</Text>
-      </View>
-    );
+    return <AuroraThinkingRing />;
   }
 
   if (message.type === 'thought') {
@@ -198,16 +194,45 @@ export function AuroraMessage({ message, isLast = true, onFilePress, onFileLink,
     );
   }
 
+  if (message.type === 'learned') {
+    return (
+      <View style={styles.centerRow}>
+        <View style={styles.learnedCapsule}>
+          <Text style={styles.learnedIcon}>☾</Text>
+          <Text style={styles.learnedLabel}>я заметила</Text>
+          <Text style={styles.learnedText} selectable>{message.insight || message.content || ''}</Text>
+        </View>
+      </View>
+    );
+  }
+
   if (message.type === 'files' && message.files) {
     return (
       <View style={styles.centerRow}>
-        <View style={styles.systemBubble}>
-          <Text style={styles.systemText}>Файлы:</Text>
-          {message.files.map((f, i) => (
-            <TouchableOpacity key={i} onPress={() => onFilePress?.(f.dir, f.name)}>
-              <Text style={styles.fileText}>• {f.name}</Text>
-            </TouchableOpacity>
-          ))}
+        <View style={styles.filesSection}>
+          <Text style={styles.filesSectionTitle}>Мои файлы</Text>
+          <View style={styles.filesGrid}>
+            {message.files.map((f, i) => (
+              <TouchableOpacity
+                key={i}
+                style={styles.fileCardMini}
+                onPress={() => onFilePress?.(f.dir, f.name)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.fileCardIconWrap}>
+                  <Text style={styles.fileCardIcon}>
+                    {/pdf$/.test(f.name) ? '📄'
+                      : /xls[cx]?$|csv$/.test(f.name) ? '📊'
+                      : /png$|jpe?g$|gif$|svg$|webp$/.test(f.name) ? '🖼'
+                      : /zip$|tar$|gz$|rar$/.test(f.name) ? '📦'
+                      : '📎'}
+                  </Text>
+                </View>
+                <Text style={styles.fileCardName} numberOfLines={1}>{f.name}</Text>
+                <Text style={styles.fileCardMeta}>{f.size ? `${(f.size / 1024).toFixed(1)} KB` : ''}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
       </View>
     );
@@ -305,6 +330,59 @@ const styles = StyleSheet.create({
   thinkingText: { color: colors.text.muted, fontSize: typography.status.fontSize },
   dots: { color: colors.gold.DEFAULT, fontSize: typography.status.fontSize },
   fileText: { color: colors.text.dim, fontSize: typography.status.fontSize, marginTop: spacing.xs },
+  // File cards (Aurora design: file grid)
+  filesSection: {
+    backgroundColor: colors.bg.surface,
+    borderRadius: radii.button,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    maxWidth: '95%',
+  },
+  filesSectionTitle: {
+    color: colors.gold.DEFAULT,
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase' as const,
+    letterSpacing: 1,
+    marginBottom: spacing.sm,
+    fontFamily: fonts.sans,
+  },
+  filesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  fileCardMini: {
+    width: '47%',
+    padding: spacing.sm,
+    borderRadius: radii.sidebarItem,
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    borderWidth: 1,
+    borderColor: colors.border.divider,
+  },
+  fileCardIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.xs,
+  },
+  fileCardIcon: { fontSize: 14 },
+  fileCardName: {
+    color: colors.text.primary,
+    fontSize: 12,
+    fontWeight: '500',
+    fontFamily: fonts.sans,
+    marginBottom: 2,
+  },
+  fileCardMeta: {
+    color: colors.text.muted,
+    fontSize: 10,
+    fontFamily: fonts.mono,
+  },
   linkText: {
     color: colors.gold.DEFAULT,
     fontSize: typography.status.fontSize,
@@ -338,4 +416,35 @@ const styles = StyleSheet.create({
   },
   cardFact: { color: colors.text.primary, fontSize: typography.body.fontSize, lineHeight: 20 },
   cardListItem: { color: colors.text.dim, fontSize: 13, lineHeight: 19, marginTop: 2 },
+  // learned capsule (Aurora design: purple mystic capsule)
+  learnedCapsule: {
+    backgroundColor: 'rgba(185, 163, 255, 0.08)',
+    borderColor: 'rgba(185, 163, 255, 0.26)',
+    borderWidth: 1,
+    borderRadius: radii.sidebarItem,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    maxWidth: '85%',
+    alignItems: 'center' as const,
+  },
+  learnedIcon: {
+    fontSize: 16,
+    color: colors.mystic.DEFAULT,
+    marginBottom: 2,
+  },
+  learnedLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.mystic.DEFAULT,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 1.5,
+    marginBottom: spacing.sm,
+    fontFamily: fonts.sans,
+  },
+  learnedText: {
+    color: colors.text.primary,
+    fontSize: typography.body.fontSize,
+    textAlign: 'center' as const,
+    lineHeight: 20,
+  },
 });
