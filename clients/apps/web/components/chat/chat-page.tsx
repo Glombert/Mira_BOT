@@ -720,9 +720,9 @@ export function ChatPage() {
           {screen === 'reminders' && <RemindersScreen client={client} />}
           {screen === 'users' && <UsersScreen client={client} />}
           {screen === 'tasks' && <TasksScreen client={client} />}
-          {screen === 'metrics' && <MetricsScreen />}
-          {screen === 'rituals' && <RitualsScreen />}
-          {screen === 'backups' && <BackupsScreen />}
+          {screen === 'metrics' && <MetricsScreen client={client} />}
+          {screen === 'rituals' && <RitualsScreen client={client} />}
+          {screen === 'backups' && <BackupsScreen client={client} />}
         </>
       ) : showAuth ? (
         <div className="flex-1 flex items-center justify-center px-4">

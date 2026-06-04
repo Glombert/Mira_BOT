@@ -1,10 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import type { MiraClient } from '@mira/shared';
 import { SectionHeader, PrimaryBtn, ScreenShell } from './screen-primitives';
 import { Spark } from '../chat/aurora-cards';
-
-// TODO: wire to backend — replace with real data when rituals_data endpoint is available
 
 interface Ritual {
   mark: string;
@@ -18,32 +17,52 @@ interface Ritual {
   color: string;
 }
 
-const RITUALS: Ritual[] = [
-  { mark: 'review', name: 'Утренний бриф', time: '08:00',
-    days: [true,true,true,true,true,false,false],
-    desc: 'собирает погоду, события дня и незакрытые задачи в одно сообщение',
-    last: 'сегодня · 08:00', next: 'завтра · 08:00', on: true, color: '#f5bc7a' },
-  { mark: 'evolve', name: 'Еженедельное само-ревью', time: 'вс · 22:00',
-    days: [false,false,false,false,false,false,true],
-    desc: 'перечитывает диалоги недели, обновляет паттерны о тебе',
-    last: '1 июня · 22:00', next: '8 июня · 22:00', on: true, color: '#b9a3ff' },
-  { mark: 'backup', name: 'Ночной бэкап', time: '03:00',
-    days: [true,true,true,true,true,true,true],
-    desc: 'архивирует память, заметки и связи на Google Drive',
-    last: 'сегодня · 03:14', next: 'завтра · 03:00', on: true, color: '#8dd0a7' },
-  { mark: 'diary', name: 'Дайджест выходных', time: 'сб · 10:00',
-    days: [false,false,false,false,false,true,false],
-    desc: 'мягко подводит итоги недели — без задач, просто разговор',
-    last: '1 июня · 10:00', next: '7 июня · 10:00', on: false, color: '#f5bc7a' },
-  { mark: 'evolve', name: 'Цикл /evolve', time: 'по триггеру',
-    days: [false,false,true,false,false,true,false],
-    desc: 'улучшает собственный код, когда накопилось достаточно наблюдений',
-    last: '2 июня · 03:14', next: '~5 июня', on: true, color: '#b9a3ff' },
-  { mark: 'personality', name: 'Тихая проверка', time: '14:00',
-    days: [true,true,true,true,true,false,false],
-    desc: 'ненавязчиво спрашивает, как ты — если давно не писал',
-    last: 'вчера · 14:00', next: 'сегодня · 14:00', on: true, color: '#f5bc7a' },
-];
+const _MONTHS = ['янв','фев','мар','апр','мая','июн','июл','авг','сен','окт','ноя','дек'];
+
+function _markFor(name: string): string {
+  const n = (name || '').toLowerCase();
+  if (n.includes('review') || n.includes('evolve') || n.includes('version')) return 'evolve';
+  if (n.includes('backup') || n.includes('health') || n.includes('server')) return 'backup';
+  if (n.includes('summary') || n.includes('weekly') || n.includes('digest')) return 'diary';
+  if (n.includes('audit') || n.includes('log')) return 'review';
+  return 'personality';
+}
+
+function _colorFor(name: string): string {
+  const m = _markFor(name);
+  return m === 'evolve' ? '#b9a3ff' : m === 'backup' ? '#8dd0a7' : '#f5bc7a';
+}
+
+function _humanSchedule(cron: string): string {
+  const p = (cron || '').trim().split(/\s+/);
+  if (p.length < 5) return cron || '—';
+  const [min, hr, dom, , dow] = p;
+  const time = `${hr.padStart(2, '0')}:${min.padStart(2, '0')}`;
+  if (dom !== '*') return `${dom} числа · ${time}`;
+  if (dow !== '*') return `дни ${dow} · ${time}`;
+  return `ежедневно · ${time}`;
+}
+
+function _fmtRun(iso?: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  return `${d.getDate()} ${_MONTHS[d.getMonth()]} · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function _mapRitual(r: any): Ritual {
+  return {
+    mark: _markFor(r.name),
+    name: r.name || '',
+    time: _humanSchedule(r.schedule || ''),
+    days: Array.isArray(r.days) && r.days.length === 7 ? r.days : [false, false, false, false, false, false, false],
+    desc: r.description || '',
+    last: _fmtRun(r.last_run),
+    next: _fmtRun(r.next_run),
+    on: r.enabled !== false,
+    color: _colorFor(r.name),
+  };
+}
 
 const DAY_LABELS = ['П', 'В', 'С', 'Ч', 'П', 'С', 'В'];
 
@@ -154,8 +173,24 @@ function RitualCard({ r }: { r: Ritual }) {
   );
 }
 
-export function RitualsScreen() {
-  const active = RITUALS.filter((r) => r.on).length;
+export function RitualsScreen({ client }: { client: MiraClient | null }) {
+  const [rituals, setRituals] = useState<Ritual[]>([]);
+
+  const load = useCallback(async () => {
+    if (!client) return;
+    try {
+      const msg = await client.sendCommandAwait('rituals_data', ['rituals_data'], 8000);
+      if ('rituals' in msg && Array.isArray((msg as any).rituals)) {
+        setRituals((msg as any).rituals.map(_mapRitual));
+      }
+    } catch {
+      // оставляем пусто
+    }
+  }, [client]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const active = rituals.filter((r) => r.on).length;
   return (
     <ScreenShell>
       <SectionHeader
@@ -174,19 +209,19 @@ export function RitualsScreen() {
         style={{ padding: '14px 32px', borderBottom: '1px solid rgba(244,234,214,0.06)' }}
       >
         <span className="text-[11.5px] text-text-muted font-mono">
-          <span className="text-text-primary">{RITUALS.length}</span> ритуалов
+          <span className="text-text-primary">{rituals.length}</span> ритуалов
         </span>
         <span className="text-[11.5px] text-text-muted font-mono">
           <span style={{ color: '#8dd0a7' }}>{active}</span> активны
         </span>
         <span className="text-[11.5px] text-text-muted font-mono">
-          <span className="text-text-faint">{RITUALS.length - active}</span> на паузе
+          <span className="text-text-faint">{rituals.length - active}</span> на паузе
         </span>
       </div>
 
       <div className="flex-1 overflow-y-auto mira-scroll" style={{ padding: '24px 32px 40px' }}>
         <div className="grid grid-cols-2 gap-3.5">
-          {RITUALS.map((r, i) => <RitualCard key={i} r={r} />)}
+          {rituals.map((r, i) => <RitualCard key={i} r={r} />)}
         </div>
         <div
           className="flex items-center gap-3 mt-5 px-4 py-4 rounded-[10px]"

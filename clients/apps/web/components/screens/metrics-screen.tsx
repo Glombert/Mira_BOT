@@ -1,18 +1,30 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import type { MiraClient } from '@mira/shared';
 import { SectionHeader, ChipToggle, ScreenShell } from './screen-primitives';
 
-// TODO: wire to backend — replace with real data when metrics_data endpoint is available
+type ModelRow = { name: string; req: string; tok: string; lat: string; cost: string; color: string; share: number };
 
-const MODELS = [
-  { name: 'gpt-4o-mini',        req: '820', tok: '1.10M', lat: '0.9', cost: '$2.10', color: '#8dd0a7', share: 62 },
-  { name: 'claude-3.5-sonnet',  req: '280', tok: '0.80M', lat: '2.4', cost: '$7.80', color: '#f5bc7a', share: 21 },
-  { name: 'gpt-4o',             req: '110', tok: '0.40M', lat: '3.1', cost: '$3.60', color: '#b9a3ff', share: 8  },
-  { name: 'local · embeddings', req: '38',  tok: '0.10M', lat: '0.2', cost: '$0.70', color: '#7aa6f5', share: 9  },
-];
+const _MODEL_COLORS = ['#f5bc7a', '#8dd0a7', '#b9a3ff', '#7aa6f5', '#e88a8a'];
 
-const REQ_14D = [620, 710, 680, 840, 790, 910, 880, 760, 1020, 980, 1140, 1080, 1210, 1248];
+function _fmtTokens(t: number): string {
+  if (t >= 1_000_000) return `${(t / 1_000_000).toFixed(2)}M`;
+  if (t >= 1000) return `${(t / 1000).toFixed(0)}K`;
+  return String(t);
+}
+
+function _mapModels(byModel: any[], totalCalls: number): ModelRow[] {
+  return (byModel || []).map((m, i) => ({
+    name: m.model,
+    req: String(m.calls ?? 0),
+    tok: _fmtTokens(m.tokens ?? 0),
+    lat: '—',
+    cost: `$${(m.cost ?? 0).toFixed(2)}`,
+    color: _MODEL_COLORS[i % _MODEL_COLORS.length],
+    share: totalCalls ? Math.round(((m.calls ?? 0) / totalCalls) * 100) : 0,
+  }));
+}
 
 function AreaChart({ data, w = 560, h = 120, color = '#f5bc7a' }: { data: number[]; w?: number; h?: number; color?: string }) {
   const max = Math.max(...data) * 1.15;
@@ -55,7 +67,7 @@ function Kpi({ label, value, unit, delta, deltaUp, sub }: { label: string; value
   );
 }
 
-function DonutChart({ models, size = 100 }: { models: typeof MODELS; size?: number }) {
+function DonutChart({ models, size = 100 }: { models: ModelRow[]; size?: number }) {
   const r = size / 2 - 8;
   const cx = size / 2, cy = size / 2;
   const circ = 2 * Math.PI * r;
@@ -79,7 +91,27 @@ function DonutChart({ models, size = 100 }: { models: typeof MODELS; size?: numb
   );
 }
 
-export function MetricsScreen() {
+export function MetricsScreen({ client }: { client: MiraClient | null }) {
+  const [models, setModels] = useState<ModelRow[]>([]);
+  const [req14d, setReq14d] = useState<number[]>([]);
+  const [totals, setTotals] = useState({ calls: 0, tokens: 0, cost: 0, days: 7 });
+
+  const load = useCallback(async () => {
+    if (!client) return;
+    try {
+      const msg: any = await client.sendCommandAwait('metrics_data', ['metrics_data'], 12000);
+      if (msg && msg.type === 'metrics_data') {
+        setTotals({ calls: msg.total_calls ?? 0, tokens: msg.total_tokens ?? 0, cost: msg.cost_est ?? 0, days: msg.days ?? 7 });
+        setModels(_mapModels(msg.by_model, msg.total_calls ?? 0));
+        setReq14d((msg.by_day || []).map((d: any) => d.calls ?? 0));
+      }
+    } catch {
+      // оставляем пусто
+    }
+  }, [client]);
+
+  useEffect(() => { load(); }, [load]);
+
   return (
     <ScreenShell>
       <SectionHeader
@@ -88,7 +120,7 @@ export function MetricsScreen() {
         actions={
           <div className="flex gap-1.5">
             <ChipToggle>день</ChipToggle>
-            <ChipToggle active>14 дней</ChipToggle>
+            <ChipToggle active>{totals.days} дней</ChipToggle>
             <ChipToggle>месяц</ChipToggle>
           </div>
         }
@@ -97,10 +129,10 @@ export function MetricsScreen() {
       <div className="flex-1 overflow-y-auto mira-scroll" style={{ padding: '24px 32px 40px' }}>
         {/* KPI row */}
         <div className="flex gap-3 mb-6">
-          <Kpi label="запросов сегодня" value="1 248" delta="12%" deltaUp sub="за всё время · 84.2K" />
-          <Kpi label="токенов · 14 дней" value="2.4" unit="M" sub="вход 1.6M · выход 0.8M" />
-          <Kpi label="ср. задержка" value="1.8" unit="с" delta="0.3с" deltaUp={false} sub="p95 · 4.2с" />
-          <Kpi label="расход · месяц" value="$14" unit=".20" sub="бюджет $30 · 47%" />
+          <Kpi label={`запросов · ${totals.days} дней`} value={totals.calls.toLocaleString('ru-RU')} sub="вызовов LLM за период" />
+          <Kpi label="токенов" value={_fmtTokens(totals.tokens)} sub="вход + выход" />
+          <Kpi label="ср. задержка" value="—" sub="пока не трекается" />
+          <Kpi label="расход" value={`$${totals.cost.toFixed(2)}`} sub={`за ${totals.days} дней`} />
         </div>
 
         {/* Charts row */}
@@ -110,7 +142,7 @@ export function MetricsScreen() {
               <span className="uppercase text-[10px] font-semibold tracking-[0.18em] text-gold">запросы · 14 дней</span>
               <span className="ml-auto text-[11px] text-text-muted font-mono">пик 1 248 · ср 920</span>
             </div>
-            <AreaChart data={REQ_14D} color="#f5bc7a" />
+            <AreaChart data={req14d.length >= 2 ? req14d : [0, 0]} color="#f5bc7a" />
             <div className="flex justify-between mt-2.5 text-[9.5px] text-text-faint font-mono">
               <span>22 мая</span><span>28 мая</span><span>1 июня</span><span>сегодня</span>
             </div>
@@ -119,9 +151,9 @@ export function MetricsScreen() {
           <div className="p-5 rounded-xl" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(244,234,214,0.10)' }}>
             <div className="uppercase text-[10px] font-semibold tracking-[0.18em] text-gold mb-4">доля моделей</div>
             <div className="flex items-center gap-4">
-              <DonutChart models={MODELS} />
+              <DonutChart models={models} />
               <div className="flex-1 flex flex-col gap-2">
-                {MODELS.map((m, i) => (
+                {models.map((m, i) => (
                   <div key={i} className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: m.color }} />
                     <span className="flex-1 text-[11px] text-text-dim truncate">{m.name}</span>
@@ -145,8 +177,8 @@ export function MetricsScreen() {
             <span className="text-[10px] text-text-muted tracking-widest uppercase text-right">ср. задержка</span>
             <span className="text-[10px] text-text-muted tracking-widest uppercase text-right">расход</span>
           </div>
-          {MODELS.map((m, i) => (
-            <div key={i} className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] px-4 py-3 items-center" style={{ borderBottom: i < MODELS.length - 1 ? '1px solid rgba(244,234,214,0.06)' : 'none' }}>
+          {models.map((m, i) => (
+            <div key={i} className="grid grid-cols-[2fr_1fr_1fr_1fr_1fr] px-4 py-3 items-center" style={{ borderBottom: i < models.length - 1 ? '1px solid rgba(244,234,214,0.06)' : 'none' }}>
               <span className="flex items-center gap-2.5 text-[13px] font-medium" style={{ color: '#f4ead6' }}>
                 <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: m.color }} />{m.name}
               </span>

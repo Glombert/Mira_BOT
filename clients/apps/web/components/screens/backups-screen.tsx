@@ -1,9 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import type { MiraClient } from '@mira/shared';
 import { SectionHeader, PrimaryBtn, ScreenShell } from './screen-primitives';
-
-// TODO: wire to backend — replace with real data when backups_data endpoint is available
 
 const BackupIco = {
   restore: (c = 'currentColor') => <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 8 A5 5 0 1 1 4.5 11.5 M3 12 V8.5 H6.5" stroke={c} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/></svg>,
@@ -20,14 +19,23 @@ interface Backup {
   latest?: boolean;
 }
 
-const BACKUPS: Backup[] = [
-  { when: 'сегодня · 03:14',  size: '1.20 ГБ', type: 'авто',    facts: 348, notes: 24, latest: true },
-  { when: 'вчера · 03:14',    size: '1.19 ГБ', type: 'авто',    facts: 346, notes: 24 },
-  { when: '1 июня · 21:47',   size: '1.18 ГБ', type: 'вручную', facts: 344, notes: 23 },
-  { when: '31 мая · 03:14',   size: '1.17 ГБ', type: 'авто',    facts: 340, notes: 22 },
-  { when: '30 мая · 03:14',   size: '1.15 ГБ', type: 'авто',    facts: 338, notes: 22 },
-  { when: '29 мая · 03:14',   size: '1.14 ГБ', type: 'авто',    facts: 333, notes: 21 },
-];
+function _fmtBackupSize(bytes: number): string {
+  if (!bytes) return '—';
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} КБ`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} ГБ`;
+}
+
+function _mapBackup(b: any): Backup {
+  return {
+    when: b.created_at || '',
+    size: _fmtBackupSize(b.size || 0),
+    type: b.type === 'manual' ? 'вручную' : 'авто',
+    facts: b.fact_count || 0,
+    notes: b.note_count || 0,
+    latest: !!b.is_latest,
+  };
+}
 
 function BackupRow({ b }: { b: Backup }) {
   return (
@@ -70,7 +78,23 @@ function BackupRow({ b }: { b: Backup }) {
   );
 }
 
-export function BackupsScreen() {
+export function BackupsScreen({ client }: { client: MiraClient | null }) {
+  const [backups, setBackups] = useState<Backup[]>([]);
+
+  const load = useCallback(async () => {
+    if (!client) return;
+    try {
+      const msg = await client.sendCommandAwait('backups_data', ['backups_data'], 12000);
+      if ('backups' in msg && Array.isArray((msg as any).backups)) {
+        setBackups((msg as any).backups.map(_mapBackup));
+      }
+    } catch {
+      // оставляем пусто
+    }
+  }, [client]);
+
+  useEffect(() => { load(); }, [load]);
+
   return (
     <ScreenShell>
       <SectionHeader
@@ -138,9 +162,9 @@ export function BackupsScreen() {
         <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(244,234,214,0.10)' }}>
           <div className="px-4 py-3.5 flex items-center" style={{ borderBottom: '1px solid rgba(244,234,214,0.06)' }}>
             <span className="uppercase text-[10px] font-semibold tracking-[0.18em] text-gold">история копий</span>
-            <span className="ml-auto text-[11px] text-text-muted font-mono">{BACKUPS.length} снимков</span>
+            <span className="ml-auto text-[11px] text-text-muted font-mono">{backups.length} снимков</span>
           </div>
-          {BACKUPS.map((b, i) => <BackupRow key={i} b={b} />)}
+          {backups.map((b, i) => <BackupRow key={i} b={b} />)}
         </div>
 
         {/* Restore warning */}
