@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Cloud } from 'lucide-react';
 import { SectionHeader, FormRow, ChipToggle, PrefRow, EditPen, ScreenShell } from './screen-primitives';
 import { Spark } from '../chat/aurora-cards';
+import { TIMEZONES } from '@/lib/timezones';
 import type { MiraClient, ProfileData } from '@mira/shared';
 
 const ROLE_LABEL: Record<string, string> = {
@@ -28,6 +29,9 @@ export function ProfileScreen({ client }: ProfileScreenProps) {
   const [origin, setOrigin] = useState('');
   const [occupation, setOccupation] = useState('');
   const [notes, setNotes] = useState('');
+  const [timezone, setTimezone] = useState('');
+  const [confirmForget, setConfirmForget] = useState(false);
+  const [forgotten, setForgotten] = useState(false);
 
   const load = useCallback(async () => {
     if (!client) return;
@@ -43,6 +47,7 @@ export function ProfileScreen({ client }: ProfileScreenProps) {
         setOrigin(p.origin || '');
         setOccupation(p.occupation || '');
         setNotes(p.notes || '');
+        setTimezone(p.timezone || '');
       }
     } catch {
       /* no-op */
@@ -62,10 +67,19 @@ export function ProfileScreen({ client }: ProfileScreenProps) {
     client.saveProfile({
       addressing: addressing.trim(), address_form: addressForm, manner,
       origin: origin.trim(), occupation: occupation.trim(), notes: notes.trim(),
+      timezone: timezone.trim(),
     });
     setEditing(false);
     setTimeout(load, 300);
-  }, [client, addressing, addressForm, manner, origin, occupation, notes, load]);
+  }, [client, addressing, addressForm, manner, origin, occupation, notes, timezone, load]);
+
+  const forget = useCallback(() => {
+    if (!client) return;
+    client.sendCommand('forget');
+    setConfirmForget(false);
+    setForgotten(true);
+    setProfile(null);
+  }, [client]);
 
   if (loading && !profile) {
     return (
@@ -239,6 +253,16 @@ export function ProfileScreen({ client }: ProfileScreenProps) {
                     className="w-full mt-1 bg-bg-base border border-border-subtle rounded-button px-3 py-2 text-sm text-text-primary placeholder:text-text-faint outline-none" />
                 </div>
                 <div>
+                  <label className="text-[10px] uppercase tracking-[0.18em] text-text-muted font-semibold">Часовой пояс</label>
+                  <select value={timezone} onChange={(e) => setTimezone(e.target.value)}
+                    className="w-full mt-1 bg-bg-base border border-border-subtle rounded-button px-3 py-2 text-sm text-text-primary outline-none">
+                    <option value="">— не задан —</option>
+                    {TIMEZONES.map((tz) => (
+                      <option key={tz.value} value={tz.value}>{tz.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
                   <label className="text-[10px] uppercase tracking-[0.18em] text-text-muted font-semibold">Заметки</label>
                   <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Что ещё рассказать..."
                     className="w-full mt-1 bg-bg-base border border-border-subtle rounded-button px-3 py-2 text-sm text-text-primary placeholder:text-text-faint outline-none resize-none min-h-[64px]" />
@@ -327,17 +351,42 @@ export function ProfileScreen({ client }: ProfileScreenProps) {
               <div className="text-[11.5px] text-text-muted leading-relaxed mb-2.5">
                 забыть меня — Мира удалит все факты, диалоги и связи. отменить нельзя.
               </div>
-              <button
-                className="text-xs px-3 py-1.5 rounded-md transition-colors"
-                style={{
-                  color: '#e88a8a',
-                  border: '1px solid #e88a8a',
-                  background: 'transparent',
-                  letterSpacing: '0.04em',
-                }}
-              >
-                забыть меня
-              </button>
+              {forgotten ? (
+                <div className="text-xs text-text-muted" style={{ letterSpacing: '0.04em' }}>
+                  ✓ профиль и история сброшены
+                </div>
+              ) : !confirmForget ? (
+                <button
+                  onClick={() => setConfirmForget(true)}
+                  className="text-xs px-3 py-1.5 rounded-md transition-colors hover:bg-rose/10"
+                  style={{
+                    color: '#e88a8a',
+                    border: '1px solid #e88a8a',
+                    background: 'transparent',
+                    letterSpacing: '0.04em',
+                  }}
+                >
+                  забыть меня
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-rose font-medium">точно? это необратимо</span>
+                  <button
+                    onClick={forget}
+                    className="text-xs px-3 py-1.5 rounded-md transition-colors"
+                    style={{ color: '#070c1c', background: '#e88a8a', letterSpacing: '0.04em' }}
+                  >
+                    да, забыть
+                  </button>
+                  <button
+                    onClick={() => setConfirmForget(false)}
+                    className="text-xs px-3 py-1.5 rounded-md transition-colors hover:bg-white/[0.04]"
+                    style={{ color: '#f4ead6', border: '1px solid rgba(244,234,214,0.10)' }}
+                  >
+                    отмена
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
