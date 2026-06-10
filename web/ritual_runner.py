@@ -8,7 +8,7 @@ import time
 import logging
 from datetime import datetime
 
-from tools.rituals import parse_importance, should_notify
+from tools.rituals import parse_importance, should_notify, run_handler
 from web.alpha import _invoke_alpha
 from web.sessions import _load_session, _save_session
 
@@ -31,9 +31,13 @@ def _run_ritual_background(ritual: dict, user_id: str) -> None:
     from tools import db as _db
     from tools.access_tools import notify_owner as _notify
 
-    logger.info(f"rituals: запуск '{ritual['name']}' для {user_id} (агент {ritual.get('agent', 'alpha')})")
-    answer, _ = _invoke_alpha(user_id, ritual["prompt"], source="ritual",
-                              agent_override=ritual.get("agent"))
+    if ritual.get("handler"):
+        logger.info(f"rituals: запуск '{ritual['name']}' (script-handler, без LLM)")
+        answer = run_handler(ritual["handler"])
+    else:
+        logger.info(f"rituals: запуск '{ritual['name']}' для {user_id} (агент {ritual.get('agent', 'alpha')})")
+        answer, _ = _invoke_alpha(user_id, ritual["prompt"], source="ritual",
+                                  agent_override=ritual.get("agent"))
 
     now_iso = datetime.now().isoformat()
     _db.save_ritual_run(ritual["name"], now_iso, answer[:300])

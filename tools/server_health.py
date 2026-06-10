@@ -28,6 +28,37 @@ def _heartbeat(path: str) -> dict:
     return {"ok": age <= HEARTBEAT_MAX_AGE, "status": "fresh" if age <= HEARTBEAT_MAX_AGE else "stale", "age_seconds": age}
 
 
+def health_report() -> str:
+    """Детерминированный отчёт для ритуала server_health — без LLM.
+
+    Проверка здоровья — это сравнение чисел с порогами, нейросеть здесь
+    не добавляет ничего, кроме токенов. Формат совместим с доставкой
+    ритуалов (#IMPORTANCE в конце).
+    """
+    r = server_health()
+    lines = []
+
+    db = r["db"]
+    lines.append(f"mira.db: {db['size_mb']} MB" if db["ok"] else "mira.db: НЕ НАЙДЕНА")
+
+    d = r["disk"]
+    lines.append(f"Диск: свободно {d['free_gb']} GB из {d['total_gb']} GB (занято {d['used_percent']}%)")
+
+    hb_names = {"bot": "бот", "web": "веб"}
+    for key, hb in r["heartbeats"].items():
+        label = hb_names.get(key, key)
+        if hb["ok"]:
+            lines.append(f"Heartbeat {label}: жив ({hb['age_seconds']}с назад)")
+        elif hb["status"] == "stale":
+            lines.append(f"Heartbeat {label}: ПРОТУХ ({hb['age_seconds']}с назад)")
+        else:
+            lines.append(f"Heartbeat {label}: ОТСУТСТВУЕТ")
+
+    verdict = "Всё в порядке." if r["ok"] else "Есть проблемы — смотри выше."
+    importance = "NONE" if r["ok"] else "MAJOR"
+    return "\n".join(lines) + f"\n{verdict}\n#IMPORTANCE: {importance}"
+
+
 def server_health() -> dict:
     db = {"ok": os.path.exists(DB_PATH), "path": DB_PATH}
     if db["ok"]:

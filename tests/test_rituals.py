@@ -16,9 +16,14 @@ class TestLoadRituals:
         for r in load_rituals():
             assert "name" in r
             assert "schedule" in r
-            assert "prompt" in r
-            assert "agent" in r
             assert "notify_threshold" in r
+            # Ритуал — либо LLM-прогон (prompt+agent), либо script-handler
+            if "handler" in r:
+                from tools.rituals import RITUAL_HANDLERS
+                assert r["handler"] in RITUAL_HANDLERS
+            else:
+                assert "prompt" in r
+                assert "agent" in r
 
 
 class TestParseImportance:

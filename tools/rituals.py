@@ -40,6 +40,23 @@ def load_rituals() -> list[dict]:
     return rituals
 
 
+# Ритуалы-скрипты: вместо LLM-прогона ритуал с полем "handler" зовёт
+# python-функцию напрямую. Для детерминированных проверок (здоровье
+# сервера и т.п.) нейросеть не нужна — это экономит токены и убирает
+# зависимость от баланса провайдеров.
+RITUAL_HANDLERS = {
+    "server_health": ("tools.server_health", "health_report"),
+}
+
+
+def run_handler(name: str) -> str:
+    """Выполняет script-handler ритуала. Возвращает текст отчёта."""
+    module_name, func_name = RITUAL_HANDLERS[name]
+    import importlib
+    fn = getattr(importlib.import_module(module_name), func_name)
+    return fn()
+
+
 def parse_importance(text: str) -> str:
     """Извлекает #IMPORTANCE: NONE|MINOR|MAJOR|CRITICAL из ответа Миры."""
     m = re.search(r"#IMPORTANCE:\s*(NONE|MINOR|MAJOR|CRITICAL)", text, re.IGNORECASE)

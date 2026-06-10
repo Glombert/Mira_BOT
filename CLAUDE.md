@@ -100,6 +100,9 @@ retention 30 дней), WS-push с `channel='tech'`, отдельная сесс
 - Дробление Telegram на чанки 3900 (полный текст всегда в БД).
 
 Добавить новый ритуал: создать JSON с `name/schedule/prompt/agent/owner_only/notify_threshold/on_startup`.
+Детерминированные проверки (без LLM): вместо `prompt`+`agent` поле
+`handler` — имя из `RITUAL_HANDLERS` в `tools/rituals.py` (python-функция,
+возвращает текст с `#IMPORTANCE:`). Пример — `server_health`.
 
 ## 10. Память пользователя
 

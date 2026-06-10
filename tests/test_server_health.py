@@ -53,3 +53,25 @@ def test_stale_heartbeat(memory_dir):
     assert r["heartbeats"]["bot"]["status"] == "stale"
     assert r["heartbeats"]["bot"]["age_seconds"] >= sh.HEARTBEAT_MAX_AGE
     assert r["heartbeats"]["web"]["ok"]
+
+
+def test_health_report_green(memory_dir):
+    (memory_dir / "mira.db").write_bytes(b"x" * 1024)
+    (memory_dir / ".heartbeat").write_text("ts")
+    (memory_dir / ".heartbeat_web").write_text("ts")
+
+    report = sh.health_report()
+    assert "Всё в порядке" in report
+    assert report.rstrip().endswith("#IMPORTANCE: NONE")
+
+
+def test_health_report_problems(memory_dir):
+    report = sh.health_report()
+    assert "НЕ НАЙДЕНА" in report
+    assert report.rstrip().endswith("#IMPORTANCE: MAJOR")
+
+
+def test_ritual_handler_registry():
+    from tools.rituals import run_handler
+    report = run_handler("server_health")
+    assert "#IMPORTANCE:" in report
