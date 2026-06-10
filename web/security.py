@@ -21,19 +21,29 @@ SESSION_SIG_LEN = 32
 SESSION_MAX_AGE = 30 * 86400
 
 
-def make_session(bot_token: str, tg_id: int, name: str) -> str:
+def session_signing_key() -> str:
+    """Ключ подписи сессий: SESSION_SECRET из env, иначе фолбэк на токен бота.
+
+    Отдельный секрет важен: токен бота — самый «гуляющий» секрет системы
+    (уходит в URL Telegram API), его утечка не должна давать подделку сессий.
+    Фолбэк сохраняет работоспособность до добавления SESSION_SECRET в .env.
+    """
+    return os.getenv("SESSION_SECRET") or os.getenv("TELEGRAM_BOT_TOKEN", "")
+
+
+def make_session(signing_key: str, tg_id: int, name: str) -> str:
     """Создаёт подписанный session token со временем выдачи."""
     payload = f"{tg_id}:{name}:{int(time.time())}"
-    sig     = hmac.new(bot_token.encode(), payload.encode(), hashlib.sha256).hexdigest()[:SESSION_SIG_LEN]
+    sig     = hmac.new(signing_key.encode(), payload.encode(), hashlib.sha256).hexdigest()[:SESSION_SIG_LEN]
     return f"{payload}:{sig}"
 
 
-def verify_session(bot_token: str, token: str, *, now: float | None = None) -> int | None:
+def verify_session(signing_key: str, token: str, *, now: float | None = None) -> int | None:
     """Возвращает tg_id если токен валиден и не истёк, иначе None."""
     try:
         *parts, sig = token.split(":")
         payload  = ":".join(parts)
-        expected = hmac.new(bot_token.encode(), payload.encode(), hashlib.sha256).hexdigest()[:SESSION_SIG_LEN]
+        expected = hmac.new(signing_key.encode(), payload.encode(), hashlib.sha256).hexdigest()[:SESSION_SIG_LEN]
         if not hmac.compare_digest(expected, sig):
             return None
         tg_id  = int(parts[0])

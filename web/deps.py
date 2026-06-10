@@ -7,7 +7,11 @@ auth/session-хелперы без циклической зависимости
 
 import os
 
-from web.security import make_session as _ws_make, verify_session as _ws_verify
+from web.security import (
+    make_session as _ws_make,
+    verify_session as _ws_verify,
+    session_signing_key as _signing_key,
+)
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 BOT_USERNAME = os.getenv("TELEGRAM_BOT_USERNAME", "")  # например: MyMiraBot (без @)
@@ -15,11 +19,11 @@ OWNER_TG_ID = int(os.getenv("OWNER_TELEGRAM_ID", "0"))
 
 
 def make_session(tg_id: int, name: str) -> str:
-    return _ws_make(BOT_TOKEN, tg_id, name)
+    return _ws_make(_signing_key(), tg_id, name)
 
 
 def verify_session(token: str) -> int | None:
-    return _ws_verify(BOT_TOKEN, token)
+    return _ws_verify(_signing_key(), token)
 
 
 def web_user_id(tg_id: int) -> str:

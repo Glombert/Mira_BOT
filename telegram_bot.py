@@ -434,9 +434,9 @@ async def _send_session_token(update: Update, tg_id: int, name: str) -> None:
     Для пользователей без приложения остаётся текстовый токен в кодовом блоке —
     его можно тапнуть для копирования и вставить в любой клиент.
     """
-    from web.security import make_session, make_mobile_auth_code
+    from web.security import make_session, make_mobile_auth_code, session_signing_key
     from urllib.parse import quote as _urlquote
-    token = make_session(TOKEN, tg_id, name)
+    token = make_session(session_signing_key(), tg_id, name)
     # Одноразовый код вместо токена в URL — предотвращает утечку в логи
     auth_code = make_mobile_auth_code(token)
     deeplink_url = f"{_MIRA_PUBLIC_URL}/m/auth?code={auth_code}"
