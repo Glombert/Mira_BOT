@@ -1584,7 +1584,7 @@ async def cmd_ritual_run_tg(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not _is_owner(update.effective_user.id):
         return
     import threading
-    from web.app import _run_ritual_background as _rrb
+    from web.ritual_runner import _run_ritual_background as _rrb
     rname = " ".join(context.args) if context.args else ""
     if not rname:
         await _reply(update, "Укажи имя ритуала: /ritual_run <name>")
@@ -2077,7 +2077,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             logger.warning(f"semantic_memory search failed: {e}")
 
         # Подсказка про новые возможности и непрочитанные входящие письма
-        from web.app import (
+        from web.sessions import (
             _changelog_augment, _mark_changelog_seen,
             _incoming_augment, _mark_incoming_seen,
         )
@@ -2260,7 +2260,7 @@ async def post_init(app: Application) -> None:
                         if kind == "task":
                             # Scheduled task: симулируем user message через _run_scheduled_task
                             def _run_task(t=task):
-                                from web.app import _run_scheduled_task as _rst
+                                from web.ritual_runner import _run_scheduled_task as _rst
                                 answer = _rst(t["user_id"], t["message"])
                                 # Уведомление владельцу
                                 notify_owner(
@@ -2331,7 +2331,7 @@ async def post_init(app: Application) -> None:
         from tools.rituals import load_rituals
         from tools import db as _db
         from datetime import datetime as _dt
-        from web.app import _run_ritual_background  # фикс: раньше не импортировался → NameError каждый цикл
+        from web.ritual_runner import _run_ritual_background
         try:
             from croniter import croniter
         except ImportError:
