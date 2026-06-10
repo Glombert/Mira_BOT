@@ -15,7 +15,7 @@
 
 Шифрование (если MEMORY_ENCRYPTION_KEY задан): JSON-строки прозрачно
 прогоняются через memory_crypto.encrypt_str/decrypt_str перед записью/чтением.
-Сейчас на VPS шифрование выключено — данные хранятся в открытом JSON.
+На проде ключ задан — потеря MEMORY_ENCRYPTION_KEY означает потерю памяти.
 """
 
 import json

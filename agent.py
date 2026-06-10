@@ -808,6 +808,15 @@ def backup_agent() -> str:
     backup_path = os.path.join(VERSIONS_DIR, f"agent_{timestamp}.py")
     shutil.copy2(AGENT_FILE, backup_path)
     logger.info(f"Бэкап создан: {backup_path}")
+
+    # Ретеншн: история живёт в git, локально достаточно последних 5 для undo
+    backups = sorted(
+        f for f in os.listdir(VERSIONS_DIR)
+        if f.startswith("agent_") and f.endswith(".py")
+    )
+    for stale in backups[:-5]:
+        os.remove(os.path.join(VERSIONS_DIR, stale))
+
     return backup_path
 
 

@@ -58,3 +58,5 @@ clients/**/.env.*
 clients/**/tsconfig.tsbuildinfo
 # RN env-файл со ссылкой на локальный node (не секрет, но триггерит secret-scan)
 mobile/ios/.xcode.env
+clients/memory/
+clients/logs/
