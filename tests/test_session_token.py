@@ -8,7 +8,6 @@
 """
 
 import time
-import pytest
 
 from web.security import make_session, verify_session, SESSION_MAX_AGE
 

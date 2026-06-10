@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, Optional
 
-from tools.diff_tools import parse_multi_diff, apply_change, extract_paths, FileChange
+from tools.diff_tools import parse_multi_diff, apply_change, extract_paths
 
 # Секреты НЕ должны утекать в дочерние процессы (smoke-test /evolve гоняет
 # непроверенный код; git'у ключи тоже не нужны). Вырезаем по шаблону имени.

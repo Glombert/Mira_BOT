@@ -8,16 +8,17 @@ import time
 import shutil
 import argparse
 import subprocess
-import tempfile
 import logging
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from dotenv import load_dotenv
-from tools import undo_last, list_undo
 import memory_crypto
-from tools.git_tools   import sync_with_git, ensure_dev_branch, release_to_main
-from tools.cloud_tools import cloud_sync, cloud_restore
-from tools.access_tools import (
+import providers as _providers
+
+# Реэкспорт: agent.py — исторический фасад, telegram_bot.py и web/app.py
+# берут эти имена отсюда (noqa — иначе ruff сочтёт неиспользуемыми).
+from tools.git_tools import sync_with_git, ensure_dev_branch, release_to_main  # noqa: F401
+from tools.access_tools import (  # noqa: F401
     get_status, set_status, list_users, approve, reject, block, unblock,
     blacklist, unblacklist, delete_user,
     increment_guest_counter, cleanup_expired_guests,
@@ -26,9 +27,6 @@ from tools.access_tools import (
     increment_evolution, get_evolution_stats,
     GUEST_LIMIT,
 )
-import providers as _providers
-from router   import classify
-from conclave import Conclave
 
 # ---------------------------------------------------------------------------
 # Настройка логирования

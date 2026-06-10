@@ -1,6 +1,5 @@
 """Тесты для tools/db.py — SQLite-слой памяти."""
 
-import os
 import pytest
 from datetime import datetime, timedelta, timezone
 

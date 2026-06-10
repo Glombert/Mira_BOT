@@ -8,7 +8,6 @@ import os
 
 os.environ.setdefault("MIRA_ALLOW_UNSANDBOXED", "1")
 
-import pytest
 
 import telegram_bot as tb
 

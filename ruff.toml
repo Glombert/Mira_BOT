@@ -1,0 +1,14 @@
+# Только реальные баги, без стилевого шума: undefined names, повторные
+# определения, неиспользуемые импорты, синтаксис. Стиль не трогаем.
+target-version = "py312"
+extend-exclude = ["venv", "versions", "clients", "mobile", "workspace", "memory"]
+
+[lint]
+select = ["F", "E9", "PLE"]
+ignore = [
+  "F841",  # неиспользуемая локальная — часто осознанно (unpacking)
+]
+
+[lint.per-file-ignores]
+# Публичный API пакета tools — реэкспорт это его назначение
+"tools/__init__.py" = ["F401"]

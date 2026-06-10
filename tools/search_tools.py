@@ -4,7 +4,6 @@ tools/search_tools.py — веб-поиск через DuckDuckGo.
 Не требует API-ключей. Используется Scout-агентом.
 """
 
-import json
 import logging
 import time
 

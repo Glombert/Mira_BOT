@@ -21,12 +21,9 @@ OAuth 2.0 для Telegram: каждый пользователь авториз�
 """
 
 import os
-import io
-import json
 import time
 import logging
 import threading
-from pathlib import Path
 from tools.paths import at_root
 
 logger = logging.getLogger("Ouroboros")
@@ -276,7 +273,6 @@ def parse_oauth_state(state: str) -> str | None:
 def _get_user_email(access_token: str) -> str | None:
     """Получает email пользователя через Google OAuth2 userinfo."""
     try:
-        from google.auth.transport.requests import Request
         from google.oauth2.credentials import Credentials
         from googleapiclient.discovery import build
 
@@ -714,7 +710,7 @@ def gcal_create(user_id: str, summary: str, start_time: str,
         return {"ok": False, "error": err}
 
     try:
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         tz = _get_calendar_timezone(service)
 

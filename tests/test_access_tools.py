@@ -4,7 +4,6 @@ access_tools пишет в SQLite (memory/mira.db). Fixture isolated_cwd соз�
 изолированную БД в tmp_path для каждого теста.
 """
 
-import json
 import os
 import pytest
 

@@ -5,7 +5,6 @@
 что некоторые модули агента при импорте читают persona.json и profiles/ из cwd.
 """
 
-import os
 import sys
 from pathlib import Path
 

@@ -47,3 +47,14 @@ if echo "$DIFF" | grep -qE "$SECRET_RE"; then
 fi
 
 green "✓ pre-commit: секретов не обнаружено."
+
+# 3. Ruff — только реальные баги (см. ruff.toml: undefined names, дубли,
+# мёртвые импорты). Проверяем только застейдженные .py.
+STAGED_PY=$(git diff --cached --name-only --diff-filter=ACM -- '*.py')
+if [[ -n "$STAGED_PY" ]] && [[ -x venv/bin/ruff ]]; then
+    if ! venv/bin/ruff check --quiet $STAGED_PY; then
+        red "✗ pre-commit: ruff нашёл проблемы (выше). Почини или --no-verify."
+        exit 1
+    fi
+    green "✓ pre-commit: ruff чисто."
+fi

@@ -40,7 +40,7 @@ def _fetch_latest_release() -> dict | None:
         logger.warning("/mobile: GITHUB_APK_TOKEN не задан")
         return None
 
-    import urllib.request as _req, urllib.error as _err, json as _js
+    import urllib.request as _req, json as _js
     try:
         rq = _req.Request(
             "https://api.github.com/repos/Glombert/Mira_Mobile/releases/latest",

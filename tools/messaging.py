@@ -18,7 +18,6 @@
 
 import logging
 from datetime import datetime
-from typing import Optional
 
 logger = logging.getLogger("Ouroboros")
 
@@ -252,7 +251,6 @@ def _deliver_telegram(to_user_id: str, from_name: str, body: str) -> None:
     Длинные сообщения чанкуются через access_tools._tg_split.
     """
     import os
-    import json
     import threading
     import urllib.parse, urllib.request
 

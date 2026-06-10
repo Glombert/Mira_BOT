@@ -1,6 +1,5 @@
 """Тесты для tools/time_parse.py — парсер русскоязычных временных выражений."""
 
-import pytest
 from datetime import datetime, timedelta, timezone
 from tools.time_parse import parse_time, extract_time_and_rest
 

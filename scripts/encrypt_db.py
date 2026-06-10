@@ -15,6 +15,9 @@ import sqlite3
 import shutil
 from datetime import datetime
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tools.paths import at_root
+
 ENC_KEY = os.getenv("MEMORY_ENCRYPTION_KEY", "")
 # Реальная БД лежит в memory/mira.db (см. tools/db.py DB_PATH).
 DB_PATH = at_root("memory", "mira.db")
@@ -25,7 +28,6 @@ if not ENC_KEY:
     sys.exit(1)
 
 from cryptography.fernet import Fernet
-from tools.paths import at_root
 fernet = Fernet(ENC_KEY.encode() if isinstance(ENC_KEY, str) else ENC_KEY)
 
 

@@ -12,8 +12,6 @@ import json
 import os
 import re
 import logging
-import threading
-from datetime import datetime
 from tools.paths import at_root
 
 logger = logging.getLogger("Ouroboros")

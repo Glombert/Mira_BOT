@@ -10,7 +10,7 @@ import subprocess
 import pytest
 
 from tools.safe_apply import (
-    safe_apply, ApplyResult, _git_commit_changes, secret_free_env, check_principles,
+    safe_apply, _git_commit_changes, secret_free_env, check_principles,
 )
 
 

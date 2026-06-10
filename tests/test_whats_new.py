@@ -1,6 +1,5 @@
 """Тесты для tools/whats_new.py — парсер WHATS_NEW.md и фильтр audience."""
 
-import os
 import pytest
 from unittest.mock import patch
 from tools import whats_new as wn

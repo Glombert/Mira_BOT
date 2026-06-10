@@ -5,7 +5,6 @@
 потому что `\\"` это другой символ нежели `"`.
 """
 
-import pytest
 
 from agent import _evolve_extract_diff, _unescape_diff
 

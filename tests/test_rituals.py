@@ -1,8 +1,5 @@
 """Тесты для tools/rituals.py — загрузка, парсинг важности, фильтр."""
 
-import json
-import os
-import pytest
 from tools.rituals import load_rituals, parse_importance, should_notify
 
 

@@ -20,15 +20,14 @@ import hmac
 import time
 import hashlib
 import asyncio
-import json
 import logging
 import threading
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, UploadFile, File, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -50,8 +49,7 @@ from conclave import Conclave
 from agent import (
     Agent, Profile, SYSTEM_PROMPT, TOOL_SCHEMAS, execute_tool,
     load_user_profile, save_user_profile,
-    MEMORY_DIR, WORKSPACE_DIR, MEMORY_SESSIONS_DIR,
-    notify_new_user, time_context,
+    MEMORY_DIR, WORKSPACE_DIR, notify_new_user, time_context,
 )
 from tools.gdrive_tools import (
     is_configured as gdrive_configured,
@@ -64,7 +62,6 @@ from tools.gdrive_tools import (
 )
 from tools.scheduler import schedule_reminder, list_reminders, cancel_reminder, list_tasks
 from tools import rate_limit
-from tools.time_parse import parse_time
 from tools.rituals import load_rituals, parse_importance, should_notify
 
 logger = logging.getLogger("MiraWeb")
@@ -534,10 +531,8 @@ def _invoke_alpha(user_id: str, prompt: str,
         "agent", напр. self_review на coder/Opus), иначе alpha по статусу.
     Не сохраняет сессию — caller решает.
     """
-    from agent import Agent, Profile, SYSTEM_PROMPT, TOOL_SCHEMAS, execute_tool as _exec
-    from conclave import Conclave
-    from router import classify
     from tools import semantic_memory as _sm
+    _exec = execute_tool
 
     is_appr = _is_approved(user_id)
     if is_appr:
@@ -1863,7 +1858,6 @@ async def _ws_command(websocket: WebSocket, data: dict, *, user_id: str, tg_id: 
              # Agent и Profile уже импортированы на верху файла (строка 48).
              # Локальный import шадовил бы Profile как локальную для всей
              # функции chat() → UnboundLocalError в обычной ветке сообщений.
-             from agent import load_principles
              msgs = _load_session(user_id)
              prompt = (
                  "Проанализируй свой код (agent.py, conclave.py, providers.py, router.py, "
@@ -1921,7 +1915,6 @@ async def chat(websocket: WebSocket, session: str = ""):
     is_approved_ws = _is_approved(user_id)
 
     # Owner channel: регистрируем WS для push-уведомлений
-    import asyncio as _asyncio
     from tools.owner_channel import register as _och_register, unregister as _och_unregister, init as _och_init
     _och_init(asyncio.get_running_loop())
     _ws_key = str(id(websocket))

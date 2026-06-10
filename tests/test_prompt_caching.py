@@ -1,7 +1,6 @@
 """Тесты для providers._apply_prompt_caching — разделение system на
 static (кэш) + dynamic (без кэша) по маркеру DYNAMIC_MARKER."""
 
-import pytest
 from providers import _apply_prompt_caching, DYNAMIC_MARKER
 
 

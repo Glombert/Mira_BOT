@@ -1,8 +1,6 @@
 """Тесты для tools/messaging.py — передача сообщений между пользователями."""
 
-import os
 import pytest
-from unittest.mock import patch
 from tools import db
 from tools import messaging
 

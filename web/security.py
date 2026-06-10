@@ -13,8 +13,6 @@ import hashlib
 import os
 import time
 import secrets
-import threading
-from collections import deque
 
 # Session token = HMAC-SHA256 от payload, 32 hex символа (128 бит).
 SESSION_SIG_LEN = 32

@@ -7,8 +7,7 @@
 import pytest
 
 from tools.diff_tools import (
-    Action, FileChange, Hunk,
-    parse_multi_diff, apply_change, apply_hunks, extract_paths, summary,
+    FileChange, parse_multi_diff, apply_change, extract_paths, summary,
 )
 
 

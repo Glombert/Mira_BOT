@@ -1,6 +1,5 @@
 """Тесты опциональной наблюдаемости (Sentry) и переиспользуемого скраба секретов."""
 
-import pytest
 
 from tools import observability
 from tools.redaction_filter import redact

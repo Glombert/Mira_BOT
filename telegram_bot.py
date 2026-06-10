@@ -65,7 +65,6 @@ from tools.gdrive_tools import (
     exchange_code,
     gdrive_list,
     gdrive_read,
-    gdrive_write,
     gdrive_status,
     auto_upload_to_drive,
     gcal_list,
@@ -75,14 +74,12 @@ from tools.gdrive_tools import (
 )
 from tools.scheduler import schedule_reminder, list_reminders, cancel_reminder, get_due_tasks, mark_done
 
-from router   import classify
 from conclave import Conclave
 
 # agent.py теперь импортируемый — берём всё нужное
 from agent import (
     Agent, Profile, SYSTEM_PROMPT, TOOL_SCHEMAS, execute_tool,
-    load_principles, load_user_profile, save_user_profile, get_user_profile_path,
-    cleanup_temp, cleanup_expired_guests,
+    load_principles, load_user_profile, save_user_profile, cleanup_temp, cleanup_expired_guests,
     reflect, rollback, list_backups,
     sync_with_git, ensure_dev_branch, release_to_main,
     list_users, approve, reject, block, unblock, set_status,
@@ -435,7 +432,6 @@ async def _send_session_token(update: Update, tg_id: int, name: str) -> None:
     его можно тапнуть для копирования и вставить в любой клиент.
     """
     from web.security import make_session, make_mobile_auth_code, session_signing_key
-    from urllib.parse import quote as _urlquote
     token = make_session(session_signing_key(), tg_id, name)
     # Одноразовый код вместо токена в URL — предотвращает утечку в логи
     auth_code = make_mobile_auth_code(token)
@@ -1126,7 +1122,7 @@ async def _run_evolve_preview(update, context, task):
         _evolve_build_messages, _evolve_extract_diff, _evolve_make_readonly_agent,
         profile as _profile,
     )
-    from tools.diff_tools import parse_multi_diff, extract_paths
+    from tools.diff_tools import parse_multi_diff
 
     if not ensure_dev_branch():
         await _reply(update, "[!] Не удалось переключиться на mira-dev.")
