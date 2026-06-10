@@ -2,7 +2,7 @@
 Модель упорно использует звёздочки несмотря на инструкцию в персоне — поэтому
 снимаем разметку на границе. Тесты фиксируют поведение чтобы случайно не сломать."""
 
-from telegram_bot import _strip_md_for_tg
+from bot.helpers import _strip_md_for_tg
 
 
 def test_bold_double_star_removed():
