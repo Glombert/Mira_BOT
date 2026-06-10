@@ -26,7 +26,7 @@ import os
 import json
 import logging
 import threading
-import providers as _providers
+from core import providers as _providers
 from tools.paths import at_root as _at_root
 
 logger = logging.getLogger("Ouroboros")

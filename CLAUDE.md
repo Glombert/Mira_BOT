@@ -92,10 +92,10 @@ retention 30 дней), WS-push с `channel='tech'`, отдельная сесс
 ## 9. Ритуалы
 
 `agents/rituals/*.json` — фоновые задачи с cron + `on_startup` флагом.
-- Выполняются в `telegram_bot.py:_ritual_loop` (отдельный поток).
+- Выполняются в `bot/background.py` (цикл в отдельном потоке).
 - Защита от дублей: in-memory `running` set (LLM-вызов может занять > 60s,
   без флага следующая итерация цикла запускает повторно).
-- Доставка: `web/app.py:_run_ritual_background` пишет в `owner_inbox` + WS
+- Доставка: `web/ritual_runner.py:_run_ritual_background` пишет в `owner_inbox` + WS
   push + Telegram fallback (только если `IMPORTANCE >= notify_threshold`).
 - Дробление Telegram на чанки 3900 (полный текст всегда в БД).
 
@@ -157,7 +157,7 @@ Mira правит soft-поля (`curiosity`, `emotions`, `self_awareness`) че
 - `https://github.com/Glombert/Mira_Mobile` — мобайл, приватный.
 - `https://api.telegram.org` — Telegram bot API (токен в `.env`).
 - OpenRouter, OpenAI, Anthropic, DeepSeek — провайдеры LLM
-  (`tools/providers.py`).
+  (`core/providers.py`).
 
 ## 15. Если что-то непонятно
 

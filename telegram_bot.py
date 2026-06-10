@@ -37,9 +37,9 @@ check_env_permissions()
 # ---------------------------------------------------------------------------
 # Импорт ядра Mira
 # ---------------------------------------------------------------------------
-import providers as _providers
+from core import providers as _providers
 _providers.init()
-import memory_crypto
+from core import memory_crypto
 memory_crypto.init()
 
 from agent import notify_owner

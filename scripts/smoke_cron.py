@@ -28,7 +28,7 @@ if REPO not in sys.path:
 from dotenv import load_dotenv
 load_dotenv(os.path.join(REPO, ".env"))
 
-import memory_crypto
+from core import memory_crypto
 memory_crypto.init()
 
 

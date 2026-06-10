@@ -1,7 +1,7 @@
 """Тесты для providers._apply_prompt_caching — разделение system на
 static (кэш) + dynamic (без кэша) по маркеру DYNAMIC_MARKER."""
 
-from providers import _apply_prompt_caching, DYNAMIC_MARKER
+from core.providers import _apply_prompt_caching, DYNAMIC_MARKER
 
 
 SYSTEM_STATIC = "Ты Мира. Любопытная, тёплая, прямая."

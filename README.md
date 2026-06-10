@@ -113,11 +113,21 @@ Mira — это **твой собственный AI-ассистент**, к к
 
 ```
 mira_agent/
-├── agent.py, conclave.py, router.py, providers.py   ← ядро: агент, Конклав, failover
-├── agent_tools.py                                   ← реестр инструментов + execute_tool
-├── telegram_bot.py                                  ← Telegram-бот + циклы ритуалов/задач
+├── agent.py                                         ← класс Agent + персона (CLI-вход, мишень /evolve)
+├── telegram_bot.py                                  ← entrypoint Telegram-бота (main + регистрация)
+├── core/                                            ← ядро
+│   ├── providers.py                                 ← LLM-провайдеры, failover, кэширование
+│   ├── conclave.py, router.py                       ← Конклав и роутинг задач
+│   ├── agent_tools.py                               ← реестр инструментов + execute_tool
+│   └── memory_manager.py, memory_crypto.py          ← суммаризация и шифрование памяти
+├── bot/                                             ← Telegram-слой
+│   ├── chat.py, callbacks.py, files.py              ← сообщения, кнопки, документы
+│   ├── commands_user.py / _owner.py / _tasks.py     ← команды по аудиториям
+│   └── background.py, helpers.py, menu.py, config.py ← циклы ритуалов, хелперы
 ├── web/                                             ← FastAPI + WebSocket
-│   ├── app.py                                       ← WS-хендлер, REST
+│   ├── app.py                                       ← HTTP-роуты + WS-цикл
+│   ├── ws_commands.py, sessions.py, alpha.py        ← WS-команды, сессии, запуск агента
+│   ├── ritual_runner.py, panels.py                  ← фоновые ритуалы, данные экранов
 │   ├── ws_protocol.py                               ← pydantic-контракт (источник истины)
 │   ├── routes/                                      ← вынесенные роутеры (mobile, files, owner_inbox)
 │   └── deps.py, security.py                         ← сессии, безопасность

@@ -29,7 +29,7 @@ import time
 import random
 import logging
 import concurrent.futures
-import providers as _providers
+from core import providers as _providers
 from tools import paths as _paths
 
 logger = logging.getLogger("Ouroboros")

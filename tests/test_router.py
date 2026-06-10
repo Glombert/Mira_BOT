@@ -4,8 +4,8 @@ fallback'и. providers.call подменяется, реальные API не в
 
 import pytest
 
-import providers
-import router
+from core import providers
+from core import router
 
 
 class _Msg:

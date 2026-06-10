@@ -56,8 +56,9 @@ def test_unsafe_whitespace_only():
 
 @pytest.mark.parametrize("path", [
     "agent.py",
-    "providers.py",
-    "router.py",
+    "core/providers.py",
+    "core/router.py",
+    "bot/chat.py",
     "telegram_bot.py",
     "web/app.py",
     "web/security.py",

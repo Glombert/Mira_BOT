@@ -39,7 +39,7 @@ SKIP_FILES = {
 def _load_json_file(path: str):
     """Читает JSON-файл с прозрачным расшифрованием через memory_crypto."""
     try:
-        import memory_crypto
+        from core import memory_crypto
         return memory_crypto.load_json(path)
     except Exception:
         with open(path, "r", encoding="utf-8") as f:
@@ -217,7 +217,7 @@ def main() -> int:
 
     # Инициализируем память (для расшифровки старых файлов и шифрования новой БД)
     try:
-        import memory_crypto
+        from core import memory_crypto
         memory_crypto.init()
         if memory_crypto.is_enabled():
             print("[*] Шифрование включено — данные будут перешифрованы из JSON в БД.")

@@ -6,8 +6,8 @@ _call и _load_config подменяются, реальные API/конфиг�
 
 import pytest
 
-import conclave
-from conclave import Conclave, _parse_score, _extract_python
+from core import conclave
+from core.conclave import Conclave, _parse_score, _extract_python
 
 
 class TestExtractPython:

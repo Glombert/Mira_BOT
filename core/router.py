@@ -15,7 +15,7 @@ router.py — классификатор задач.
 """
 
 import logging
-import providers as _providers
+from core import providers as _providers
 
 logger = logging.getLogger("Ouroboros")
 

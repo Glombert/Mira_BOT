@@ -7,9 +7,9 @@ import os
 import time
 import logging
 
-import providers as _providers
-from router import classify
-from conclave import Conclave
+from core import providers as _providers
+from core.router import classify
+from core.conclave import Conclave
 from agent import (
     Agent, Profile, SYSTEM_PROMPT, TOOL_SCHEMAS, execute_tool,
     WORKSPACE_DIR, load_user_profile,

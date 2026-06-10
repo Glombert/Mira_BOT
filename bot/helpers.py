@@ -1,6 +1,6 @@
 """bot/helpers.py — Хелперы Telegram-слоя: сессии, профили, отправка сообщений."""
 
-import memory_manager
+from core import memory_manager
 import os
 import re
 from agent import Agent
@@ -11,7 +11,7 @@ from agent import WORKSPACE_DIR
 from agent import execute_tool
 from agent import load_user_profile
 from agent import time_context
-from conclave import Conclave
+from core.conclave import Conclave
 from telegram import Update
 
 from bot.config import MAX_HISTORY, MAX_MSG_LEN, OWNER_TG_ID, logger

@@ -36,11 +36,11 @@ load_dotenv()
 from tools.env_guard import check_env_permissions
 check_env_permissions()
 
-import providers as _providers
+from core import providers as _providers
 _providers.init()
-import memory_crypto
+from core import memory_crypto
 memory_crypto.init()
-import memory_manager
+from core import memory_manager
 from tools import semantic_memory
 
 from agent import (

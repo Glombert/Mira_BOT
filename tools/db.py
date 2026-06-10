@@ -224,7 +224,7 @@ def _encode(data: Any) -> str:
     # Намеренно без try/except: если шифрование включено и сломалось,
     # молчаливый фолбэк записал бы данные открытым текстом (fail-open).
     # Лучше громкая ошибка, чем тихая утечка.
-    import memory_crypto
+    from core import memory_crypto
     if memory_crypto.is_enabled():
         return memory_crypto.encrypt_str(raw)
     return raw
@@ -234,7 +234,7 @@ def _decode(raw: str | None) -> Any:
     if raw is None:
         return None
     try:
-        import memory_crypto
+        from core import memory_crypto
         if memory_crypto.is_enabled():
             # Fernet-токены начинаются с 'gAAAA'. Plain JSON — с '{' или '['
             if raw and raw[0] not in ("{", "["):

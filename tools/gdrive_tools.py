@@ -57,7 +57,7 @@ def _verifier_path(user_id: str) -> str:
 def _save_verifier(user_id: str, verifier: str) -> None:
     """Сохраняет PKCE code_verifier на диск зашифрованным (переживает рестарт)."""
     try:
-        import memory_crypto
+        from core import memory_crypto
         memory_crypto.save_json(
             _verifier_path(user_id),
             {"verifier": verifier, "at": time.time()},
@@ -76,7 +76,7 @@ def _load_verifier(user_id: str) -> str | None:
     if not os.path.exists(path):
         return None
     try:
-        import memory_crypto
+        from core import memory_crypto
         data = memory_crypto.load_json(path)
         os.remove(path)
         if not isinstance(data, dict):

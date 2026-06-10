@@ -39,7 +39,7 @@ def isolated_cwd(monkeypatch, tmp_path):
     monkeypatch.setattr(db, "_initialized", False)
     db.init_db(db_file)
 
-    import providers
+    from core import providers
     from tools import access_tools, file_tools, metrics_tools
     monkeypatch.setattr(providers, "DECISIONS_LOG", str(tmp_path / "memory" / "decisions.log"))
     monkeypatch.setattr(providers, "METRICS_DIR", str(tmp_path / "memory" / "metrics"))

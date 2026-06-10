@@ -2,8 +2,8 @@
 
 import asyncio
 import json
-import memory_manager
-import providers as _providers
+from core import memory_manager
+from core import providers as _providers
 from agent import load_user_profile
 from agent import save_user_profile
 from datetime import datetime

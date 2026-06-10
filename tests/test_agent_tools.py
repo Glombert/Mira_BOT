@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-import agent_tools
+from core import agent_tools
 
 
 def test_unknown_tool_returns_error_json():

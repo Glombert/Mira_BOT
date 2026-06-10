@@ -4,7 +4,7 @@ import threading
 import time
 
 
-import providers
+from core import providers
 
 
 class _SlowClient:

@@ -12,8 +12,8 @@ import logging
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 from dotenv import load_dotenv
-import memory_crypto
-import providers as _providers
+from core import memory_crypto
+from core import providers as _providers
 
 # Реэкспорт: agent.py — исторический фасад, telegram_bot.py и web/app.py
 # берут эти имена отсюда (noqa — иначе ruff сочтёт неиспользуемыми).
@@ -545,7 +545,7 @@ from tools.tool_schemas import TOOL_SCHEMAS
 # ---------------------------------------------------------------------------
 # Реестр инструментов и диспетчер — вынесены в agent_tools.py
 # ---------------------------------------------------------------------------
-from agent_tools import execute_tool, _humanize_tool
+from core.agent_tools import execute_tool, _humanize_tool
 
 
 SYSTEM_PROMPT = load_persona()

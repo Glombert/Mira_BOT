@@ -43,7 +43,7 @@ from tools.messaging import (
     unblock_sender as _unblock_sender,
 )
 from tools.cloud_tools import sync_output_to_drive, sync_inbox_from_drive
-import memory_manager as _memory_manager
+from core import memory_manager as _memory_manager
 
 logger = logging.getLogger("Ouroboros")
 

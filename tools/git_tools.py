@@ -54,8 +54,9 @@ def _configure_git_identity() -> None:
 # .env, memory/, workspace/ защищены .gitignore,
 # но явный список надёжнее — не попадём лишнего случайно.
 SAFE_GIT_PATTERNS = [
-    "agent.py", "persona.json", "agents/", "profiles/",
-    "tools/", "PLAN.md", "ARCHITECTURE.md", "README.md",
+    "agent.py", "telegram_bot.py", "persona.json", "agents/", "profiles/",
+    "tools/", "core/", "bot/", "web/", "tests/",
+    "PLAN.md", "ARCHITECTURE.md", "README.md",
     "requirements.txt", ".gitignore"
 ]
 

@@ -7,7 +7,7 @@ prompt-caching split. Фиксируют текущее поведение пе�
 
 import pytest
 
-import providers
+from core import providers
 
 
 # --- Фейковый OpenAI-совместимый клиент --------------------------------------

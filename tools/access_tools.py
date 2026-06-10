@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 from tools.paths import at_root
 
 try:
-    import memory_crypto as _crypto
+    from core import memory_crypto as _crypto
 except ImportError:
     _crypto = None
 

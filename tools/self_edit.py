@@ -25,15 +25,11 @@ from typing import Iterable
 ALLOWED_PATTERNS: tuple[str, ...] = (
     # Главные модули
     "agent.py",
-    "providers.py",
-    "router.py",
-    "conclave.py",
     "telegram_bot.py",
-    "memory_manager.py",
-    "memory_crypto.py",
+    "core/*.py",
+    "bot/*.py",
     # Web
-    "web/app.py",
-    "web/security.py",
+    "web/*.py",
     # Конфиги (агенты, профили, персона)
     "agents/*.json",
     "profiles/*.json",

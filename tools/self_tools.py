@@ -12,13 +12,12 @@ from tools.paths import PROJECT_ROOT, at_root
 
 # Файлы в корне проекта, которые Мира может читать
 _READABLE_ROOT = {
-    "agent.py", "conclave.py", "router.py", "providers.py",
-    "telegram_bot.py", "persona.json", "PRINCIPLES.md",
+    "agent.py", "telegram_bot.py", "persona.json", "PRINCIPLES.md",
     "requirements.txt", "README.md", "PLAN.md",
 }
 
 # Папки, содержимое которых Мира может читать
-_READABLE_DIRS = {"agents", "tools", "profiles", "web", "scripts"}
+_READABLE_DIRS = {"agents", "tools", "profiles", "web", "scripts", "core", "bot"}
 
 
 def list_self() -> dict:

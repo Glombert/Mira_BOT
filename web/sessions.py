@@ -8,7 +8,7 @@ import os
 import logging
 from datetime import datetime
 
-import memory_manager
+from core import memory_manager
 from agent import (
     SYSTEM_PROMPT, MEMORY_DIR, WORKSPACE_DIR,
     load_user_profile, save_user_profile, notify_new_user, time_context,
@@ -228,7 +228,7 @@ def _system_prompt_for(user_id: str) -> str:
     кэшируется через cache_control) и динамической частью (время, профиль,
     summary, шаблоны) ставим маркер DYNAMIC_MARKER — providers разрезает по
     нему и кэширует только static."""
-    from providers import DYNAMIC_MARKER
+    from core.providers import DYNAMIC_MARKER
     profile   = load_user_profile(user_id)
     static    = SYSTEM_PROMPT
     dyn       = time_context(user_id)
