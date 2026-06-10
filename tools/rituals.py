@@ -46,11 +46,15 @@ def load_rituals() -> list[dict]:
 # зависимость от баланса провайдеров.
 RITUAL_HANDLERS = {
     "server_health": ("tools.server_health", "health_report"),
+    "agent_versions": ("tools.model_watch", "model_catalog_diff"),
 }
 
 
-def run_handler(name: str) -> str:
-    """Выполняет script-handler ритуала. Возвращает текст отчёта."""
+def run_handler(name: str) -> str | dict:
+    """Выполняет script-handler ритуала.
+
+    Возвращает текст отчёта, либо {"llm_prompt": ...} — гибридный режим:
+    скрипт собрал данные, анализ остаётся за LLM."""
     module_name, func_name = RITUAL_HANDLERS[name]
     import importlib
     fn = getattr(importlib.import_module(module_name), func_name)

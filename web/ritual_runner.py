@@ -32,8 +32,12 @@ def _run_ritual_background(ritual: dict, user_id: str) -> None:
     from tools.access_tools import notify_owner as _notify
 
     if ritual.get("handler"):
-        logger.info(f"rituals: запуск '{ritual['name']}' (script-handler, без LLM)")
+        logger.info(f"rituals: запуск '{ritual['name']}' (script-handler)")
         answer = run_handler(ritual["handler"])
+        if isinstance(answer, dict):
+            # Гибрид: скрипт собрал данные, анализ — за Мирой
+            answer, _ = _invoke_alpha(user_id, answer["llm_prompt"], source="ritual",
+                                      agent_override=ritual.get("agent"))
     else:
         logger.info(f"rituals: запуск '{ritual['name']}' для {user_id} (агент {ritual.get('agent', 'alpha')})")
         answer, _ = _invoke_alpha(user_id, ritual["prompt"], source="ritual",
