@@ -449,6 +449,24 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "server_health",
+            "description": (
+                "Снимок здоровья сервера: наличие и размер mira.db, свободное "
+                "место на диске, свежесть heartbeat-меток бота и веба. Зови в "
+                "ритуале server_health и когда владелец спрашивает «как сервер». "
+                "Не проверяй эти файлы через run_python — песочница не видит "
+                "memory/ и даст ложное «не найдено»."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "metrics_read",
             "description": (
                 "Читает метрики использования LLM за последние N дней. "

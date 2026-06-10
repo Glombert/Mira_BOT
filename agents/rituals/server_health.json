@@ -1,7 +1,7 @@
 {
   "name": "server_health",
   "schedule": "0 0 * * *",
-  "prompt": "Проверь здоровье сервера: размер mira.db в memory/, свободное место на диске (df -h ./), состояние heartbeat-файлов в memory/.heartbeat и memory/.heartbeat_web (свежесть до 120 сек). Если есть проблемы — опиши. В конце ответа добавь строку вида #IMPORTANCE: NONE|MINOR|MAJOR|CRITICAL.",
+  "prompt": "Вызови инструмент server_health и оцени снимок: наличие/размер mira.db, свободное место на диске, свежесть heartbeat-меток бота и веба. Не проверяй файлы через run_python — песочница не видит memory/. Если всё в порядке (ok: true) — одна короткая строка и #IMPORTANCE: NONE. Если есть проблемы — опиши какие именно поля не ок и что это значит. В конце ответа добавь строку вида #IMPORTANCE: NONE|MINOR|MAJOR|CRITICAL.",
   "agent": "alpha",
   "owner_only": true,
   "notify_threshold": "MINOR"
