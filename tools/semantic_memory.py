@@ -26,10 +26,11 @@ import os
 import logging
 import threading
 from datetime import datetime
+from tools.paths import at_root
 
 logger = logging.getLogger("Ouroboros")
 
-CHROMA_DIR      = os.path.join("memory", "chroma")
+CHROMA_DIR      = at_root("memory", "chroma")
 COLLECTION_NAME = "messages"
 
 # Минимальная длина текста для индексации — короткие "ок" / "ага" не нужны

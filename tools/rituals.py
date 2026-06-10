@@ -14,10 +14,11 @@ import re
 import logging
 import threading
 from datetime import datetime
+from tools.paths import at_root
 
 logger = logging.getLogger("Ouroboros")
 
-RITUALS_DIR = os.path.join("agents", "rituals")
+RITUALS_DIR = at_root("agents", "rituals")
 MIN_INTERVAL_SEC = 60  # минимальный интервал между запусками
 
 IMPORTANCE_ORDER = {"NONE": 0, "MINOR": 1, "MAJOR": 2, "CRITICAL": 3}

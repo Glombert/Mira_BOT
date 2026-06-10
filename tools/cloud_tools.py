@@ -20,6 +20,7 @@ import subprocess
 import threading
 import time
 import logging
+from tools.paths import at_root
 
 logger = logging.getLogger("Ouroboros")
 
@@ -129,7 +130,7 @@ def sync_output_to_drive(user_id: str) -> None:
     """
     if not _rclone_available():
         return
-    src  = os.path.join("workspace", user_id, "output")
+    src  = at_root("workspace", user_id, "output")
     dest = f"{GDRIVE_BASE}/workspace/{user_id}/output"
     if not os.path.isdir(src):
         return
@@ -159,7 +160,7 @@ def sync_inbox_from_drive(user_id: str) -> None:
     if not _rclone_available():
         return
     src  = f"{GDRIVE_BASE}/workspace/{user_id}/inbox"
-    dest = os.path.join("workspace", user_id, "inbox")
+    dest = at_root("workspace", user_id, "inbox")
     os.makedirs(dest, exist_ok=True)
 
     def _run():

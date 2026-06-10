@@ -26,10 +26,11 @@ import threading
 import logging
 from datetime import datetime
 from openai import OpenAI
+from tools.paths import at_root as _at_root
 
 logger = logging.getLogger("Ouroboros")
-DECISIONS_LOG = os.path.join("memory", "decisions.log")
-METRICS_DIR = os.path.join("memory", "metrics")
+DECISIONS_LOG = _at_root("memory", "decisions.log")
+METRICS_DIR = _at_root("memory", "metrics")
 
 # Цены моделей (USD за 1M токенов): (input_price, output_price)
 # Приблизительные, май 2026. Для расчёта ~стоимости, не точной бухгалтерии.

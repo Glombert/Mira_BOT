@@ -39,9 +39,11 @@ logger.setLevel(logging.INFO)
 # а basicConfig из telegram_bot не дублировал записи в свой файл.
 logger.propagate = False
 
-os.makedirs("logs", exist_ok=True)
+from tools.paths import at_root
+
+os.makedirs(at_root("logs"), exist_ok=True)
 log_handler = TimedRotatingFileHandler(
-    "logs/agent.log",
+    at_root("logs", "agent.log"),
     when="midnight",
     interval=1,
     backupCount=3,
@@ -95,13 +97,13 @@ _db_init.init_db()
 
 # Файлы и папки
 AGENT_FILE    = os.path.abspath(__file__)  # путь к самому себе (не менять)
-HISTORY_FILE  = "chat_history.json"        # история диалога
-PERSONA_FILE  = "persona.json"             # личность агента
-PROFILES_DIR  = "profiles"                 # папка с профилями пользователей
-VERSIONS_DIR  = "versions"                 # резервные копии кода
-MEMORY_DIR    = "memory"                   # долгосрочная память (профили пользователей)
-MEMORY_SESSIONS_DIR = os.path.join("memory", "sessions")  # горячая память (история диалогов)
-WORKSPACE_DIR = "workspace"                # рабочие папки пользователей
+HISTORY_FILE  = at_root("chat_history.json")   # история диалога
+PERSONA_FILE  = at_root("persona.json")        # личность агента
+PROFILES_DIR  = at_root("profiles")            # папка с профилями пользователей
+VERSIONS_DIR  = at_root("versions")            # резервные копии кода
+MEMORY_DIR    = at_root("memory")              # долгосрочная память (профили пользователей)
+MEMORY_SESSIONS_DIR = at_root("memory", "sessions")  # горячая память (история диалогов)
+WORKSPACE_DIR = at_root("workspace")           # рабочие папки пользователей
 
 # Параметры работы
 MAX_HISTORY   = 20    # сколько последних сообщений держать в контексте
@@ -407,7 +409,7 @@ def load_reflections() -> list:
 def _load_behavior() -> str:
     """Достаёт инжектируемый блок правил из behavior.md (между ``` ```)."""
     try:
-        with open("behavior.md", "r", encoding="utf-8") as f:
+        with open(at_root("behavior.md"), "r", encoding="utf-8") as f:
             txt = f.read()
         parts = txt.split("```")
         return parts[1].strip() if len(parts) >= 2 else ""
@@ -416,7 +418,7 @@ def _load_behavior() -> str:
         return ""
 
 
-PERSONA_OVERLAY_FILE = os.path.join("memory", "persona_overlay.json")
+PERSONA_OVERLAY_FILE = at_root("memory", "persona_overlay.json")
 
 
 def _load_persona_overlay() -> dict:
@@ -592,7 +594,7 @@ class Agent:
         Пример:
             alpha = Agent.from_config_file("alpha", profile, user_id, prompt)
         """
-        path = os.path.join("agents", f"{name}.json")
+        path = at_root("agents", f"{name}.json")
         if not os.path.exists(path):
             raise FileNotFoundError(
                 f"Конфиг агента не найден: {path}\n"

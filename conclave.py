@@ -30,10 +30,11 @@ import random
 import logging
 import concurrent.futures
 import providers as _providers
+from tools import paths as _paths
 
 logger = logging.getLogger("Ouroboros")
 
-AGENTS_DIR   = "agents"
+AGENTS_DIR   = _paths.at_root("agents")
 MAX_ITER     = 3      # максимум итераций в run_with_qa
 PASS_SCORE   = 7      # оценка critic при которой принимаем результат
 

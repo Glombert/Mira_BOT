@@ -8,6 +8,8 @@ tools/self_tools.py — инструменты самосознания Миры
 import os
 import subprocess
 
+from tools.paths import PROJECT_ROOT, at_root
+
 # Файлы в корне проекта, которые Мира может читать
 _READABLE_ROOT = {
     "agent.py", "conclave.py", "router.py", "providers.py",
@@ -28,16 +30,16 @@ def list_self() -> dict:
 
     root_files = []
     for name in sorted(_READABLE_ROOT):
-        if os.path.isfile(name):
-            size = os.path.getsize(name)
+        if os.path.isfile(at_root(name)):
+            size = os.path.getsize(at_root(name))
             root_files.append(f"{name} ({size} байт)")
     result["root"] = root_files
 
     for d in sorted(_READABLE_DIRS):
-        if os.path.isdir(d):
+        if os.path.isdir(at_root(d)):
             files = []
-            for fname in sorted(os.listdir(d)):
-                fpath = os.path.join(d, fname)
+            for fname in sorted(os.listdir(at_root(d))):
+                fpath = at_root(d, fname)
                 if os.path.isfile(fpath) and not fname.startswith("."):
                     size = os.path.getsize(fpath)
                     files.append(f"{fname} ({size} байт)")
@@ -66,10 +68,10 @@ def read_self(path: str) -> dict:
                 "error": f"Файл не разрешён для чтения: {path}. "
                          f"Разрешены: {', '.join(sorted(_READABLE_ROOT))}",
             }
-        full_path = parts[0]
+        full_path = at_root(parts[0])
 
     elif len(parts) == 2 and parts[0] in _READABLE_DIRS:
-        full_path = os.path.join(parts[0], parts[1])
+        full_path = at_root(parts[0], parts[1])
         if not os.path.exists(full_path):
             return {"ok": False, "error": f"Файл не найден: {path}"}
 
@@ -103,7 +105,7 @@ def git_log(limit: int = 20) -> dict:
     try:
         result = subprocess.run(
             ["git", "log", f"-{limit}", "--pretty=format:%h | %ad | %s", "--date=short"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, cwd=PROJECT_ROOT,
         )
         if result.returncode != 0:
             return {"ok": False, "error": result.stderr.strip() or "git log failed"}

@@ -14,9 +14,10 @@ import re
 import glob
 import logging
 from datetime import datetime, timedelta
+from tools.paths import at_root
 
 logger = logging.getLogger("Ouroboros")
-LOGS_DIR = "logs"
+LOGS_DIR = at_root("logs")
 
 # Матчим ПОЛЕ УРОВНЯ лога (" - ERROR - "), а не слово где угодно — иначе ловим
 # «CRITICAL» в тексте отчётов самой Миры и «error» в логируемых код-payload'ах.

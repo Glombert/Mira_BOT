@@ -15,8 +15,9 @@ tools/file_tools.py — инструменты для работы с файла
 
 import os
 from datetime import datetime
+from tools.paths import at_root
 
-WORKSPACE_ROOT  = "workspace"
+WORKSPACE_ROOT  = at_root("workspace")
 MAX_FILE_SIZE   = 5 * 1024 * 1024   # 5 MB — лимит на чтение и запись
 MAX_WS_SIZE     = 100 * 1024 * 1024  # 100 MB — лимит workspace пользователя
 MAX_UNDO_SLOTS  = 10                 # сколько отмен хранить

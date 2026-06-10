@@ -27,6 +27,7 @@ import json
 import logging
 import threading
 import providers as _providers
+from tools.paths import at_root as _at_root
 
 logger = logging.getLogger("Ouroboros")
 
@@ -212,7 +213,7 @@ def save_summary(user_id: str, summary: str,
 
 def get_templates_prompt(user_id: str) -> str:
     """Возвращает текст для системного промпта с шаблонами задач."""
-    dir_path = os.path.join("memory", "templates", user_id)
+    dir_path = _at_root("memory", "templates", user_id)
     if not os.path.isdir(dir_path):
         return ""
     templates = []
@@ -242,7 +243,7 @@ def save_template(user_id: str, name: str, description: str, example: str) -> di
         "example": example.strip()[:300],
         "created_at": datetime.now().strftime("%Y-%m-%d"),
     }
-    path = os.path.join("memory", "templates", user_id)
+    path = _at_root("memory", "templates", user_id)
     os.makedirs(path, exist_ok=True)
     fpath = os.path.join(path, f"{name}.json")
     try:
@@ -256,7 +257,7 @@ def save_template(user_id: str, name: str, description: str, example: str) -> di
 
 def list_templates(user_id: str) -> dict:
     """Возвращает список шаблонов пользователя."""
-    dir_path = os.path.join("memory", "templates", user_id)
+    dir_path = _at_root("memory", "templates", user_id)
     templates = []
     if os.path.isdir(dir_path):
         for fname in sorted(os.listdir(dir_path)):

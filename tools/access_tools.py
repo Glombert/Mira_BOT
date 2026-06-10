@@ -19,6 +19,7 @@ import logging
 import urllib.request
 import urllib.parse
 from datetime import datetime, timedelta
+from tools.paths import at_root
 
 try:
     import memory_crypto as _crypto
@@ -27,8 +28,8 @@ except ImportError:
 
 logger = logging.getLogger("Ouroboros")
 
-MEMORY_DIR      = "memory"
-WORKSPACE_DIR   = "workspace"
+MEMORY_DIR      = at_root("memory")
+WORKSPACE_DIR   = at_root("workspace")
 GUEST_LIMIT     = 10
 GUEST_TTL_DAYS  = 3
 VALID_STATUSES  = ("owner", "regular", "guest", "rejected", "blacklisted", "blocked")

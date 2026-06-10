@@ -27,6 +27,7 @@ import time
 import logging
 import threading
 from pathlib import Path
+from tools.paths import at_root
 
 logger = logging.getLogger("Ouroboros")
 
@@ -45,7 +46,7 @@ SCOPES = [
 REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8080")
 
 # Папка для токенов и временных verifier'ов PKCE
-GDRIVE_TOKENS_DIR = os.path.join("memory", "gdrive")
+GDRIVE_TOKENS_DIR = at_root("memory", "gdrive")
 
 os.makedirs(GDRIVE_TOKENS_DIR, exist_ok=True)
 

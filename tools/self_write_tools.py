@@ -12,11 +12,12 @@ import os
 import json
 import shutil
 from datetime import datetime
+from tools.paths import at_root
 
-PERSONA_FILE         = "persona.json"
-PERSONA_OVERLAY_FILE = os.path.join("memory", "persona_overlay.json")
-REFLECTIONS_FILE     = os.path.join("memory", "reflections.json")
-DECISIONS_LOG        = os.path.join("memory", "decisions.log")
+PERSONA_FILE         = at_root("persona.json")
+PERSONA_OVERLAY_FILE = at_root("memory", "persona_overlay.json")
+REFLECTIONS_FILE     = at_root("memory", "reflections.json")
+DECISIONS_LOG        = at_root("memory", "decisions.log")
 
 # Поля которые Мира может менять самостоятельно
 _ALLOWED_FIELDS = {"curiosity", "emotions", "self_awareness", "reflections"}
@@ -199,7 +200,7 @@ def write_agent_config(name: str, config: dict) -> dict:
     }
 
     os.makedirs("agents", exist_ok=True)
-    path = os.path.join("agents", f"{name}.json")
+    path = at_root("agents", f"{name}.json")
 
     # Бэкап если файл уже существует
     if os.path.exists(path):
@@ -234,7 +235,7 @@ def _log_agent_change(name: str, config: dict) -> None:
         "role":  config.get("role", ""),
     }
     try:
-        with open(os.path.join("memory", "decisions.log"), "a", encoding="utf-8") as f:
+        with open(DECISIONS_LOG, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     except Exception:
         pass

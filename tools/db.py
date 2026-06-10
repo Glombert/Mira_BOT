@@ -30,7 +30,9 @@ from typing import Any
 
 logger = logging.getLogger("Ouroboros")
 
-DB_PATH = os.path.join("memory", "mira.db")
+from tools.paths import at_root
+
+DB_PATH = at_root("memory", "mira.db")
 _thread_local = threading.local()
 _init_lock = threading.Lock()
 _initialized = False

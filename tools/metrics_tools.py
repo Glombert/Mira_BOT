@@ -8,9 +8,10 @@ import os
 import json
 import logging
 from datetime import datetime, timedelta
+from tools.paths import at_root
 
 logger = logging.getLogger("Ouroboros")
-METRICS_DIR = os.path.join("memory", "metrics")
+METRICS_DIR = at_root("memory", "metrics")
 
 
 def metrics_read(days: int = 1) -> dict:

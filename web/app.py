@@ -72,9 +72,11 @@ logger.setLevel(logging.INFO)
 
 # Файловый лог с ротацией (как в telegram_bot.py)
 from logging.handlers import TimedRotatingFileHandler
-os.makedirs("logs", exist_ok=True)
+from tools.paths import at_root
+
+os.makedirs(at_root("logs"), exist_ok=True)
 _web_log_handler = TimedRotatingFileHandler(
-    "logs/web.log",
+    at_root("logs", "web.log"),
     when="midnight",
     interval=1,
     backupCount=14,  # 2 недели — чтобы биweekly-ритуал log_audit видел весь период

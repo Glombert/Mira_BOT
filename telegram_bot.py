@@ -101,11 +101,13 @@ OWNER_TG_ID  = int(os.getenv("OWNER_TELEGRAM_ID", "0"))
 MAX_HISTORY  = 20
 MAX_MSG_LEN  = 4000   # Telegram ограничивает сообщения ~4096 символами
 
-os.makedirs("logs", exist_ok=True)
+from tools.paths import at_root
+
+os.makedirs(at_root("logs"), exist_ok=True)
 # Отдельный файл для бота: agent.log принадлежит "Ouroboros" (см. agent.py),
 # и тот логгер с propagate=False, поэтому записи не пересекаются.
 _file_handler = TimedRotatingFileHandler(
-    "logs/telegram_bot.log",
+    at_root("logs", "telegram_bot.log"),
     when="midnight",
     interval=1,
     backupCount=14,  # 2 недели — чтобы биweekly-ритуал log_audit видел весь период

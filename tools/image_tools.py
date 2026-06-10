@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 
 import httpx
+from tools.paths import at_root
 
 logger = logging.getLogger("Ouroboros")
 
@@ -89,7 +90,7 @@ def generate_image(
 
     timestamp  = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename   = f"image_{timestamp}.png"
-    output_dir = os.path.join("workspace", user_id, "output")
+    output_dir = at_root("workspace", user_id, "output")
     os.makedirs(output_dir, exist_ok=True)
     out_path   = os.path.join(output_dir, filename)
 

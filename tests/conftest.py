@@ -25,8 +25,9 @@ def _env(monkeypatch):
 
 @pytest.fixture
 def isolated_cwd(monkeypatch, tmp_path):
-    """Тесты, работающие с относительными путями (memory/, workspace/),
-    запрашивают этот fixture явно. Также пересоздаёт SQLite-БД в tmp_path."""
+    """Изолирует тесты от реальных memory/ и workspace/: пересоздаёт SQLite-БД
+    в tmp_path и перенаправляет туда якорные константы путей (tools/paths.py
+    привязывает их к корню репо, поэтому одного chdir недостаточно)."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "memory").mkdir()
     (tmp_path / "workspace").mkdir()
@@ -38,4 +39,13 @@ def isolated_cwd(monkeypatch, tmp_path):
     monkeypatch.setattr(db, "DB_PATH", db_file)
     monkeypatch.setattr(db, "_initialized", False)
     db.init_db(db_file)
+
+    import providers
+    from tools import access_tools, file_tools, metrics_tools
+    monkeypatch.setattr(providers, "DECISIONS_LOG", str(tmp_path / "memory" / "decisions.log"))
+    monkeypatch.setattr(providers, "METRICS_DIR", str(tmp_path / "memory" / "metrics"))
+    monkeypatch.setattr(metrics_tools, "METRICS_DIR", str(tmp_path / "memory" / "metrics"))
+    monkeypatch.setattr(access_tools, "MEMORY_DIR", str(tmp_path / "memory"))
+    monkeypatch.setattr(access_tools, "WORKSPACE_DIR", str(tmp_path / "workspace"))
+    monkeypatch.setattr(file_tools, "WORKSPACE_ROOT", str(tmp_path / "workspace"))
     return tmp_path

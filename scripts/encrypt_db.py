@@ -17,7 +17,7 @@ from datetime import datetime
 
 ENC_KEY = os.getenv("MEMORY_ENCRYPTION_KEY", "")
 # Реальная БД лежит в memory/mira.db (см. tools/db.py DB_PATH).
-DB_PATH = os.path.join("memory", "mira.db")
+DB_PATH = at_root("memory", "mira.db")
 
 if not ENC_KEY:
     print("ERROR: установи MEMORY_ENCRYPTION_KEY в окружении")
@@ -25,6 +25,7 @@ if not ENC_KEY:
     sys.exit(1)
 
 from cryptography.fernet import Fernet
+from tools.paths import at_root
 fernet = Fernet(ENC_KEY.encode() if isinstance(ENC_KEY, str) else ENC_KEY)
 
 

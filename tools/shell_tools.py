@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import tempfile
 import logging
+from tools.paths import at_root
 
 logger = logging.getLogger("Ouroboros")
 
@@ -68,7 +69,7 @@ def run_python(code: str, user_id: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
             "truncated": False,
         }
 
-    work_dir = os.path.join("workspace", user_id)
+    work_dir = at_root("workspace", user_id)
     os.makedirs(work_dir, exist_ok=True)
 
     tmp_path = None
