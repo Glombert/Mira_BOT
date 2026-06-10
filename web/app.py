@@ -568,8 +568,8 @@ def _invoke_alpha(user_id: str, prompt: str,
     try:
         matches = _sm.search(user_id, prompt, top_k=5, max_distance=0.35)
         augment = _sm.format_for_prompt(matches)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"semantic recall: {e}")
 
     llm_msgs = [{k: v for k, v in m.items() if k != "ts"} for m in msgs]
     if augment and llm_msgs and llm_msgs[0].get("role") == "system":

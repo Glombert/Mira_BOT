@@ -221,12 +221,12 @@ def _close_thread_conn() -> None:
 
 def _encode(data: Any) -> str:
     raw = json.dumps(data, ensure_ascii=False)
-    try:
-        import memory_crypto
-        if memory_crypto.is_enabled():
-            return memory_crypto.encrypt_str(raw)
-    except Exception:
-        pass
+    # Намеренно без try/except: если шифрование включено и сломалось,
+    # молчаливый фолбэк записал бы данные открытым текстом (fail-open).
+    # Лучше громкая ошибка, чем тихая утечка.
+    import memory_crypto
+    if memory_crypto.is_enabled():
+        return memory_crypto.encrypt_str(raw)
     return raw
 
 

@@ -11,8 +11,11 @@ tools/self_write_tools.py — инструмент для обновления �
 import os
 import json
 import shutil
+import logging
 from datetime import datetime
 from tools.paths import at_root
+
+logger = logging.getLogger("Ouroboros")
 
 PERSONA_FILE         = at_root("persona.json")
 PERSONA_OVERLAY_FILE = at_root("memory", "persona_overlay.json")
@@ -146,8 +149,8 @@ def _log_persona_change(field: str, old_value, new_value, backup_path: str) -> N
     try:
         with open(DECISIONS_LOG, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"decisions.log не записан: {e}")
 
 
 def write_agent_config(name: str, config: dict) -> dict:
@@ -237,8 +240,8 @@ def _log_agent_change(name: str, config: dict) -> None:
     try:
         with open(DECISIONS_LOG, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"decisions.log не записан: {e}")
 
 
 def _notify_agent_change(name: str, config: dict) -> None:

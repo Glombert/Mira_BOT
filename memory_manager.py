@@ -224,8 +224,8 @@ def get_templates_prompt(user_id: str) -> str:
             with open(os.path.join(dir_path, fname), encoding="utf-8") as f:
                 t = json.load(f)
             templates.append(f"— {t.get('name', '')}: {t.get('description', '')}")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"повреждённый шаблон {fname}: {e}")
     if not templates:
         return ""
     return "Сохранённые шаблоны задач:\n" + "\n".join(templates)
