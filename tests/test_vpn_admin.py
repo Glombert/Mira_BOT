@@ -69,3 +69,22 @@ def test_script_failure(monkeypatch):
                         lambda cmd, **kw: _Proc(rc=1, stderr="пользователь уже есть"))
     r = va.vpn_add_user("Admin", "reality", caller_id="tg_1")
     assert not r["ok"] and "уже есть" in r["error"]
+
+
+def test_remove_non_owner_blocked(monkeypatch):
+    _owner(monkeypatch, "regular")
+    r = va.vpn_remove_user("Admin", "reality", caller_id="tg_999")
+    assert not r["ok"] and "владелец" in r["error"]
+
+
+def test_remove_calls_correct_script(monkeypatch):
+    _owner(monkeypatch, "owner")
+    captured = {}
+    def fake_run(cmd, **kw):
+        captured["cmd"] = cmd
+        return _Proc(stdout="✓ удалён")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    r = va.vpn_remove_user("Admin", "hiddify", caller_id="tg_1")
+    assert r["ok"] and r["protocol"] == "reality"
+    assert captured["cmd"][1].endswith("reality_remove_user.sh")
+    assert captured["cmd"][2] == "Admin"

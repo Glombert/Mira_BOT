@@ -23,6 +23,11 @@ _SCRIPTS = {
     "reality":   "reality_add_user.sh",
 }
 
+_REMOVE_SCRIPTS = {
+    "wireguard": "wg_remove_peer.sh",
+    "reality":   "reality_remove_user.sh",
+}
+
 # Синонимы протокола от пользователя → канон.
 _PROTO_ALIASES = {
     "wireguard": "wireguard", "wg": "wireguard", "вг": "wireguard",
@@ -90,3 +95,41 @@ def vpn_add_user(name: str, protocol: str, caller_id: str = "") -> dict:
         "link": link,
         "hint": "Скопируй ссылку и вставь её в Hiddify/v2rayNG (Reality) или WireGuard.",
     }
+
+
+def vpn_remove_user(name: str, protocol: str, caller_id: str = "") -> dict:
+    """Удаляет VPN-пользователя. Только для владельца.
+
+    protocol: 'wireguard' или 'reality'. После удаления его ссылка/конфиг
+    перестают подключаться.
+    """
+    if not _is_owner(caller_id):
+        return {"ok": False, "error": "Удалять VPN-пользователей может только владелец."}
+
+    name = (name or "").strip()
+    if not _NAME_RE.match(name):
+        return {"ok": False, "error": "Имя 1–40 символов: буквы, цифры, пробел, дефис, скобки."}
+
+    proto = _PROTO_ALIASES.get((protocol or "").strip().lower())
+    if not proto:
+        return {"ok": False, "error": "Укажи протокол: 'wireguard' (WG) или 'reality' (Hiddify)."}
+
+    script = at_root("scripts", _REMOVE_SCRIPTS[proto])
+    try:
+        result = subprocess.run(
+            ["bash", script, name],
+            capture_output=True, text=True, timeout=90,
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "Скрипт VPN не уложился в 90с."}
+    except FileNotFoundError:
+        return {"ok": False, "error": "bash не найден."}
+
+    if result.returncode != 0:
+        err = (result.stderr or result.stdout or "").strip()[-300:]
+        logger.warning(f"vpn_remove_user {proto} '{name}' rc={result.returncode}: {err}")
+        return {"ok": False, "error": f"Не удалось удалить: {err or 'ошибка скрипта'}"}
+
+    logger.info(f"vpn_remove_user: {proto} '{name}' удалён")
+    return {"ok": True, "name": name, "protocol": proto,
+            "message": f"Пользователь «{name}» ({proto}) удалён — его ссылка больше не работает."}

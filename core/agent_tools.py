@@ -30,7 +30,7 @@ from tools.gdrive_tools import (
 )
 from tools.metrics_tools import metrics_read
 from tools.server_health import server_health
-from tools.vpn_admin import vpn_add_user as _vpn_add_user
+from tools.vpn_admin import vpn_add_user as _vpn_add_user, vpn_remove_user as _vpn_remove_user
 from tools.log_tools import read_logs
 from tools.scheduler import schedule_reminder, list_reminders, cancel_reminder
 from tools.openrouter_tools import list_models as _openrouter_list_models
@@ -140,6 +140,7 @@ _TOOL_REGISTRY = {
     "metrics_read":       lambda u, a: metrics_read(a.get("days", 1)),
     "server_health":      lambda u, a: server_health(),
     "vpn_add_user":       lambda u, a: _vpn_add_user(a.get("name", ""), a.get("protocol", ""), caller_id=u),
+    "vpn_remove_user":    lambda u, a: _vpn_remove_user(a.get("name", ""), a.get("protocol", ""), caller_id=u),
     "read_logs":          lambda u, a: read_logs(a.get("days", 14), a.get("include_warnings", False)),
     "gcal_list":          lambda u, a: gcal_list(u, a.get("max_results", 10), a.get("time_min")),
     "gcal_create":        lambda u, a: gcal_create(u, a["summary"], a["start_time"], a.get("end_time", ""), a.get("description", "")),
@@ -190,6 +191,7 @@ _TOOL_HUMAN = {
     "metrics_read":           "смотрит метрики",
     "server_health":          "проверяет здоровье сервера",
     "vpn_add_user":           "заводит VPN-пользователя",
+    "vpn_remove_user":        "удаляет VPN-пользователя",
     "read_logs":              "разбирает логи на ошибки",
     "gcal_list":              "смотрит календарь",
     "gcal_create":            "создаёт событие",

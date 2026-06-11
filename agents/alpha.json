@@ -25,7 +25,7 @@
     "gcal_list", "gcal_create", "gcal_quick_add",
     "gsheet_read", "gsheet_write", "gsheet_create",
     "schedule_reminder", "list_reminders", "cancel_reminder",
-    "metrics_read", "server_health", "vpn_add_user", "read_logs", "openrouter_list_models",
+    "metrics_read", "server_health", "vpn_add_user", "vpn_remove_user", "read_logs", "openrouter_list_models",
     "generate_image"
   ],
   "created_by": "human",

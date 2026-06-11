@@ -496,6 +496,33 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "vpn_remove_user",
+            "description": (
+                "Удаляет VPN-пользователя — его ссылка/конфиг перестают работать. "
+                "ТОЛЬКО для владельца. «удали VPN X» / «убери пользователя X». "
+                "Тот же протокол: reality (Hiddify) или wireguard (WG). Если "
+                "протокол не назван — спроси."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Имя пользователя как при заведении."
+                    },
+                    "protocol": {
+                        "type": "string",
+                        "enum": ["wireguard", "reality"],
+                        "description": "'reality' — Hiddify/vless; 'wireguard' — WG."
+                    }
+                },
+                "required": ["name", "protocol"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "metrics_read",
             "description": (
                 "Читает метрики использования LLM за последние N дней. "
