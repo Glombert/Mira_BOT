@@ -165,38 +165,38 @@ def _reality_names() -> dict[str, str]:
 
 
 def reality_sample() -> None:
-    """Срез clash_api в SQLite — зовётся из общего 5-минутного сэмплера.
+    """Срез v2ray_api stats в SQLite — зовётся из общего 5-минутного сэмплера.
 
-    Пишем суммарный трафик активных сессий каждого зарегистрированного
-    Reality-юзера. Юзеров без активных соединений пишем с нулём (онлайн=0),
-    чтобы график показывал и простой.
+    Пишем кумулятивный per-user трафик Reality (downlink=rx, uplink=tx).
+    online=1, если трафик вырос с прошлого сэмпла (активность за интервал).
     """
     from tools import db
+    from tools.v2ray_stats import query_user_traffic
 
     registered = _reality_names()
     if not registered:
         return
-    conns = _clash_connections()
-    if conns is None:
+    traffic = query_user_traffic()
+    if traffic is None:
         return
+
+    # online = трафик вырос с прошлого сэмпла
+    prev = {s["name"]: (s["rx_bytes"], s["tx_bytes"]) for s in db.load_reality_samples(1)}
     rows = []
     for name in registered:
-        live = conns.get(name)
-        rows.append({
-            "name": name,
-            "rx_bytes": live["rx"] if live else 0,
-            "tx_bytes": live["tx"] if live else 0,
-            "online": bool(live and live["online"]),
-        })
+        t = traffic.get(name, {"downlink": 0, "uplink": 0})
+        rx, tx = t["downlink"], t["uplink"]
+        p = prev.get(name)
+        online = bool(p and (rx > p[0] or tx > p[1]))
+        rows.append({"name": name, "rx_bytes": rx, "tx_bytes": tx, "online": online})
     db.save_reality_sample(rows)
 
 
 def reality_peers(hours: int = 24) -> list[dict]:
-    """Reality-пользователи для экрана VPN: накопление за период + живой онлайн.
+    """Reality-пользователи для экрана VPN: накопление за период + онлайн.
 
-    Имена — из vpn_peers.json. Трафик за период — дельты clash-сэмплов из
-    БД (clash считает по живым сессиям, поэтому это активность, не байт-в-байт
-    кумулятив). Онлайн — из живого clash_api.
+    Имена — из vpn_peers.json. Трафик — дельты кумулятивных v2ray-счётчиков
+    (точно по людям). Онлайн — был ли трафик в последнем сэмпле.
     """
     from tools import db
 
@@ -204,29 +204,29 @@ def reality_peers(hours: int = 24) -> list[dict]:
     if not registered:
         return []
 
-    conns = _clash_connections()
     samples = db.load_reality_samples(hours)
 
-    # Накопление по юзеру: дельты между сэмплами, кламп при сбросе сессии.
     per_user: dict[str, dict] = {}
     prev: dict[str, tuple[int, int]] = {}
+    last_online: dict[str, bool] = {}
     for s in samples:
         st = per_user.setdefault(s["name"], {"rx": 0, "tx": 0, "online_samples": 0})
         p = prev.get(s["name"])
         if p is not None:
+            # кламп при рестарте sing-box (счётчики обнулились)
             st["rx"] += max(s["rx_bytes"] - p[0], 0)
             st["tx"] += max(s["tx_bytes"] - p[1], 0)
         st["online_samples"] += 1 if s["online"] else 0
         prev[s["name"]] = (s["rx_bytes"], s["tx_bytes"])
+        last_online[s["name"]] = bool(s["online"])
 
     out = []
     for name in sorted(registered):
         st = per_user.get(name)
-        live = conns.get(name) if conns else None
         out.append({
             "name": name,
             "kind": "reality",
-            "online": bool(live and live["online"]),
+            "online": last_online.get(name, False),
             "last_seen_min": None,
             "rx_mb": round(st["rx"] / 1024 / 1024, 1) if st else 0.0,
             "tx_mb": round(st["tx"] / 1024 / 1024, 1) if st else 0.0,

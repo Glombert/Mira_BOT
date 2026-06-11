@@ -1,7 +1,8 @@
 # Только реальные баги, без стилевого шума: undefined names, повторные
 # определения, неиспользуемые импорты, синтаксис. Стиль не трогаем.
 target-version = "py312"
-extend-exclude = ["venv", "versions", "clients", "mobile", "workspace", "memory"]
+force-exclude = true
+extend-exclude = ["tools/v2ray_proto", "venv", "versions", "clients", "mobile", "workspace", "memory"]
 
 [lint]
 select = ["F", "E9", "PLE"]

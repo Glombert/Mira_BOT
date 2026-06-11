@@ -45,3 +45,6 @@ sentry-sdk>=2.0.0
 
 # Тесты (dev)
 pytest>=8.0.0
+
+# v2ray_api stats (per-user Reality-трафик)
+grpcio>=1.60

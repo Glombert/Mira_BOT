@@ -111,3 +111,31 @@ def test_traffic_series_per_user(monkeypatch):
     slot = [s for s in series if s["ts"].startswith("2026-06-11T10:05")][0]
     assert slot["users"]["Кенетик"] == 10.0
     assert slot["users"]["admin"] == 4.0
+
+
+def test_v2ray_stats_parses_user_names(monkeypatch):
+    from tools import v2ray_stats as vs
+
+    class _Stat:
+        def __init__(self, name, value): self.name = name; self.value = value
+    class _Resp:
+        stat = [
+            _Stat("user>>>Admin>>>traffic>>>downlink", 5000),
+            _Stat("user>>>Admin>>>traffic>>>uplink", 1000),
+            _Stat("user>>>Мама>>>traffic>>>downlink", 2000),
+        ]
+    class _Stub:
+        def __init__(self, ch): pass
+        def QueryStats(self, req, timeout=None): return _Resp()
+    fake_grpc = type("g", (), {"insecure_channel": staticmethod(lambda a: _Ctx())})
+    class _Ctx:
+        def __enter__(self): return None
+        def __exit__(self, *a): return False
+    import sys, types
+    monkeypatch.setitem(sys.modules, "grpc", fake_grpc)
+    monkeypatch.setitem(sys.modules, "tools.v2ray_proto",
+                        types.SimpleNamespace(stats_pb2=types.SimpleNamespace(QueryStatsRequest=lambda **k: None),
+                                              stats_pb2_grpc=types.SimpleNamespace(StatsServiceStub=_Stub)))
+    r = vs.query_user_traffic()
+    assert r["Admin"] == {"downlink": 5000, "uplink": 1000}
+    assert r["Мама"]["downlink"] == 2000
