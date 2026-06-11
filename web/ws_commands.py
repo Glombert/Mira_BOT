@@ -32,7 +32,7 @@ from web.ritual_runner import _run_ritual_background
 from web.ws_protocol import (
     ProfileDataMessage, ProfileData, Files, FileEntry, UsersList, UserEntry,
     ServerStatsData, ServerStatPoint,
-    VpnStatsData, VpnPeerEntry, VpnStatPoint, VpnBridgePoint,
+    VpnStatsData, VpnPeerEntry, VpnStatPoint, VpnBridgePoint, VpnTrafficSlot,
     PermissionsUpdate, GdriveAuthUrl, ProfileSaved,
     MetricsData, MetricsModelStat, MetricsDayStat, RitualsData, RitualEntry,
     RemindersData, ReminderEntry, TasksData, TaskEntry, ws_payload as _wsp,
@@ -715,6 +715,7 @@ async def _ws_command(websocket: WebSocket, data: dict, *, user_id: str, tg_id: 
                     peers_online=_v["peers_online"],
                     peers=[VpnPeerEntry(**p) for p in _v["peers"]],
                     points=[VpnStatPoint(**p) for p in _v["points"]],
+                    traffic_series=[VpnTrafficSlot(**s) for s in _v["traffic_series"]],
                     bridge_points=[VpnBridgePoint(**p) for p in _v["bridge_points"]],
                 )))
             except Exception as e:
