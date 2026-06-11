@@ -13,7 +13,7 @@ from tools.paths import PROJECT_ROOT, at_root
 # Файлы в корне проекта, которые Мира может читать
 _READABLE_ROOT = {
     "agent.py", "telegram_bot.py", "persona.json", "PRINCIPLES.md",
-    "requirements.txt", "README.md", "PLAN.md",
+    "requirements.txt", "README.md", "PLAN.md", "ARCHITECTURE.md", "WHATS_NEW.md",
 }
 
 # Папки, содержимое которых Мира может читать
