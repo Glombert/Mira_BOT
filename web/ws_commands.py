@@ -31,6 +31,7 @@ from web.panels import _collect_backups_data
 from web.ritual_runner import _run_ritual_background
 from web.ws_protocol import (
     ProfileDataMessage, ProfileData, Files, FileEntry, UsersList, UserEntry,
+    ServerStatsData, ServerStatPoint,
     PermissionsUpdate, GdriveAuthUrl, ProfileSaved,
     MetricsData, MetricsModelStat, MetricsDayStat, RitualsData, RitualEntry,
     RemindersData, ReminderEntry, TasksData, TaskEntry, ws_payload as _wsp,
@@ -552,7 +553,8 @@ async def _ws_command(websocket: WebSocket, data: dict, *, user_id: str, tg_id: 
     # пробрасываются в WS — они требуют интерактивных подтверждений
     # и контекста, оставлены только в Telegram.
     elif cmd in ("stats", "users", "users_data", "versions", "evolution_count",
-                 "blacklist", "metrics_data", "rituals_data", "backups_data"):
+                 "blacklist", "metrics_data", "rituals_data", "backups_data") \
+            or cmd.startswith("server_stats"):
         is_owner_ws = OWNER_TG_ID and tg_id == OWNER_TG_ID
         if not is_owner_ws:
             await websocket.send_json({"type": "system", "content": "Команда доступна только владельцу."})
@@ -672,6 +674,33 @@ async def _ws_command(websocket: WebSocket, data: dict, *, user_id: str, tg_id: 
                 await websocket.send_json(_wsp(RitualsData(rituals=_entries)))
             except Exception as e:
                 await websocket.send_json({"type": "system", "content": f"rituals_data: {e}"})
+        elif cmd.startswith("server_stats"):
+            try:
+                from tools import db as _db
+                from tools.server_health import sample_metrics, server_health, uptime_days
+                _h = await asyncio.to_thread(server_health)
+                _s = sample_metrics()
+                _arg = cmd[len("server_stats"):].strip()
+                _hours = int(_arg) if _arg.isdigit() else 24
+                _pts = _db.load_server_metrics(min(_hours, 168))
+                def _hb_age(hb: dict) -> int | None:
+                    return hb.get("age_seconds") if hb.get("status") != "missing" else None
+                await websocket.send_json(_wsp(ServerStatsData(
+                    ok=_h["ok"],
+                    load1=_s["load1"],
+                    mem_percent=_s["mem_percent"],
+                    mem_total_mb=_s["mem_total_mb"],
+                    swap_mb=_s["swap_mb"],
+                    disk_free_gb=_h["disk"]["free_gb"],
+                    disk_total_gb=_h["disk"]["total_gb"],
+                    db_size_mb=_h["db"].get("size_mb", 0.0),
+                    uptime_days=uptime_days(),
+                    hb_bot_age=_hb_age(_h["heartbeats"]["bot"]),
+                    hb_web_age=_hb_age(_h["heartbeats"]["web"]),
+                    points=[ServerStatPoint(**p) for p in _pts],
+                )))
+            except Exception as e:
+                await websocket.send_json({"type": "system", "content": f"server_stats: {e}"})
         elif cmd == "backups_data":
             # rclone-листинг архива — в потоке, чтобы не блокировать loop.
             try:

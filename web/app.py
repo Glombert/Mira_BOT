@@ -180,6 +180,8 @@ def _start_web_heartbeat() -> None:
 @app.on_event("startup")
 async def startup():
     _start_web_heartbeat()
+    from tools.server_health import start_sampler
+    start_sampler()
     logger.info("=== Mira Web запущена ===")
     # Стартовое уведомление владельцу
     try:

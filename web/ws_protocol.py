@@ -284,11 +284,37 @@ class BackupsData(BaseModel):
     backups: list[BackupEntry]
 
 
+class ServerStatPoint(BaseModel):
+    ts: str                       # ISO-время сэмпла
+    load1: float
+    mem_percent: int
+    swap_mb: int
+    disk_percent: int
+
+
+class ServerStatsData(BaseModel):
+    """Owner-экран «Сервер»: текущие цифры + серии для графиков."""
+    type: Literal["server_stats_data"] = "server_stats_data"
+    ok: bool
+    load1: float
+    mem_percent: int
+    mem_total_mb: int
+    swap_mb: int
+    disk_free_gb: float
+    disk_total_gb: float
+    db_size_mb: float
+    uptime_days: float
+    hb_bot_age: int | None        # сек с последнего heartbeat; None = файла нет
+    hb_web_age: int | None
+    points: list[ServerStatPoint]
+
+
 SERVER_MESSAGES: tuple[type[BaseModel], ...] = (
     Ready, ApprovalRequest, PermissionsUpdate, AuthRequired, Pong,
     Thinking, Thought, Message, SystemMessage, ErrorMessage, Files,
     GdriveAuthUrl, UsersList, Learned, ProfileDataMessage, ProfileSaved,
     MetricsData, RitualsData, RemindersData, TasksData, BackupsData,
+    ServerStatsData,
 )
 
 

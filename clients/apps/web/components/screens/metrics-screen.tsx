@@ -26,7 +26,7 @@ function _mapModels(byModel: any[], totalCalls: number): ModelRow[] {
   }));
 }
 
-function AreaChart({ data, w = 560, h = 120, color = '#f5bc7a' }: { data: number[]; w?: number; h?: number; color?: string }) {
+export function AreaChart({ data, w = 560, h = 120, color = '#f5bc7a' }: { data: number[]; w?: number; h?: number; color?: string }) {
   const max = Math.max(...data) * 1.15;
   const stepX = w / (data.length - 1);
   const y = (v: number) => h - (v / max) * h;
@@ -49,7 +49,7 @@ function AreaChart({ data, w = 560, h = 120, color = '#f5bc7a' }: { data: number
   );
 }
 
-function Kpi({ label, value, unit, delta, deltaUp, sub }: { label: string; value: string; unit?: string; delta?: string; deltaUp?: boolean; sub?: string }) {
+export function Kpi({ label, value, unit, delta, deltaUp, sub }: { label: string; value: string; unit?: string; delta?: string; deltaUp?: boolean; sub?: string }) {
   return (
     <div className="flex-1 min-w-0 p-4 rounded-xl" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(244,234,214,0.10)' }}>
       <div className="uppercase text-[10px] font-semibold tracking-[0.18em] text-text-muted mb-2.5">{label}</div>

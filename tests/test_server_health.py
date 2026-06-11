@@ -75,3 +75,22 @@ def test_ritual_handler_registry():
     from tools.rituals import run_handler
     report = run_handler("server_health")
     assert "#IMPORTANCE:" in report
+
+
+def test_sample_metrics_sane():
+    s = sh.sample_metrics()
+    assert 0 <= s["mem_percent"] <= 100
+    assert 0 <= s["disk_percent"] <= 100
+    assert s["load1"] >= 0
+    assert s["mem_total_mb"] > 0
+
+
+def test_metrics_roundtrip(isolated_cwd):
+    from tools import db
+    db.save_server_metric(0.42, 55, 128, 33)
+    pts = db.load_server_metrics(24)
+    assert len(pts) == 1
+    p = pts[0]
+    assert p["load1"] == 0.42 and p["mem_percent"] == 55
+    assert p["swap_mb"] == 128 and p["disk_percent"] == 33
+    assert db.load_server_metrics(0) == []

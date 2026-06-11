@@ -22,6 +22,7 @@ import { RemindersScreen } from '@/components/screens/reminders-screen';
 import { UsersScreen } from '@/components/screens/users-screen';
 import { TasksScreen } from '@/components/screens/tasks-screen';
 import { MetricsScreen } from '@/components/screens/metrics-screen';
+import { ServerScreen } from '@/components/screens/server-screen';
 import { RitualsScreen } from '@/components/screens/rituals-screen';
 import { BackupsScreen } from '@/components/screens/backups-screen';
 
@@ -700,6 +701,7 @@ export function ChatPage() {
           {screen === 'users' && <UsersScreen client={client} />}
           {screen === 'tasks' && <TasksScreen client={client} />}
           {screen === 'metrics' && <MetricsScreen client={client} />}
+          {screen === 'server' && <ServerScreen client={client} />}
           {screen === 'rituals' && <RitualsScreen client={client} />}
           {screen === 'backups' && <BackupsScreen client={client} />}
         </>

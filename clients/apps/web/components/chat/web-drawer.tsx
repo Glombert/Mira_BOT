@@ -14,7 +14,7 @@ const CMD_ICONS: Record<string, string> = {
   gdrive_get: 'driveDown', gdrive_toggle: 'autoup', gdrive_logout: 'driveUnlink',
   gcal: 'cal', gcal_create: 'calNew', gsheet: 'sheetRead', gsheet_create: 'sheetNew',
   remind: 'remNew', reminders: 'remList', task: 'taskDefer', tasks: 'taskList', image: 'genImg',
-  stats: 'metrics', users: 'users', versions: 'backup', evolution_count: 'evolve',
+  stats: 'metrics', server_stats: 'metrics', users: 'users', versions: 'backup', evolution_count: 'evolve',
   blacklist: 'blacklist', rituals: 'rituals', reflect: 'review', kidmode: 'child', rename: 'rename',
 };
 const SECTION_ICONS: Record<string, string> = {
@@ -66,6 +66,7 @@ const COMMANDS: DrawerCommand[] = [
   { cmd: 'tasks', label: 'Список задач', icon: '📋', category: 'ЗАДАЧИ' },
   { cmd: 'image', label: 'Сгенерировать картинку', icon: '🖼', category: 'ИНСТРУМЕНТЫ', hasArgs: true },
   { cmd: 'stats', label: 'Метрики LLM', icon: '📊', category: 'ВЛАДЕЛЕЦ', requires: 'owner' },
+  { cmd: 'server_stats', label: 'Сервер', icon: '🖥', category: 'ВЛАДЕЛЕЦ', requires: 'owner' },
   { cmd: 'users', label: 'Пользователи', icon: '👥', category: 'ВЛАДЕЛЕЦ', requires: 'owner' },
   { cmd: 'versions', label: 'Резервные копии', icon: '📦', category: 'ВЛАДЕЛЕЦ', requires: 'owner' },
   { cmd: 'blacklist', label: 'Чёрный список', icon: '🚫', category: 'ВЛАДЕЛЕЦ', requires: 'owner' },
@@ -199,6 +200,7 @@ export function WebDrawer({ open, onClose, onRun, onNavigate, permissions, userN
     users: 'users',
     tasks: 'tasks',
     stats: 'metrics',
+    server_stats: 'server',
     rituals: 'rituals',
     versions: 'backups',
   };

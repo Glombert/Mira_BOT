@@ -124,6 +124,16 @@ def init_db(path: str | None = None) -> None:
                     PRIMARY KEY (user_id, token)
                 );
 
+                CREATE TABLE IF NOT EXISTS server_metrics (
+                    -- Сэмплы здоровья сервера (раз в 5 мин, retention 7 дней)
+                    -- для графиков owner-экрана «Сервер».
+                    ts            TEXT PRIMARY KEY,
+                    load1         REAL NOT NULL,
+                    mem_percent   INTEGER NOT NULL,
+                    swap_mb       INTEGER NOT NULL,
+                    disk_percent  INTEGER NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS ritual_runs (
                     -- Хранит last_run и краткий вывод для каждого ритуала.
                     name         TEXT PRIMARY KEY,
@@ -645,6 +655,35 @@ def load_ritual_runs() -> dict[str, dict]:
     """Возвращает {name: {last_run, last_output}, ...} для всех ритуалов."""
     rows = get_conn().execute("SELECT name, last_run, last_output FROM ritual_runs").fetchall()
     return {r["name"]: {"last_run": r["last_run"], "last_output": r["last_output"]} for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# Server metrics (сэмплы для графиков owner-экрана «Сервер»)
+# ---------------------------------------------------------------------------
+
+SERVER_METRICS_RETENTION_DAYS = 7
+
+
+def save_server_metric(load1: float, mem_percent: int, swap_mb: int, disk_percent: int) -> None:
+    conn = get_conn()
+    cutoff = (datetime.now() - timedelta(days=SERVER_METRICS_RETENTION_DAYS)).isoformat()
+    with conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO server_metrics (ts, load1, mem_percent, swap_mb, disk_percent) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (datetime.now().isoformat(), load1, mem_percent, swap_mb, disk_percent),
+        )
+        conn.execute("DELETE FROM server_metrics WHERE ts < ?", (cutoff,))
+
+
+def load_server_metrics(hours: int = 24) -> list[dict]:
+    """Сэмплы за последние N часов, по возрастанию времени."""
+    since = (datetime.now() - timedelta(hours=hours)).isoformat()
+    rows = get_conn().execute(
+        "SELECT ts, load1, mem_percent, swap_mb, disk_percent FROM server_metrics "
+        "WHERE ts >= ? ORDER BY ts", (since,),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------

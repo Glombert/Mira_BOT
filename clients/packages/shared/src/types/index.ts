@@ -53,7 +53,8 @@ export type ServerMessage =
   | { type: 'rituals_data'; rituals: Array<{ id: string; name: string; description: string; schedule: string; days: boolean[]; enabled: boolean; last_run?: string | null; next_run?: string | null }> }
   | { type: 'reminders_data'; reminders: Array<{ id: string; title: string; at: string; done: boolean; gcal: boolean; repeat?: string | null; mira_note?: string | null }> }
   | { type: 'tasks_data'; tasks: Array<{ id: string; message: string; at: string; status: string }> }
-  | { type: 'backups_data'; schedule: string; storage: string; backups: Array<{ id: string; created_at: string; size: number; type: string; fact_count: number; note_count: number; is_latest: boolean }> };
+  | { type: 'backups_data'; schedule: string; storage: string; backups: Array<{ id: string; created_at: string; size: number; type: string; fact_count: number; note_count: number; is_latest: boolean }> }
+  | { type: 'server_stats_data'; ok: boolean; load1: number; mem_percent: number; mem_total_mb: number; swap_mb: number; disk_free_gb: number; disk_total_gb: number; db_size_mb: number; uptime_days: number; hb_bot_age: number | null; hb_web_age: number | null; points: Array<{ ts: string; load1: number; mem_percent: number; swap_mb: number; disk_percent: number }> };
 
 /** Структурированный профиль для экрана «Профиль» (Aurora). */
 export interface ProfileData {
