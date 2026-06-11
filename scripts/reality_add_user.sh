@@ -16,14 +16,18 @@
 #
 # Окружение:
 #   REALITY_DIR       — каталог reality-ezpz (default /opt/reality-ezpz)
-#   REALITY_ENDPOINT  — куда коннектится клиент (default 5.42.98.236:443 — мост)
+#   REALITY_ENDPOINT  — куда коннектится клиент (default 85.137.89.79:4443).
+#                       Reality идёт на Амстердам НАПРЯМУЮ, а не через мост:
+#                       TCP/TLS маскируется под google и проходит ТСПУ. Мост
+#                       нужен только WireGuard (UDP душится). На Амстердаме
+#                       443 занят nginx, Reality слушает 4443 (docker).
 #   REALITY_CONTAINER — имя docker-контейнера (default reality-ezpz-engine-1)
 
 set -euo pipefail
 
 NAME="${1:?Использование: reality_add_user.sh \"Имя пользователя\"}"
 DIR="${REALITY_DIR:-/opt/reality-ezpz}"
-ENDPOINT="${REALITY_ENDPOINT:-5.42.98.236:443}"
+ENDPOINT="${REALITY_ENDPOINT:-85.137.89.79:4443}"
 CONTAINER="${REALITY_CONTAINER:-reality-ezpz-engine-1}"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PEERS_JSON="$REPO/memory/vpn_peers.json"
@@ -70,7 +74,7 @@ PBK=$(grep -E '^public_key=' "$CONFIG" | cut -d= -f2-)
 SID=$(grep -E '^short_id=' "$CONFIG" | cut -d= -f2-)
 SNI=$(grep -E '^domain=' "$CONFIG" | cut -d= -f2-)
 HOST="${ENDPOINT%:*}"; PORT="${ENDPOINT##*:}"
-VLESS="vless://${UUID}@${HOST}:${PORT}?type=tcp&security=reality&sni=${SNI}&fp=chrome&pbk=${PBK}&sid=${SID}&flow=xtls-rprx-vision#$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$NAME")"
+VLESS="vless://${UUID}@${HOST}:${PORT}?type=tcp&security=reality&sni=${SNI}&fp=chrome&pbk=${PBK}&sid=${SID}&flow=xtls-rprx-vision&packet_encoding=xudp#$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))" "$NAME")"
 
 # 5. Имя для экрана «VPN» (ключ reality:<uuid>)
 python3 - "$PEERS_JSON" "reality:$UUID" "$NAME" <<'PYEOF'
