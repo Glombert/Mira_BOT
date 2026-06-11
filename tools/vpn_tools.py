@@ -255,6 +255,36 @@ def _reality_delta_series(hours: int = 24) -> list[dict]:
     return list(by_ts.values())
 
 
+def _traffic_series(hours: int, wg_samples: list[dict], wg_names: dict[str, str]) -> list[dict]:
+    """Трафик по времени с разбивкой по устройствам — для stacked-графика.
+
+    Каждый слот (минутный ts) → {имя: МБ за слот}. WG и Reality дельты,
+    кламп при сбросе счётчиков. Имена WG берутся из peer_names по pubkey.
+    """
+    from tools import db
+
+    slots: dict[str, dict[str, float]] = {}
+
+    def _accumulate(samples, name_of):
+        prev: dict[str, tuple[int, int]] = {}
+        for s in samples:
+            key = s["ts"][:16]
+            name = name_of(s)
+            p = prev.get(s["name"] if "name" in s else s["pubkey"])
+            ident = s.get("name") or s.get("pubkey")
+            if p is not None:
+                mb = (max(s["rx_bytes"] - p[0], 0) + max(s["tx_bytes"] - p[1], 0)) / 1024 / 1024
+                if mb:
+                    slot = slots.setdefault(key, {})
+                    slot[name] = round(slot.get(name, 0.0) + mb, 2)
+            prev[ident] = (s["rx_bytes"], s["tx_bytes"])
+
+    _accumulate(wg_samples, lambda s: wg_names.get(s["pubkey"]) or f"{s['pubkey'][:8]}…")
+    _accumulate(db.load_reality_samples(hours), lambda s: s["name"])
+
+    return [{"ts": ts, "users": slots[ts]} for ts in sorted(slots)]
+
+
 def vpn_stats(hours: int = 24) -> dict:
     """Сводка для экрана VPN: текущее состояние + агрегаты за период."""
     from tools import db
@@ -319,6 +349,7 @@ def vpn_stats(hours: int = 24) -> dict:
         "peers_online": sum(1 for p in peers_out if p["online"]),
         "peers": peers_out,
         "points": points,
+        "traffic_series": _traffic_series(hours, samples, names),
         "bridge_points": [
             {"ts": b["ts"], "ok": bool(b["ok"]), "latency_ms": b["latency_ms"]}
             for b in bridge_hist

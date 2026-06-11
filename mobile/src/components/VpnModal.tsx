@@ -13,6 +13,7 @@ import { colors, spacing, radii, fonts } from '../theme';
 import type { MiraClient } from '../api/mira-client';
 import type { ServerMessage } from '../types';
 import { Sparkline } from './ui/Sparkline';
+import { MultiLineChart } from './ui/MultiLineChart';
 
 interface Props {
   visible: boolean;
@@ -34,7 +35,7 @@ function fmtMinutes(min: number): string {
 }
 
 function lastSeen(min: number | null): string {
-  if (min === null) return 'не подключался';
+  if (min == null || Number.isNaN(min)) return 'не подключался';
   if (min < 3) return 'сейчас';
   if (min < 60) return `${min} мин назад`;
   if (min < 1440) return `${Math.round(min / 60)} ч назад`;
@@ -134,9 +135,20 @@ export function VpnModal({ visible, onClose, client }: Props) {
               </View>
             </View>
 
-            <Text style={styles.sectionTitle}>Трафик · {periodLabel}</Text>
+            <Text style={styles.sectionTitle}>Трафик по устройствам · {periodLabel}</Text>
             <View style={styles.chartCard}>
-              <Sparkline data={pts.map((p) => p.rx_mb + p.tx_mb)} color="#f5bc7a" />
+              <MultiLineChart
+                series={data.traffic_series ?? []}
+                lines={data.peers.map((p, i) => ({ name: p.name, color: PEER_COLORS[i % PEER_COLORS.length] }))}
+              />
+              <View style={styles.legend}>
+                {data.peers.map((p, i) => (
+                  <View key={i} style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: PEER_COLORS[i % PEER_COLORS.length] }]} />
+                    <Text style={styles.legendText} numberOfLines={1}>{p.name}</Text>
+                  </View>
+                ))}
+              </View>
             </View>
             <Text style={styles.sectionTitle}>Пинг моста · {periodLabel}</Text>
             <View style={styles.chartCard}>
@@ -219,6 +231,10 @@ const styles = StyleSheet.create({
     padding: spacing.md, borderRadius: radii.sidebarItem,
     backgroundColor: 'rgba(255,255,255,0.02)', borderWidth: 1, borderColor: colors.border.divider,
   },
+  legend: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: spacing.sm },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendDot: { width: 9, height: 9, borderRadius: 2 },
+  legendText: { color: colors.text.dim, fontSize: 11, fontFamily: fonts.sans },
   peerRow: {
     paddingVertical: spacing.md, paddingHorizontal: spacing.md,
     borderRadius: radii.sidebarItem,

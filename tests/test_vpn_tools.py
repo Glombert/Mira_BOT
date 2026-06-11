@@ -93,3 +93,21 @@ def test_bridge_check_down(monkeypatch):
     monkeypatch.setattr(vt, "BRIDGE_ADDR", "127.0.0.1:1")  # закрытый порт
     r = vt.bridge_check()
     assert r["ok"] is False and r["latency_ms"] is None
+
+
+def test_traffic_series_per_user(monkeypatch):
+    mb = 1024 * 1024
+    from tools import db
+    monkeypatch.setattr(db, "load_reality_samples", lambda h: [
+        {"ts": "2026-06-11T10:00:00", "name": "admin", "rx_bytes": 0, "tx_bytes": 0, "online": 1},
+        {"ts": "2026-06-11T10:05:00", "name": "admin", "rx_bytes": 3 * mb, "tx_bytes": 1 * mb, "online": 1},
+    ])
+    wg_samples = [
+        {"ts": "2026-06-11T10:00:00", "pubkey": "K", "rx_bytes": 0, "tx_bytes": 0, "online": 1},
+        {"ts": "2026-06-11T10:05:00", "pubkey": "K", "rx_bytes": 10 * mb, "tx_bytes": 0, "online": 1},
+    ]
+    series = vt._traffic_series(24, wg_samples, {"K": "Кенетик"})
+    # слот 10:05 содержит трафик обоих устройств
+    slot = [s for s in series if s["ts"].startswith("2026-06-11T10:05")][0]
+    assert slot["users"]["Кенетик"] == 10.0
+    assert slot["users"]["admin"] == 4.0

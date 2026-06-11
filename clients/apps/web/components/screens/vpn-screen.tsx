@@ -21,7 +21,7 @@ function _fmtMinutes(min: number): string {
 }
 
 function _lastSeen(min: number | null): string {
-  if (min === null) return 'не подключался';
+  if (min == null || Number.isNaN(min)) return 'не подключался';
   if (min < 3) return 'сейчас';
   if (min < 60) return `${min} мин назад`;
   if (min < 1440) return `${Math.round(min / 60)} ч назад`;
@@ -58,6 +58,64 @@ function TrafficDonut({ slices, total, size = 132 }: {
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-[10px] uppercase tracking-[0.16em] text-text-muted">всего</span>
         <span className="text-base font-mono text-text-primary">{total}</span>
+      </div>
+    </div>
+  );
+}
+
+// Мультилинейный график трафика: линия на каждое устройство своим цветом,
+// оси время × объём, сетка, лёгкая заливка (Grafana-стиль).
+function MultiLineChart({ series, lines, labels }: {
+  series: { ts: string; users: Record<string, number> }[];
+  lines: { name: string; color: string }[];
+  labels: string[];
+}) {
+  const w = 600, h = 150, padL = 4, padR = 4;
+  const innerW = w - padL - padR;
+  const n = series.length;
+  let max = 0;
+  for (const s of series) for (const l of lines) max = Math.max(max, s.users[l.name] || 0);
+  max = max * 1.15 || 1;
+  const stepX = n > 1 ? innerW / (n - 1) : 0;
+  const x = (i: number) => padL + i * stepX;
+  const y = (v: number) => h - (v / max) * h;
+  const yTicks = [0, max / 2, max];
+  const fmt = (mb: number) => (mb >= 1024 ? `${(mb / 1024).toFixed(1)}G` : `${Math.round(mb)}M`);
+
+  return (
+    <div>
+      <svg width="100%" height={h + 18} viewBox={`0 0 ${w} ${h + 18}`} preserveAspectRatio="none"
+           style={{ display: 'block', overflow: 'visible' }}>
+        <defs>
+          {lines.map((l, i) => (
+            <linearGradient key={i} id={`vpnfill-${i}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={l.color} stopOpacity="0.18" />
+              <stop offset="100%" stopColor={l.color} stopOpacity="0" />
+            </linearGradient>
+          ))}
+        </defs>
+        {/* сетка + Y-метки */}
+        {yTicks.map((t, i) => (
+          <g key={i}>
+            <line x1={padL} y1={y(t)} x2={w - padR} y2={y(t)} stroke="rgba(244,234,214,0.07)" strokeWidth="1" />
+            <text x={padL} y={y(t) - 3} fill="rgba(244,234,214,0.35)" fontSize="9" fontFamily="monospace">{fmt(t)}</text>
+          </g>
+        ))}
+        {/* линии устройств */}
+        {n >= 2 && lines.map((l, li) => {
+          const pts = series.map((s, i) => `${x(i)},${y(s.users[l.name] || 0)}`);
+          const line = `M ${pts.join(' L ')}`;
+          const area = `${line} L ${x(n - 1)},${h} L ${x(0)},${h} Z`;
+          return (
+            <g key={li}>
+              <path d={area} fill={`url(#vpnfill-${li})`} />
+              <path d={line} fill="none" stroke={l.color} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+            </g>
+          );
+        })}
+      </svg>
+      <div className="flex justify-between mt-1 text-[9.5px] text-text-faint font-mono">
+        {labels.map((l, i) => <span key={i}>{l}</span>)}
       </div>
     </div>
   );
@@ -136,11 +194,29 @@ export function VpnScreen({ client }: { client: MiraClient | null }) {
           <Kpi label="трафик" value={stats ? _fmtMb(totalMb) : '—'} sub={`за ${periodLabel} · ↓+↑`} />
         </div>
 
-        {/* Динамика — графиками */}
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <ChartCard title={`трафик · ${periodLabel}`}
-                     note={`пик ${_fmtMb(traffic.length ? Math.max(...traffic) : 0)} / 5 мин`}
-                     data={traffic} color="#f5bc7a" labels={labels} />
+        {/* Трафик по устройствам — мультилинейный график */}
+        <div className="p-5 rounded-xl mb-4" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(244,234,214,0.10)' }}>
+          <div className="flex items-center mb-3">
+            <span className="uppercase text-[10px] font-semibold tracking-[0.18em] text-gold">трафик по устройствам · {periodLabel}</span>
+          </div>
+          <MultiLineChart
+            series={stats?.traffic_series ?? []}
+            lines={(stats?.peers ?? []).map((p, i) => ({ name: p.name, color: _peerColor(i) }))}
+            labels={labels}
+          />
+          {/* легенда цветов */}
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3">
+            {(stats?.peers ?? []).map((p, i) => (
+              <span key={i} className="inline-flex items-center gap-1.5 text-[11px] text-text-dim">
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: _peerColor(i) }} />
+                {p.name}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Пинг моста */}
+        <div className="mb-6">
           <ChartCard title={`пинг моста · ${periodLabel}`}
                      note={`пик ${latency.length ? Math.max(...latency) : 0} мс`}
                      data={latency} color="#7aa6f5" labels={labels} />

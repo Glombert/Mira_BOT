@@ -332,6 +332,11 @@ class VpnBridgePoint(BaseModel):
     latency_ms: int | None
 
 
+class VpnTrafficSlot(BaseModel):
+    ts: str
+    users: dict[str, float]       # имя устройства → МБ за слот (для stacked-графика)
+
+
 class VpnStatsData(BaseModel):
     """Owner-экран «VPN»: мост, WG-пиры, трафик."""
     type: Literal["vpn_stats_data"] = "vpn_stats_data"
@@ -341,6 +346,7 @@ class VpnStatsData(BaseModel):
     peers_online: int
     peers: list[VpnPeerEntry]
     points: list[VpnStatPoint]
+    traffic_series: list[VpnTrafficSlot]
     bridge_points: list[VpnBridgePoint]
 
 
