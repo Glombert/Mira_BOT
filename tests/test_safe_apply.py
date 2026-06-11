@@ -397,7 +397,7 @@ def test_smoke_test_runs_when_default(project):
 """
     # Без _no_smoke — берётся дефолтный, который попытается импортировать
     # модули из tmp_path. agent.py там — заглушка с VERSION=2, без зависимостей,
-    # но `import providers` упадёт (его нет). Откат должен сработать.
+    # но `from core import providers` упадёт (его нет). Откат должен сработать.
     result = safe_apply(diff, project_root=str(project))
     assert not result.ok
     assert "smoke-test" in result.message

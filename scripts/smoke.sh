@@ -236,7 +236,7 @@ yellow "▸ Storage + autonomy"
 
 DB_INFO=$(run_remote "cd /root/mira_agent && $VENV_PY -c '
 from dotenv import load_dotenv; load_dotenv(\".env\")
-import memory_crypto; memory_crypto.init()
+from core import memory_crypto; memory_crypto.init()
 from tools import db
 conn = db.get_conn()
 print(\"crypto:\", memory_crypto.is_enabled())
@@ -311,7 +311,8 @@ check_contains "FCM Admin SDK инициализирован" "$FCM" "fcm init: 
 # Google API доступность (gdrive list + gcal list — только если токен есть)
 GAPI=$(run_remote "cd /root/mira_agent && $VENV_PY -c '
 from dotenv import load_dotenv; load_dotenv(\".env\")
-import os, memory_crypto; memory_crypto.init()
+import os
+from core import memory_crypto; memory_crypto.init()
 from tools.gdrive_tools import gdrive_list, gcal_list
 uid = \"tg_\" + os.getenv(\"OWNER_TELEGRAM_ID\", \"0\")
 r = gdrive_list(uid)

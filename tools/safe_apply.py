@@ -129,9 +129,7 @@ def _default_smoke_test(project_root: str) -> tuple[bool, str]:
     """
     code = (
         "import agent; "
-        "import providers; "
-        "import router; "
-        "import conclave; "
+        "from core import providers, router, conclave; "
         "from tools import db, diff_tools, self_edit; "
         "print('ok')"
     )
