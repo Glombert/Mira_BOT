@@ -44,35 +44,64 @@ function lastSeen(min: number | null): string {
 
 const PEER_COLORS = ['#f5bc7a', '#8dd0a7', '#b9a3ff', '#7aa6f5', '#e88a8a', '#e0c068', '#6fd0c8', '#d98ec4'];
 
+const PERIODS: { label: string; h: number }[] = [
+  { label: '1ч', h: 1 }, { label: '6ч', h: 6 }, { label: '12ч', h: 12 },
+  { label: '24ч', h: 24 }, { label: '7д', h: 168 },
+];
+
+function periodName(h: number): string {
+  return ({ 1: 'час', 6: '6 часов', 12: '12 часов', 24: '24 часа', 168: '7 дней' } as Record<number, string>)[h] || `${h}ч`;
+}
+
+// Метки оси X: начало → середина → конец периода. Короткий период — часы:минуты,
+// длинный — дата.
+function axisLabels(series: { ts: string }[], hours: number): string[] {
+  if (series.length < 2) return [];
+  const fmt = (iso: string) => {
+    const d = new Date(iso);
+    return hours > 48
+      ? d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+      : d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  };
+  const a = series[0].ts, m = series[Math.floor(series.length / 2)].ts, z = series[series.length - 1].ts;
+  return [fmt(a), fmt(m), fmt(z)];
+}
+
 export function VpnModal({ visible, onClose, client }: Props) {
   const insets = useSafeAreaInsets();
   const [data, setData] = useState<VpnStats | null>(null);
   const [state, setState] = useState<State>('loading');
   const [hours, setHours] = useState(24);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
-  const load = useCallback((h: number) => {
+  const load = useCallback((h: number, silent = false) => {
     if (!client) return;
-    setState('loading');
+    if (!silent) setState('loading');
     client
       .sendCommandAwait(`vpn_stats ${h}`, ['vpn_stats_data', 'system', 'error'], 15000)
       .then((msg: any) => {
         if (msg && msg.type === 'vpn_stats_data') {
           setData(msg);
           setState('loaded');
-        } else {
+          setUpdatedAt(new Date());
+        } else if (!silent) {
           setState('error');
         }
       })
-      .catch(() => setState('error'));
+      .catch(() => { if (!silent) setState('error'); });
   }, [client]);
 
   useEffect(() => {
-    if (visible) load(hours);
+    if (!visible) return;
+    load(hours);
+    const t = setInterval(() => load(hours, true), 30000);  // авто-обновление
+    return () => clearInterval(t);
   }, [visible, hours, load]);
 
   const pts = data?.points ?? [];
   const totalMb = (data?.peers ?? []).reduce((s, p) => s + p.rx_mb + p.tx_mb, 0);
-  const periodLabel = hours === 24 ? '24 часа' : '7 дней';
+  const periodLabel = periodName(hours);
+  const xLabels = axisLabels(data?.traffic_series ?? [], hours);
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
@@ -82,16 +111,22 @@ export function VpnModal({ visible, onClose, client }: Props) {
             <Text style={styles.closeBtnText}>✕</Text>
           </TouchableOpacity>
           <Text style={styles.title}>VPN</Text>
-          <View style={styles.toggleWrap}>
-            {[24, 168].map((h) => (
-              <TouchableOpacity key={h} onPress={() => setHours(h)} activeOpacity={0.7}
-                style={[styles.toggle, hours === h && styles.toggleActive]}>
-                <Text style={[styles.toggleText, hours === h && styles.toggleTextActive]}>
-                  {h === 24 ? '24ч' : '7д'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          {updatedAt && (
+            <Text style={styles.updatedText}>
+              обновлено {updatedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+          )}
+          <TouchableOpacity onPress={() => load(hours)} style={styles.refreshBtn} activeOpacity={0.7}>
+            <Text style={styles.refreshBtnText}>↻</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.periodRow}>
+          {PERIODS.map((p) => (
+            <TouchableOpacity key={p.h} onPress={() => setHours(p.h)} activeOpacity={0.7}
+              style={[styles.toggle, hours === p.h && styles.toggleActive]}>
+              <Text style={[styles.toggleText, hours === p.h && styles.toggleTextActive]}>{p.label}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
         {state === 'loading' && (
@@ -140,6 +175,7 @@ export function VpnModal({ visible, onClose, client }: Props) {
               <MultiLineChart
                 series={data.traffic_series ?? []}
                 lines={data.peers.map((p, i) => ({ name: p.name, color: PEER_COLORS[i % PEER_COLORS.length] }))}
+                labels={xLabels}
               />
               <View style={styles.legend}>
                 {data.peers.map((p, i) => (
@@ -192,6 +228,13 @@ const styles = StyleSheet.create({
   closeBtn: { padding: spacing.xs, marginRight: spacing.sm },
   closeBtnText: { color: colors.text.muted, fontSize: 20, fontWeight: '300' },
   title: { color: colors.text.primary, fontSize: 18, fontWeight: '500', fontFamily: fonts.serif },
+  updatedText: { color: colors.text.muted, fontSize: 11, fontFamily: fonts.mono, marginLeft: 'auto', marginRight: spacing.sm },
+  refreshBtn: { padding: spacing.xs },
+  refreshBtnText: { color: colors.gold.DEFAULT, fontSize: 22 },
+  periodRow: {
+    flexDirection: 'row', gap: spacing.xs, justifyContent: 'center',
+    paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border.divider,
+  },
   toggleWrap: { flexDirection: 'row', marginLeft: 'auto', gap: spacing.xs },
   toggle: {
     paddingHorizontal: spacing.md, paddingVertical: 6,

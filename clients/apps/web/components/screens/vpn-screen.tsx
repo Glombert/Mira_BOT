@@ -138,36 +138,47 @@ function ChartCard({ title, note, data, color, labels }: {
   );
 }
 
+const PERIODS: { label: string; h: number }[] = [
+  { label: '1 час', h: 1 }, { label: '6 часов', h: 6 }, { label: '12 часов', h: 12 },
+  { label: '24 часа', h: 24 }, { label: '7 дней', h: 168 },
+];
+
 export function VpnScreen({ client }: { client: MiraClient | null }) {
   const [stats, setStats] = useState<VpnStats | null>(null);
   const [hours, setHours] = useState(24);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
   const load = useCallback(async (h: number) => {
     if (!client) return;
     try {
       const msg = await client.sendCommandAwait(`vpn_stats ${h}`, ['vpn_stats_data'], 15000);
-      if (msg && msg.type === 'vpn_stats_data') setStats(msg);
+      if (msg && msg.type === 'vpn_stats_data') { setStats(msg); setUpdatedAt(new Date()); }
     } catch {
       // мост может отвечать до 4с — оставляем прошлое состояние
     }
   }, [client]);
 
-  useEffect(() => { load(hours); }, [load, hours]);
+  useEffect(() => {
+    load(hours);
+    const t = setInterval(() => load(hours), 30000);  // авто-обновление
+    return () => clearInterval(t);
+  }, [load, hours]);
 
   const pts = stats?.points ?? [];
-  const traffic = pts.map((p) => p.rx_mb + p.tx_mb);
+  const ser = stats?.traffic_series ?? [];
   const latency = (stats?.bridge_points ?? []).map((p) => p.latency_ms ?? 0);
   const totalMb = (stats?.peers ?? []).reduce((s, p) => s + p.rx_mb + p.tx_mb, 0);
-  const periodLabel = hours === 24 ? '24 часа' : '7 дней';
-  const labels = pts.length >= 2 ? (() => {
-    const fmt = (iso: string) => {
-      const d = new Date(iso);
-      return hours > 48
-        ? d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
-        : d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    };
-    return [fmt(pts[0].ts), fmt(pts[Math.floor(pts.length / 2)].ts), 'сейчас'];
-  })() : [];
+  const periodLabel = PERIODS.find((p) => p.h === hours)?.label ?? `${hours}ч`;
+  const _fmtTs = (iso: string) => {
+    const d = new Date(iso);
+    return hours > 48
+      ? d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+      : d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  };
+  // X-метки берём из traffic_series (начало → середина → сейчас)
+  const labels = ser.length >= 2
+    ? [_fmtTs(ser[0].ts), _fmtTs(ser[Math.floor(ser.length / 2)].ts), 'сейчас']
+    : (pts.length >= 2 ? [_fmtTs(pts[0].ts), _fmtTs(pts[Math.floor(pts.length / 2)].ts), 'сейчас'] : []);
 
   return (
     <ScreenShell>
@@ -175,9 +186,18 @@ export function VpnScreen({ client }: { client: MiraClient | null }) {
         title="VPN"
         subtitle="мост и WireGuard · кто подключён, сколько сидит, сколько качает"
         actions={
-          <div className="flex gap-1.5">
-            <ChipToggle active={hours === 24} onClick={() => setHours(24)}>24 часа</ChipToggle>
-            <ChipToggle active={hours === 168} onClick={() => setHours(168)}>7 дней</ChipToggle>
+          <div className="flex items-center gap-3">
+            {updatedAt && (
+              <span className="text-[11px] text-text-muted font-mono">
+                обновлено {updatedAt.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+            <button onClick={() => load(hours)} className="text-gold text-lg hover:opacity-70" aria-label="Обновить">↻</button>
+            <div className="flex gap-1.5">
+              {PERIODS.map((p) => (
+                <ChipToggle key={p.h} active={hours === p.h} onClick={() => setHours(p.h)}>{p.label}</ChipToggle>
+              ))}
+            </div>
           </div>
         }
       />

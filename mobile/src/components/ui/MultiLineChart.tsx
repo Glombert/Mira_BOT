@@ -1,5 +1,5 @@
 import React from 'react';
-import { View } from 'react-native';
+import { View, Text } from 'react-native';
 import Svg, { Defs, LinearGradient, Stop, Path, Line, Text as SvgText } from 'react-native-svg';
 
 type Slot = { ts: string; users: Record<string, number> };
@@ -7,8 +7,8 @@ type LineDef = { name: string; color: string };
 
 /** Мультилинейный график трафика: линия на каждое устройство своим цветом,
  *  оси время × объём, сетка, лёгкая заливка (Grafana-стиль). */
-export function MultiLineChart({ series, lines, height = 150 }: {
-  series: Slot[]; lines: LineDef[]; height?: number;
+export function MultiLineChart({ series, lines, labels = [], height = 150 }: {
+  series: Slot[]; lines: LineDef[]; labels?: string[]; height?: number;
 }) {
   const w = 600;
   const n = series.length;
@@ -50,6 +50,13 @@ export function MultiLineChart({ series, lines, height = 150 }: {
           );
         })}
       </Svg>
+      {labels.length > 0 && (
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+          {labels.map((lb, i) => (
+            <Text key={i} style={{ color: 'rgba(244,234,214,0.45)', fontSize: 9.5, fontFamily: 'monospace' }}>{lb}</Text>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
