@@ -39,6 +39,8 @@ import { MetricsModal } from '../components/MetricsModal';
 import { RitualsModal } from '../components/RitualsModal';
 import { TasksModal } from '../components/TasksModal';
 import { BackupsModal } from '../components/BackupsModal';
+import { ServerModal } from '../components/ServerModal';
+import { VpnModal } from '../components/VpnModal';
 
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -81,6 +83,8 @@ export function ChatScreen() {
   const [driveOpen, setDriveOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
   const [metricsOpen, setMetricsOpen] = useState(false);
+  const [serverOpen, setServerOpen] = useState(false);
+  const [vpnOpen, setVpnOpen] = useState(false);
   const [ritualsOpen, setRitualsOpen] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
   const [backupsOpen, setBackupsOpen] = useState(false);
@@ -426,6 +430,8 @@ export function ChatScreen() {
       const base = cmd.split(' ')[0];
       if (base === 'files') { setFilesOpen(true); return; }
       if (base === 'stats') { setMetricsOpen(true); return; }
+      if (base === 'server_stats') { setServerOpen(true); return; }
+      if (base === 'vpn_stats') { setVpnOpen(true); return; }
       if (base === 'rituals') { setRitualsOpen(true); return; }
       if (base === 'tasks') { setTasksOpen(true); return; }
       if (base === 'versions') { setBackupsOpen(true); return; }
@@ -712,6 +718,8 @@ export function ChatScreen() {
       <DriveModal visible={driveOpen} onClose={() => setDriveOpen(false)} client={client} />
       <FilesModal visible={filesOpen} onClose={() => setFilesOpen(false)} client={client} session={session} />
       <MetricsModal visible={metricsOpen} onClose={() => setMetricsOpen(false)} client={client} />
+      <ServerModal visible={serverOpen} onClose={() => setServerOpen(false)} client={client} />
+      <VpnModal visible={vpnOpen} onClose={() => setVpnOpen(false)} client={client} />
       <RitualsModal visible={ritualsOpen} onClose={() => setRitualsOpen(false)} client={client} />
       <TasksModal visible={tasksOpen} onClose={() => setTasksOpen(false)} client={client} />
       <BackupsModal visible={backupsOpen} onClose={() => setBackupsOpen(false)} client={client} />

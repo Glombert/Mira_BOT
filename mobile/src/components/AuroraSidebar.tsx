@@ -30,7 +30,7 @@ const CMD_ICONS: Record<string, string> = {
   remind: 'remNew', reminders: 'remList',
   task: 'taskDefer', tasks: 'taskList',
   image: 'genImg',
-  stats: 'metrics', users: 'users', versions: 'backup', evolution_count: 'evolve',
+  stats: 'metrics', server_stats: 'metrics', vpn_stats: 'metrics', users: 'users', versions: 'backup', evolution_count: 'evolve',
   blacklist: 'blacklist', rituals: 'rituals', reflect: 'review', kidmode: 'child', rename: 'rename',
 };
 const SECTION_ICONS: Record<string, string> = {
@@ -160,6 +160,8 @@ const COMMANDS: SidebarCommand[] = [
   { cmd: 'image', label: 'Сгенерировать картинку', category: 'tools', hasArgs: true, argLabel: 'Описание', argPlaceholder: 'кот в космосе, акварель' },
   // ВЛАДЕЛЕЦ
   { cmd: 'stats', label: 'Метрики LLM', category: 'owner', requires: 'owner' },
+  { cmd: 'server_stats', label: 'Сервер', category: 'owner', requires: 'owner' },
+  { cmd: 'vpn_stats', label: 'VPN', category: 'owner', requires: 'owner' },
   { cmd: 'users', label: 'Пользователи', category: 'owner', requires: 'owner' },
   { cmd: 'versions', label: 'Резервные копии', category: 'owner', requires: 'owner' },
   { cmd: 'evolution_count', label: 'Счётчик /evolve', category: 'owner', requires: 'owner' },
