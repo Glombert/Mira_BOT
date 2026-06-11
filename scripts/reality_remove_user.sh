@@ -37,16 +37,19 @@ UUID="${LINE##*=}"
 TOTAL=$(grep -c '=' "$USERS" || echo 0)
 [[ "$TOTAL" -gt 1 ]] || { echo "ERROR: '$TAG' — последний пользователь, удаление оставит inbound пустым"; exit 1; }
 
-# 1. engine.conf — убрать запись по uuid
-python3 - "$ENGINE" "$UUID" <<'PYEOF'
+# 1. engine.conf — убрать запись по uuid (и из v2ray stats по имени)
+python3 - "$ENGINE" "$UUID" "$TAG" <<'PYEOF'
 import json, sys
-path, uuid = sys.argv[1], sys.argv[2]
+path, uuid, name = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(path, encoding="utf-8") as f:
     cfg = json.load(f)
 for inb in cfg.get("inbounds", []):
     if inb.get("type") == "vless":
         inb["users"] = [u for u in inb.get("users", []) if u.get("uuid") != uuid]
         break
+stats = cfg.get("experimental", {}).get("v2ray_api", {}).get("stats")
+if stats is not None:
+    stats["users"] = [u for u in stats.get("users", []) if u != name]
 with open(path, "w", encoding="utf-8") as f:
     json.dump(cfg, f, ensure_ascii=False, indent=2)
 PYEOF

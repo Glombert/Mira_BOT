@@ -60,6 +60,10 @@ for inb in cfg.get("inbounds", []):
         break
 else:
     sys.exit("vless-inbound не найден в engine.conf")
+# Регистрируем юзера в v2ray_api stats (иначе его трафик не считается)
+stats = cfg.get("experimental", {}).get("v2ray_api", {}).get("stats")
+if stats is not None and name not in stats.get("users", []):
+    stats.setdefault("users", []).append(name)
 with open(path, "w", encoding="utf-8") as f:
     json.dump(cfg, f, ensure_ascii=False, indent=2)
 PYEOF
