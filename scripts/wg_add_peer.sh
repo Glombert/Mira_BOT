@@ -87,10 +87,29 @@ with open(path, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=1)
 PYEOF
 
+# Однострочная ссылка для вставки из буфера (Hiddify / NekoBox / v2rayNG).
+# Официальный клиент WireGuard её не понимает — ему QR или файл .conf.
+WG_URI=$(python3 - "$PRIV" "$SERVER_PUB" "$PSK" "$ENDPOINT" "$IP4" "$IP6" "$NAME" <<'PYEOF'
+import sys
+from urllib.parse import quote
+priv, spub, psk, ep, ip4, ip6, name = sys.argv[1:8]
+print(f"wireguard://{quote(priv, safe='')}@{ep}"
+      f"?address={ip4}/32,{ip6}/128"
+      f"&publickey={quote(spub, safe='')}"
+      f"&presharedkey={quote(psk, safe='')}"
+      f"&mtu=1420&keepalive=25#{quote(name)}")
+PYEOF
+)
+
 echo "✓ Пир «$NAME» добавлен: $IP4"
-echo "  Конфиг: $CLIENT_CONF"
+echo
+echo "── Для СМС/мессенджера (вставка из буфера в Hiddify/NekoBox/v2rayNG): ──"
+echo "$WG_URI"
+echo "─────────────────────────────────────────────────────────────────────"
+echo
+echo "  Файл конфига (для официального клиента WireGuard): $CLIENT_CONF"
 if command -v qrencode >/dev/null; then
-    echo "  QR для импорта в приложение WireGuard:"
+    echo "  QR для сканирования приложением WireGuard:"
     qrencode -t ansiutf8 < "$CLIENT_CONF"
 else
     echo "  (поставь qrencode, чтобы получать QR: apt install qrencode)"
