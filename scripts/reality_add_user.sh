@@ -38,9 +38,11 @@ CONFIG="$DIR/config"
 [[ -f "$ENGINE" ]] || { echo "ERROR: $ENGINE не найден"; exit 1; }
 command -v docker >/dev/null || { echo "ERROR: docker не найден"; exit 1; }
 
-# Имя-тег без пробелов/спецсимволов (sing-box name + ключ в users-файле)
-TAG=$(echo "$NAME" | tr -c 'A-Za-z0-9_' '_' | sed 's/__*/_/g;s/^_//;s/_$//')
-[[ -n "$TAG" ]] || TAG="user"
+# Имя-тег без пробелов/спецсимволов (sing-box name + ключ в users-файле).
+# Через python с re.UNICODE — иначе кириллица выкидывается и все русские
+# имена схлопываются в один тег (конфликт «уже есть»).
+TAG=$(python3 -c "import re,sys; s=re.sub(r'[^\w]','_',sys.argv[1],flags=re.UNICODE).strip('_'); print(re.sub(r'_+','_',s))" "$NAME")
+[[ -n "$TAG" ]] || TAG="u$(date +%s)"
 grep -q "^$TAG=" "$USERS" 2>/dev/null && { echo "ERROR: пользователь '$TAG' уже есть"; exit 1; }
 
 UUID=$(cat /proc/sys/kernel/random/uuid)

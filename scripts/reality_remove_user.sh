@@ -28,7 +28,7 @@ USERS="$DIR/users"
 [[ -f "$ENGINE" ]] || { echo "ERROR: $ENGINE не найден"; exit 1; }
 command -v docker >/dev/null || { echo "ERROR: docker не найден"; exit 1; }
 
-TAG=$(echo "$NAME" | tr -c 'A-Za-z0-9_' '_' | sed 's/__*/_/g;s/^_//;s/_$//')
+TAG=$(python3 -c "import re,sys; s=re.sub(r'[^\w]','_',sys.argv[1],flags=re.UNICODE).strip('_'); print(re.sub(r'_+','_',s))" "$NAME")
 LINE=$(grep -n "^$TAG=" "$USERS" 2>/dev/null || true)
 [[ -n "$LINE" ]] || { echo "ERROR: пользователь '$TAG' не найден"; exit 1; }
 UUID="${LINE##*=}"
