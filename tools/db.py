@@ -151,6 +151,18 @@ def init_db(path: str | None = None) -> None:
                     latency_ms  INTEGER
                 );
 
+                CREATE TABLE IF NOT EXISTS vpn_reality_samples (
+                    -- Срез clash_api раз в 5 мин: суммарный трафик активных
+                    -- сессий Reality-юзера. Не байт-в-байт кумулятив (соединения
+                    -- эфемерны) — для графиков активности.
+                    ts        TEXT NOT NULL,
+                    name      TEXT NOT NULL,
+                    rx_bytes  INTEGER NOT NULL,
+                    tx_bytes  INTEGER NOT NULL,
+                    online    INTEGER NOT NULL,
+                    PRIMARY KEY (ts, name)
+                );
+
                 CREATE TABLE IF NOT EXISTS ritual_runs (
                     -- Хранит last_run и краткий вывод для каждого ритуала.
                     name         TEXT PRIMARY KEY,
@@ -736,6 +748,29 @@ def load_vpn_bridge_samples(hours: int = 24) -> list[dict]:
     rows = get_conn().execute(
         "SELECT ts, ok, latency_ms FROM vpn_bridge_samples WHERE ts >= ? ORDER BY ts",
         (since,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def save_reality_sample(users: list[dict]) -> None:
+    conn = get_conn()
+    ts = datetime.now().isoformat()
+    cutoff = (datetime.now() - timedelta(days=SERVER_METRICS_RETENTION_DAYS)).isoformat()
+    with conn:
+        for u in users:
+            conn.execute(
+                "INSERT OR REPLACE INTO vpn_reality_samples (ts, name, rx_bytes, tx_bytes, online) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (ts, u["name"], u["rx_bytes"], u["tx_bytes"], 1 if u["online"] else 0),
+            )
+        conn.execute("DELETE FROM vpn_reality_samples WHERE ts < ?", (cutoff,))
+
+
+def load_reality_samples(hours: int = 24) -> list[dict]:
+    since = (datetime.now() - timedelta(hours=hours)).isoformat()
+    rows = get_conn().execute(
+        "SELECT ts, name, rx_bytes, tx_bytes, online FROM vpn_reality_samples "
+        "WHERE ts >= ? ORDER BY ts", (since,),
     ).fetchall()
     return [dict(r) for r in rows]
 

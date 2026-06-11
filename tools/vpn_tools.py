@@ -104,6 +104,7 @@ def sample_vpn() -> None:
         bridge_ok=bridge["ok"],
         bridge_latency_ms=bridge["latency_ms"],
     )
+    reality_sample()
 
 
 def _delta_series(samples: list[dict]) -> list[dict]:
@@ -157,34 +158,101 @@ def _clash_connections() -> dict[str, dict] | None:
     return agg
 
 
-def reality_peers() -> list[dict]:
-    """Reality-пользователи для экрана VPN.
-
-    Имена — из vpn_peers.json (ключи reality:<uuid>, пишет
-    scripts/reality_add_user.sh). Живые данные — из clash_api, если он
-    включён в sing-box; иначе показываем зарегистрированных без трафика
-    (per-user учёт Reality требует clash_api/stats — sing-box иначе видит
-    юзеров как один поток).
-    """
+def _reality_names() -> dict[str, str]:
+    """{name: name} зарегистрированных Reality-юзеров (из vpn_peers.json)."""
     names = peer_names()
-    reality = {k.split(":", 1)[1]: v for k, v in names.items() if k.startswith("reality:")}
-    if not reality:
+    return {v: v for k, v in names.items() if k.startswith("reality:")}
+
+
+def reality_sample() -> None:
+    """Срез clash_api в SQLite — зовётся из общего 5-минутного сэмплера.
+
+    Пишем суммарный трафик активных сессий каждого зарегистрированного
+    Reality-юзера. Юзеров без активных соединений пишем с нулём (онлайн=0),
+    чтобы график показывал и простой.
+    """
+    from tools import db
+
+    registered = _reality_names()
+    if not registered:
+        return
+    conns = _clash_connections()
+    if conns is None:
+        return
+    rows = []
+    for name in registered:
+        live = conns.get(name)
+        rows.append({
+            "name": name,
+            "rx_bytes": live["rx"] if live else 0,
+            "tx_bytes": live["tx"] if live else 0,
+            "online": bool(live and live["online"]),
+        })
+    db.save_reality_sample(rows)
+
+
+def reality_peers(hours: int = 24) -> list[dict]:
+    """Reality-пользователи для экрана VPN: накопление за период + живой онлайн.
+
+    Имена — из vpn_peers.json. Трафик за период — дельты clash-сэмплов из
+    БД (clash считает по живым сессиям, поэтому это активность, не байт-в-байт
+    кумулятив). Онлайн — из живого clash_api.
+    """
+    from tools import db
+
+    registered = _reality_names()
+    if not registered:
         return []
 
     conns = _clash_connections()
+    samples = db.load_reality_samples(hours)
+
+    # Накопление по юзеру: дельты между сэмплами, кламп при сбросе сессии.
+    per_user: dict[str, dict] = {}
+    prev: dict[str, tuple[int, int]] = {}
+    for s in samples:
+        st = per_user.setdefault(s["name"], {"rx": 0, "tx": 0, "online_samples": 0})
+        p = prev.get(s["name"])
+        if p is not None:
+            st["rx"] += max(s["rx_bytes"] - p[0], 0)
+            st["tx"] += max(s["tx_bytes"] - p[1], 0)
+        st["online_samples"] += 1 if s["online"] else 0
+        prev[s["name"]] = (s["rx_bytes"], s["tx_bytes"])
+
     out = []
-    for uuid, name in sorted(reality.items(), key=lambda kv: kv[1]):
+    for name in sorted(registered):
+        st = per_user.get(name)
         live = conns.get(name) if conns else None
         out.append({
             "name": name,
             "kind": "reality",
             "online": bool(live and live["online"]),
             "last_seen_min": None,
-            "rx_mb": round(live["rx"] / 1024 / 1024, 1) if live else 0.0,
-            "tx_mb": round(live["tx"] / 1024 / 1024, 1) if live else 0.0,
-            "online_minutes": 0,
+            "rx_mb": round(st["rx"] / 1024 / 1024, 1) if st else 0.0,
+            "tx_mb": round(st["tx"] / 1024 / 1024, 1) if st else 0.0,
+            "online_minutes": st["online_samples"] * 5 if st else 0,
         })
     return out
+
+
+def _reality_delta_series(hours: int = 24) -> list[dict]:
+    """Reality-трафик по 5-мин слотам (дельты сэмплов) — для общего графика."""
+    from tools import db
+
+    samples = db.load_reality_samples(hours)
+    by_ts: dict[str, dict] = {}
+    prev: dict[str, tuple[int, int]] = {}
+    for s in samples:
+        slot = by_ts.setdefault(s["ts"], {"ts": s["ts"], "rx_mb": 0.0, "tx_mb": 0.0})
+        p = prev.get(s["name"])
+        if p is not None:
+            slot["rx_mb"] += max(s["rx_bytes"] - p[0], 0) / 1024 / 1024
+            slot["tx_mb"] += max(s["tx_bytes"] - p[1], 0) / 1024 / 1024
+        prev[s["name"]] = (s["rx_bytes"], s["tx_bytes"])
+    for slot in by_ts.values():
+        slot["rx_mb"] = round(slot["rx_mb"], 2)
+        slot["tx_mb"] = round(slot["tx_mb"], 2)
+    return list(by_ts.values())
 
 
 def vpn_stats(hours: int = 24) -> dict:
@@ -231,7 +299,18 @@ def vpn_stats(hours: int = 24) -> dict:
             "online_minutes": st["online_samples"] * 5 if st else 0,
         })
 
-    peers_out.extend(reality_peers())
+    peers_out.extend(reality_peers(hours))
+
+    # Общий трафик по времени = WG + Reality, слитые по минутному ts
+    # (оба сэмплятся в одном проходе, но с разными миллисекундами).
+    combined: dict[str, dict] = {}
+    for pt in _delta_series(samples) + _reality_delta_series(hours):
+        key = pt["ts"][:16]
+        slot = combined.setdefault(key, {"ts": pt["ts"], "rx_mb": 0.0, "tx_mb": 0.0, "online": 0})
+        slot["rx_mb"] = round(slot["rx_mb"] + pt["rx_mb"], 2)
+        slot["tx_mb"] = round(slot["tx_mb"] + pt["tx_mb"], 2)
+        slot["online"] = max(slot["online"], pt.get("online", 0))
+    points = [combined[k] for k in sorted(combined)]
 
     return {
         "bridge_ok": bridge["ok"],
@@ -239,7 +318,7 @@ def vpn_stats(hours: int = 24) -> dict:
         "wg_up": bool(live),
         "peers_online": sum(1 for p in peers_out if p["online"]),
         "peers": peers_out,
-        "points": _delta_series(samples),
+        "points": points,
         "bridge_points": [
             {"ts": b["ts"], "ok": bool(b["ok"]), "latency_ms": b["latency_ms"]}
             for b in bridge_hist

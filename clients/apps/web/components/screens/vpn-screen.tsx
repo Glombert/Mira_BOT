@@ -28,6 +28,41 @@ function _lastSeen(min: number | null): string {
   return `${Math.round(min / 1440)} дн назад`;
 }
 
+// Цвет на каждое устройство — стабильно по индексу.
+const _PEER_COLORS = ['#f5bc7a', '#8dd0a7', '#b9a3ff', '#7aa6f5', '#e88a8a', '#e0c068', '#6fd0c8', '#d98ec4'];
+const _peerColor = (i: number) => _PEER_COLORS[i % _PEER_COLORS.length];
+
+// Кольцо долей трафика по устройствам + общий объём в центре.
+function TrafficDonut({ slices, total, size = 132 }: {
+  slices: { value: number; color: string }[]; total: string; size?: number;
+}) {
+  const r = size / 2 - 9;
+  const cx = size / 2, cy = size / 2;
+  const circ = 2 * Math.PI * r;
+  const sum = slices.reduce((s, x) => s + x.value, 0) || 1;
+  let offset = 0;
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)' }}>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="11" />
+        {slices.map((s, i) => {
+          const len = (s.value / sum) * circ;
+          const el = (
+            <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={s.color} strokeWidth="11"
+              strokeDasharray={`${len} ${circ - len}`} strokeDashoffset={-offset} strokeLinecap="butt" />
+          );
+          offset += len;
+          return el;
+        })}
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-[10px] uppercase tracking-[0.16em] text-text-muted">всего</span>
+        <span className="text-base font-mono text-text-primary">{total}</span>
+      </div>
+    </div>
+  );
+}
+
 function ChartCard({ title, note, data, color, labels }: {
   title: string; note: string; data: number[]; color: string; labels: string[];
 }) {
@@ -111,6 +146,30 @@ export function VpnScreen({ client }: { client: MiraClient | null }) {
                      data={latency} color="#7aa6f5" labels={labels} />
         </div>
 
+        {/* Доли трафика по устройствам — цветами */}
+        {(stats?.peers ?? []).some((p) => p.rx_mb + p.tx_mb > 0) && (
+          <div className="p-5 mb-6 rounded-xl flex items-center gap-6" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(244,234,214,0.10)' }}>
+            <TrafficDonut
+              total={_fmtMb(totalMb)}
+              slices={(stats?.peers ?? []).map((p, i) => ({ value: p.rx_mb + p.tx_mb, color: _peerColor(i) }))}
+            />
+            <div className="flex-1 grid grid-cols-2 gap-x-6 gap-y-2">
+              {(stats?.peers ?? []).map((p, i) => {
+                const v = p.rx_mb + p.tx_mb;
+                const pct = totalMb ? Math.round((v / totalMb) * 100) : 0;
+                return (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: _peerColor(i) }} />
+                    <span className="flex-1 text-[12px] text-text-dim truncate">{p.name}</span>
+                    <span className="text-[11px] font-mono text-text-muted">{_fmtMb(v)}</span>
+                    <span className="text-[11px] font-mono text-text-primary w-9 text-right">{pct}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Устройства */}
         <div className="rounded-xl overflow-hidden" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(244,234,214,0.10)' }}>
           <div className="px-5 pt-4 pb-3 uppercase text-[10px] font-semibold tracking-[0.18em] text-gold">
@@ -130,10 +189,13 @@ export function VpnScreen({ client }: { client: MiraClient | null }) {
               {(stats?.peers ?? []).map((p, i) => (
                 <tr key={i} style={{ borderTop: '1px solid rgba(244,234,214,0.06)' }}>
                   <td className="px-5 py-2.5 text-text-primary">
-                    {p.name}
-                    <span className="ml-2 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded"
-                          style={{ background: 'rgba(244,234,214,0.06)', color: 'var(--text-muted, #9a9384)' }}>
-                      {p.kind === 'reality' ? 'Reality' : 'WG'}
+                    <span className="inline-flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: _peerColor(i) }} />
+                      {p.name}
+                      <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+                            style={{ background: 'rgba(244,234,214,0.06)', color: 'var(--text-muted, #9a9384)' }}>
+                        {p.kind === 'reality' ? 'Reality' : 'WG'}
+                      </span>
                     </span>
                   </td>
                   <td className="px-3 py-2.5">

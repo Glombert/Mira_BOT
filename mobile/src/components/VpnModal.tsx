@@ -41,6 +41,8 @@ function lastSeen(min: number | null): string {
   return `${Math.round(min / 1440)} дн назад`;
 }
 
+const PEER_COLORS = ['#f5bc7a', '#8dd0a7', '#b9a3ff', '#7aa6f5', '#e88a8a', '#e0c068', '#6fd0c8', '#d98ec4'];
+
 export function VpnModal({ visible, onClose, client }: Props) {
   const insets = useSafeAreaInsets();
   const [data, setData] = useState<VpnStats | null>(null);
@@ -145,6 +147,7 @@ export function VpnModal({ visible, onClose, client }: Props) {
             {data.peers.map((p, i) => (
               <View key={i} style={styles.peerRow}>
                 <View style={styles.peerMain}>
+                  <View style={[styles.colorTag, { backgroundColor: PEER_COLORS[i % PEER_COLORS.length] }]} />
                   <View style={[styles.dot, { backgroundColor: p.online ? colors.sage : colors.border.subtle }]} />
                   <Text style={styles.peerName} numberOfLines={1}>{p.name}</Text>
                   <Text style={styles.peerKind}>{p.kind === 'reality' ? 'Reality' : 'WG'}</Text>
@@ -224,6 +227,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   peerMain: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
+  colorTag: { width: 4, height: 16, borderRadius: 2, marginRight: spacing.sm },
   dot: { width: 8, height: 8, borderRadius: 4, marginRight: spacing.sm },
   peerName: { color: colors.text.primary, fontSize: 14, fontWeight: '500', flex: 1, fontFamily: fonts.sans },
   peerKind: {

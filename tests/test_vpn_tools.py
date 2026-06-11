@@ -57,7 +57,9 @@ def test_vpn_stats_aggregates(isolated_cwd, monkeypatch):
     assert peer["name"] == "Кенетик" and peer["online"] and peer["kind"] == "wireguard"
     assert peer["rx_mb"] == 20.0 and peer["tx_mb"] == 40.0
     assert peer["online_minutes"] == 10
-    assert len(v["points"]) == 2 and len(v["bridge_points"]) == 2
+    # points слиты по минуте (оба сэмпла в одной минуте → 1 слот); трафик суммарный
+    assert v["points"] and v["points"][0]["rx_mb"] == 20.0
+    assert len(v["bridge_points"]) == 2
 
 
 def test_reality_peers_listed_without_clash(monkeypatch):
@@ -72,13 +74,20 @@ def test_reality_peers_listed_without_clash(monkeypatch):
     assert peers[0]["online"] is False and peers[0]["last_seen_min"] is None
 
 
-def test_reality_peers_online_via_clash(monkeypatch):
+def test_reality_peers_accumulates(monkeypatch):
     mb = 1024 * 1024
     monkeypatch.setattr(vt, "peer_names", lambda: {"reality:uuid-1": "admin"})
     monkeypatch.setattr(vt, "_clash_connections",
                         lambda: {"admin": {"rx": 5 * mb, "tx": 2 * mb, "online": True}})
-    peers = vt.reality_peers()
+    from tools import db
+    monkeypatch.setattr(db, "load_reality_samples", lambda h: [
+        {"ts": "2026-06-11T10:00:00", "name": "admin", "rx_bytes": 0, "tx_bytes": 0, "online": 1},
+        {"ts": "2026-06-11T10:05:00", "name": "admin", "rx_bytes": 5 * mb, "tx_bytes": 2 * mb, "online": 1},
+    ])
+    peers = vt.reality_peers(24)
+    # трафик — дельта сэмплов; онлайн — из живого clash; «сидел» — 2 сэмпла × 5 мин
     assert peers[0]["online"] and peers[0]["rx_mb"] == 5.0 and peers[0]["tx_mb"] == 2.0
+    assert peers[0]["online_minutes"] == 10 and peers[0]["kind"] == "reality"
 
 def test_bridge_check_down(monkeypatch):
     monkeypatch.setattr(vt, "BRIDGE_ADDR", "127.0.0.1:1")  # закрытый порт
