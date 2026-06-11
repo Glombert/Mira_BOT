@@ -467,6 +467,35 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "vpn_add_user",
+            "description": (
+                "Заводит нового VPN-пользователя и возвращает готовую ссылку для "
+                "вставки в клиент. ТОЛЬКО для владельца. Когда владелец просит "
+                "«заведи VPN для X» — если протокол не назван, СНАЧАЛА спроси: "
+                "Hiddify (Reality) или WireGuard? Reality/Hiddify/vless → "
+                "protocol='reality'; WG/WireGuard → protocol='wireguard'. "
+                "Ссылку покажи владельцу как есть — он скопирует её человеку."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Имя/подпись пользователя (для экрана VPN), 1–40 символов."
+                    },
+                    "protocol": {
+                        "type": "string",
+                        "enum": ["wireguard", "reality"],
+                        "description": "'reality' — Hiddify/vless; 'wireguard' — WG."
+                    }
+                },
+                "required": ["name", "protocol"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "metrics_read",
             "description": (
                 "Читает метрики использования LLM за последние N дней. "
