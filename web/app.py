@@ -973,16 +973,21 @@ async def chat(websocket: WebSocket, session: str = ""):
             # tg_id уже из верифицированной сессии — никакого подделанного chat_id.
             if BOT_TOKEN and tg_id:
                 def _mirror_to_telegram(uid: int, q: str, a: str):
-                    try:
-                        import urllib.request, urllib.parse as _up
-                        for _txt in (f"📲 {q}", a):
-                            _data = _up.urlencode({"chat_id": uid, "text": _txt[:4000]}).encode()
-                            urllib.request.urlopen(
+                    import urllib.request, urllib.error, urllib.parse as _up
+                    for _txt in (f"📲 {q}", a):
+                        _data = _up.urlencode({"chat_id": uid, "text": _txt[:4000]}).encode()
+                        try:
+                            with urllib.request.urlopen(
                                 f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                                 data=_data, timeout=8,
-                            )
-                    except Exception as e:
-                        logger.warning(f"mirror_to_telegram: {e}")
+                            ) as r:
+                                logger.info(f"mirror_to_telegram: {uid} ok ({r.status})")
+                        except urllib.error.HTTPError as e:
+                            # 429 — антифлуд Telegram (retry_after в теле).
+                            body = e.read().decode("utf-8", "replace")[:200]
+                            logger.warning(f"mirror_to_telegram: {uid} HTTP {e.code}: {body}")
+                        except Exception as e:
+                            logger.warning(f"mirror_to_telegram: {uid} {type(e).__name__}: {e}")
                 threading.Thread(target=_mirror_to_telegram, args=(tg_id, text, answer), daemon=True).start()
 
             snap = list(msgs)
