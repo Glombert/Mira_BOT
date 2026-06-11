@@ -147,6 +147,7 @@ export function VpnModal({ visible, onClose, client }: Props) {
                 <View style={styles.peerMain}>
                   <View style={[styles.dot, { backgroundColor: p.online ? colors.sage : colors.border.subtle }]} />
                   <Text style={styles.peerName} numberOfLines={1}>{p.name}</Text>
+                  <Text style={styles.peerKind}>{p.kind === 'reality' ? 'Reality' : 'WG'}</Text>
                   <Text style={styles.peerStatus}>{p.online ? 'онлайн' : lastSeen(p.last_seen_min)}</Text>
                 </View>
                 <View style={styles.peerStats}>
@@ -225,6 +226,12 @@ const styles = StyleSheet.create({
   peerMain: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
   dot: { width: 8, height: 8, borderRadius: 4, marginRight: spacing.sm },
   peerName: { color: colors.text.primary, fontSize: 14, fontWeight: '500', flex: 1, fontFamily: fonts.sans },
+  peerKind: {
+    color: colors.text.muted, fontSize: 9, fontFamily: fonts.mono,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+    backgroundColor: 'rgba(255,255,255,0.05)', paddingHorizontal: 5, paddingVertical: 2,
+    borderRadius: 4, marginRight: spacing.sm, overflow: 'hidden',
+  },
   peerStatus: { color: colors.text.muted, fontSize: 12, fontFamily: fonts.sans },
   peerStats: { flexDirection: 'row', gap: spacing.lg },
   peerStat: { color: colors.text.muted, fontSize: 12, fontFamily: fonts.mono },

@@ -311,8 +311,9 @@ class ServerStatsData(BaseModel):
 
 class VpnPeerEntry(BaseModel):
     name: str
+    kind: str                     # "wireguard" | "reality"
     online: bool
-    last_seen_min: int | None     # минут с последнего хендшейка; None = никогда
+    last_seen_min: int | None     # минут с последнего контакта; None = неизвестно
     rx_mb: float                  # принято за период
     tx_mb: float                  # отдано за период
     online_minutes: int           # «сколько сидел» за период

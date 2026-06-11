@@ -129,7 +129,13 @@ export function VpnScreen({ client }: { client: MiraClient | null }) {
             <tbody>
               {(stats?.peers ?? []).map((p, i) => (
                 <tr key={i} style={{ borderTop: '1px solid rgba(244,234,214,0.06)' }}>
-                  <td className="px-5 py-2.5 text-text-primary">{p.name}</td>
+                  <td className="px-5 py-2.5 text-text-primary">
+                    {p.name}
+                    <span className="ml-2 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded"
+                          style={{ background: 'rgba(244,234,214,0.06)', color: 'var(--text-muted, #9a9384)' }}>
+                      {p.kind === 'reality' ? 'Reality' : 'WG'}
+                    </span>
+                  </td>
                   <td className="px-3 py-2.5">
                     <span className="inline-flex items-center gap-1.5">
                       <span className="w-2 h-2 rounded-full" style={{ background: p.online ? '#8dd0a7' : 'rgba(244,234,214,0.25)' }} />

@@ -128,6 +128,65 @@ def _delta_series(samples: list[dict]) -> list[dict]:
     return out
 
 
+CLASH_API = os.getenv("MIRA_REALITY_CLASH_API", "http://127.0.0.1:9090")
+
+
+def _clash_connections() -> dict[str, dict] | None:
+    """Per-user активность Reality из sing-box clash_api (если включён).
+
+    Возвращает {user_name: {rx, tx, online}} или None, если API недоступен
+    (clash_api не настроен в engine.conf — тогда учёт деградирует до списка).
+    """
+    import json
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"{CLASH_API}/connections", timeout=2) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except Exception:
+        return None
+
+    agg: dict[str, dict] = {}
+    for c in data.get("connections", []):
+        user = (c.get("metadata") or {}).get("user")
+        if not user:
+            continue
+        a = agg.setdefault(user, {"rx": 0, "tx": 0, "online": True})
+        a["rx"] += int(c.get("download", 0))
+        a["tx"] += int(c.get("upload", 0))
+    return agg
+
+
+def reality_peers() -> list[dict]:
+    """Reality-пользователи для экрана VPN.
+
+    Имена — из vpn_peers.json (ключи reality:<uuid>, пишет
+    scripts/reality_add_user.sh). Живые данные — из clash_api, если он
+    включён в sing-box; иначе показываем зарегистрированных без трафика
+    (per-user учёт Reality требует clash_api/stats — sing-box иначе видит
+    юзеров как один поток).
+    """
+    names = peer_names()
+    reality = {k.split(":", 1)[1]: v for k, v in names.items() if k.startswith("reality:")}
+    if not reality:
+        return []
+
+    conns = _clash_connections()
+    out = []
+    for uuid, name in sorted(reality.items(), key=lambda kv: kv[1]):
+        live = conns.get(name) if conns else None
+        out.append({
+            "name": name,
+            "kind": "reality",
+            "online": bool(live and live["online"]),
+            "last_seen_min": None,
+            "rx_mb": round(live["rx"] / 1024 / 1024, 1) if live else 0.0,
+            "tx_mb": round(live["tx"] / 1024 / 1024, 1) if live else 0.0,
+            "online_minutes": 0,
+        })
+    return out
+
+
 def vpn_stats(hours: int = 24) -> dict:
     """Сводка для экрана VPN: текущее состояние + агрегаты за период."""
     from tools import db
@@ -164,12 +223,15 @@ def vpn_stats(hours: int = 24) -> dict:
         age = lv["handshake_age"] if lv else None
         peers_out.append({
             "name": names.get(pk) or f"{pk[:8]}…",
+            "kind": "wireguard",
             "online": age is not None and age < ONLINE_THRESHOLD_SEC,
             "last_seen_min": (age // 60) if age is not None else None,
             "rx_mb": round((st["last_rx"] - st["first_rx"] + st["resets_rx"]) / 1024 / 1024, 1) if st else 0.0,
             "tx_mb": round((st["last_tx"] - st["first_tx"] + st["resets_tx"]) / 1024 / 1024, 1) if st else 0.0,
             "online_minutes": st["online_samples"] * 5 if st else 0,
         })
+
+    peers_out.extend(reality_peers())
 
     return {
         "bridge_ok": bridge["ok"],
