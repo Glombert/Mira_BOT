@@ -258,7 +258,7 @@ export function AuroraMessage({ message, isLast = true, onFilePress, onFileLink,
   const content = message.content || '';
 
   return (
-    <AuroraMiraBubble time={time} showAvatar={showAvatar}>
+    <AuroraMiraBubble time={time} showAvatar={showAvatar} copyText={content}>
       {isNew ? (
         <TypewriterText content={content} isNew={true} />
       ) : (

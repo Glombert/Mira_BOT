@@ -51,6 +51,28 @@ function TypewriterText({ content }: { content: string }) {
   return <>{displayed}</>;
 }
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = React.useState(false);
+  if (!text) return null;
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard недоступен (нет https/permission) — молча
+    }
+  };
+  return (
+    <button
+      onClick={onCopy}
+      className="text-[10px] text-text-muted hover:text-gold font-mono tracking-widest transition-colors"
+    >
+      {copied ? '✓ скопировано' : '⧉ копировать'}
+    </button>
+  );
+}
+
 export interface ChatMessageItem {
   id: string;
   type: 'user' | 'message' | 'thinking' | 'thought' | 'system' | 'error' | 'approval_request' | 'gdrive_auth_url' | 'files' | 'learned';
@@ -288,11 +310,14 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
             </div>
           )}
           {message.cards && message.cards.length > 0 && <MessageCards cards={message.cards} />}
-          {message.timestamp ? (
-            <span className="text-[10px] text-text-muted mt-1 block font-mono tracking-widest">
-              {formatTime(message.timestamp)}
-            </span>
-          ) : null}
+          <div className="flex items-center gap-3 mt-1">
+            {message.timestamp ? (
+              <span className="text-[10px] text-text-muted block font-mono tracking-widest">
+                {formatTime(message.timestamp)}
+              </span>
+            ) : null}
+            <CopyButton text={content || ''} />
+          </div>
         </div>
       </div>
     );

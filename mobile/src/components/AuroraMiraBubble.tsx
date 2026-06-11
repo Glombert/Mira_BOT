@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, ToastAndroid } from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import { AuroraAvatar } from './ui/AuroraAvatar';
 import { colors, typography, fonts, spacing, radii, shadow } from '../theme';
 
@@ -7,9 +8,19 @@ interface Props {
   children: React.ReactNode;
   time?: string;
   showAvatar?: boolean;
+  // Весь текст ответа — для кнопки «копировать». В RN выделение не тянется
+  // через несколько абзацев (каждый — отдельный <Text>), поэтому копируем
+  // весь пузырь одним тапом.
+  copyText?: string;
 }
 
-export function AuroraMiraBubble({ children, time, showAvatar = true }: Props) {
+export function AuroraMiraBubble({ children, time, showAvatar = true, copyText }: Props) {
+  const onCopy = () => {
+    if (!copyText) return;
+    Clipboard.setString(copyText);
+    if (Platform.OS === 'android') ToastAndroid.show('Скопировано', ToastAndroid.SHORT);
+  };
+
   return (
     <View style={styles.row}>
       {showAvatar && (
@@ -26,7 +37,14 @@ export function AuroraMiraBubble({ children, time, showAvatar = true }: Props) {
             )}
           </View>
         </View>
-        {time && <Text style={styles.time}>{time}</Text>}
+        <View style={styles.footer}>
+          {time && <Text style={styles.time}>{time}</Text>}
+          {copyText ? (
+            <TouchableOpacity onPress={onCopy} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} activeOpacity={0.6}>
+              <Text style={styles.copyBtn}>⧉ копировать</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
     </View>
   );
@@ -68,9 +86,19 @@ const styles = StyleSheet.create({
     color: colors.text.primary,
     fontFamily: fonts.serif,
   },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginTop: 4,
+  },
   time: {
     ...typography.timestamp,
     color: colors.text.muted,
-    marginTop: 4,
+  },
+  copyBtn: {
+    ...typography.timestamp,
+    color: colors.text.muted,
+    fontFamily: fonts.mono,
   },
 });
