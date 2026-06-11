@@ -134,6 +134,23 @@ def init_db(path: str | None = None) -> None:
                     disk_percent  INTEGER NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS vpn_peer_samples (
+                    -- Срез wg dump раз в 5 мин: кумулятивные байты на пира.
+                    ts        TEXT NOT NULL,
+                    pubkey    TEXT NOT NULL,
+                    rx_bytes  INTEGER NOT NULL,
+                    tx_bytes  INTEGER NOT NULL,
+                    online    INTEGER NOT NULL,
+                    PRIMARY KEY (ts, pubkey)
+                );
+
+                CREATE TABLE IF NOT EXISTS vpn_bridge_samples (
+                    -- Доступность РУ-моста (TCP-проверка) раз в 5 мин.
+                    ts          TEXT PRIMARY KEY,
+                    ok          INTEGER NOT NULL,
+                    latency_ms  INTEGER
+                );
+
                 CREATE TABLE IF NOT EXISTS ritual_runs (
                     -- Хранит last_run и краткий вывод для каждого ритуала.
                     name         TEXT PRIMARY KEY,
@@ -682,6 +699,43 @@ def load_server_metrics(hours: int = 24) -> list[dict]:
     rows = get_conn().execute(
         "SELECT ts, load1, mem_percent, swap_mb, disk_percent FROM server_metrics "
         "WHERE ts >= ? ORDER BY ts", (since,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def save_vpn_sample(peers: list[dict], bridge_ok: bool, bridge_latency_ms: int | None) -> None:
+    conn = get_conn()
+    ts = datetime.now().isoformat()
+    cutoff = (datetime.now() - timedelta(days=SERVER_METRICS_RETENTION_DAYS)).isoformat()
+    with conn:
+        for p in peers:
+            conn.execute(
+                "INSERT OR REPLACE INTO vpn_peer_samples (ts, pubkey, rx_bytes, tx_bytes, online) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (ts, p["pubkey"], p["rx_bytes"], p["tx_bytes"], 1 if p["online"] else 0),
+            )
+        conn.execute(
+            "INSERT OR REPLACE INTO vpn_bridge_samples (ts, ok, latency_ms) VALUES (?, ?, ?)",
+            (ts, 1 if bridge_ok else 0, bridge_latency_ms),
+        )
+        conn.execute("DELETE FROM vpn_peer_samples WHERE ts < ?", (cutoff,))
+        conn.execute("DELETE FROM vpn_bridge_samples WHERE ts < ?", (cutoff,))
+
+
+def load_vpn_peer_samples(hours: int = 24) -> list[dict]:
+    since = (datetime.now() - timedelta(hours=hours)).isoformat()
+    rows = get_conn().execute(
+        "SELECT ts, pubkey, rx_bytes, tx_bytes, online FROM vpn_peer_samples "
+        "WHERE ts >= ? ORDER BY ts", (since,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def load_vpn_bridge_samples(hours: int = 24) -> list[dict]:
+    since = (datetime.now() - timedelta(hours=hours)).isoformat()
+    rows = get_conn().execute(
+        "SELECT ts, ok, latency_ms FROM vpn_bridge_samples WHERE ts >= ? ORDER BY ts",
+        (since,),
     ).fetchall()
     return [dict(r) for r in rows]
 

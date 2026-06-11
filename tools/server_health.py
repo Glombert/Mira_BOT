@@ -83,6 +83,11 @@ def start_sampler() -> None:
                 db.save_server_metric(s["load1"], s["mem_percent"], s["swap_mb"], s["disk_percent"])
             except Exception as e:
                 logger.warning(f"server_metrics sampler: {e}")
+            try:
+                from tools.vpn_tools import sample_vpn
+                sample_vpn()
+            except Exception as e:
+                logger.warning(f"vpn sampler: {e}")
             time.sleep(SAMPLE_INTERVAL_SEC)
 
     threading.Thread(target=_loop, daemon=True).start()

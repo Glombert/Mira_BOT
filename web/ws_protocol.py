@@ -309,12 +309,46 @@ class ServerStatsData(BaseModel):
     points: list[ServerStatPoint]
 
 
+class VpnPeerEntry(BaseModel):
+    name: str
+    online: bool
+    last_seen_min: int | None     # минут с последнего хендшейка; None = никогда
+    rx_mb: float                  # принято за период
+    tx_mb: float                  # отдано за период
+    online_minutes: int           # «сколько сидел» за период
+
+
+class VpnStatPoint(BaseModel):
+    ts: str
+    rx_mb: float                  # суммарная дельта за 5-мин слот
+    tx_mb: float
+    online: int                   # пиров онлайн в слоте
+
+
+class VpnBridgePoint(BaseModel):
+    ts: str
+    ok: bool
+    latency_ms: int | None
+
+
+class VpnStatsData(BaseModel):
+    """Owner-экран «VPN»: мост, WG-пиры, трафик."""
+    type: Literal["vpn_stats_data"] = "vpn_stats_data"
+    bridge_ok: bool
+    bridge_latency_ms: int | None
+    wg_up: bool
+    peers_online: int
+    peers: list[VpnPeerEntry]
+    points: list[VpnStatPoint]
+    bridge_points: list[VpnBridgePoint]
+
+
 SERVER_MESSAGES: tuple[type[BaseModel], ...] = (
     Ready, ApprovalRequest, PermissionsUpdate, AuthRequired, Pong,
     Thinking, Thought, Message, SystemMessage, ErrorMessage, Files,
     GdriveAuthUrl, UsersList, Learned, ProfileDataMessage, ProfileSaved,
     MetricsData, RitualsData, RemindersData, TasksData, BackupsData,
-    ServerStatsData,
+    ServerStatsData, VpnStatsData,
 )
 
 

@@ -32,6 +32,7 @@ from web.ritual_runner import _run_ritual_background
 from web.ws_protocol import (
     ProfileDataMessage, ProfileData, Files, FileEntry, UsersList, UserEntry,
     ServerStatsData, ServerStatPoint,
+    VpnStatsData, VpnPeerEntry, VpnStatPoint, VpnBridgePoint,
     PermissionsUpdate, GdriveAuthUrl, ProfileSaved,
     MetricsData, MetricsModelStat, MetricsDayStat, RitualsData, RitualEntry,
     RemindersData, ReminderEntry, TasksData, TaskEntry, ws_payload as _wsp,
@@ -554,7 +555,7 @@ async def _ws_command(websocket: WebSocket, data: dict, *, user_id: str, tg_id: 
     # и контекста, оставлены только в Telegram.
     elif cmd in ("stats", "users", "users_data", "versions", "evolution_count",
                  "blacklist", "metrics_data", "rituals_data", "backups_data") \
-            or cmd.startswith("server_stats"):
+            or cmd.startswith(("server_stats", "vpn_stats")):
         is_owner_ws = OWNER_TG_ID and tg_id == OWNER_TG_ID
         if not is_owner_ws:
             await websocket.send_json({"type": "system", "content": "Команда доступна только владельцу."})
@@ -701,6 +702,23 @@ async def _ws_command(websocket: WebSocket, data: dict, *, user_id: str, tg_id: 
                 )))
             except Exception as e:
                 await websocket.send_json({"type": "system", "content": f"server_stats: {e}"})
+        elif cmd.startswith("vpn_stats"):
+            try:
+                from tools.vpn_tools import vpn_stats
+                _arg = cmd[len("vpn_stats"):].strip()
+                _hours = int(_arg) if _arg.isdigit() else 24
+                _v = await asyncio.to_thread(vpn_stats, min(_hours, 168))
+                await websocket.send_json(_wsp(VpnStatsData(
+                    bridge_ok=_v["bridge_ok"],
+                    bridge_latency_ms=_v["bridge_latency_ms"],
+                    wg_up=_v["wg_up"],
+                    peers_online=_v["peers_online"],
+                    peers=[VpnPeerEntry(**p) for p in _v["peers"]],
+                    points=[VpnStatPoint(**p) for p in _v["points"]],
+                    bridge_points=[VpnBridgePoint(**p) for p in _v["bridge_points"]],
+                )))
+            except Exception as e:
+                await websocket.send_json({"type": "system", "content": f"vpn_stats: {e}"})
         elif cmd == "backups_data":
             # rclone-листинг архива — в потоке, чтобы не блокировать loop.
             try:
