@@ -191,3 +191,41 @@ def test_caching_noop_for_non_openrouter():
 def test_caching_noop_for_non_anthropic_model():
     msgs = [{"role": "system", "content": "S"}]
     assert providers._apply_prompt_caching(msgs, "openrouter", "openai/gpt-4") == msgs
+
+
+# --- temperature удалён у новых Anthropic-моделей -----------------------------
+
+@pytest.mark.parametrize("model,accepts", [
+    ("claude-sonnet-4-6", True),
+    ("claude-opus-4-6", True),
+    ("claude-opus-4-7", False),
+    ("claude-opus-4-8", False),
+    ("claude-fable-5", False),
+])
+def test_anthropic_accepts_temperature(model, accepts):
+    assert providers.anthropic_accepts_temperature(model) is accepts
+
+
+def test_anthropic_native_omits_temperature_on_new_models(monkeypatch):
+    captured = {}
+
+    class _FakeAnthropicMessages:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            raise RuntimeError("stop after capture")
+
+    class _FakeAnthropicClient:
+        messages = _FakeAnthropicMessages()
+
+    monkeypatch.setattr(providers, "_anthropic_client", _FakeAnthropicClient())
+
+    with pytest.raises(RuntimeError):
+        providers._call_anthropic_native(
+            "claude-opus-4-8", [{"role": "user", "content": "hi"}], 0.2, 100)
+    assert "temperature" not in captured
+
+    captured.clear()
+    with pytest.raises(RuntimeError):
+        providers._call_anthropic_native(
+            "claude-sonnet-4-6", [{"role": "user", "content": "hi"}], 0.2, 100)
+    assert captured["temperature"] == 0.2

@@ -20,6 +20,7 @@ PROVIDERS строится из .env:
 """
 
 import os
+import re
 import json
 import time
 import threading
@@ -289,6 +290,15 @@ def _apply_prompt_caching(messages: list, provider: str, model: str) -> list:
     return result
 
 
+# У Opus 4.7+ и Fable/Mythos сэмплинг-параметры (temperature/top_p/top_k)
+# удалены из API — запрос с ними получает 400 invalid_request_error.
+_SAMPLING_REMOVED = re.compile(r"opus-4-[7-9]|fable|mythos")
+
+
+def anthropic_accepts_temperature(model: str) -> bool:
+    return not _SAMPLING_REMOVED.search(model)
+
+
 def _call_anthropic_native(model: str, messages: list, temperature: float,
                            max_tokens: int) -> _AnthropicResponseAdapter:
     """
@@ -325,8 +335,9 @@ def _call_anthropic_native(model: str, messages: list, temperature: float,
         model=model,
         max_tokens=max_tokens,
         messages=ant_messages,
-        temperature=temperature,
     )
+    if anthropic_accepts_temperature(model):
+        kwargs["temperature"] = temperature
     if system:
         kwargs["system"] = system
 

@@ -502,7 +502,11 @@ async def auth_telegram(request: Request):
     """Верифицирует данные Telegram Login Widget и возвращает session token."""
     client_ip = request.client.host if request.client else "?"
     if not _auth_rate_check(client_ip):
-        logger.warning(f"/auth/telegram rate-limit: {client_ip}")
+        # Ночной smoke.sh проверяет этот лимит специально — его срабатывания
+        # логируем как INFO, чтобы log_audit не считал их инцидентом.
+        ua = request.headers.get("user-agent", "")
+        log = logger.info if "mira-smoke" in ua else logger.warning
+        log(f"/auth/telegram rate-limit: {client_ip}")
         raise HTTPException(status_code=429, detail="Too many auth attempts",
                             headers={"Retry-After": str(int(_AUTH_RATE_WINDOW))})
 

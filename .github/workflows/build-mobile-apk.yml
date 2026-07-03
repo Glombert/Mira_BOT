@@ -95,4 +95,4 @@ jobs:
         with:
           name: mira-mobile-apk
           path: mobile/android/app/build/outputs/apk/release/*.apk
-          retention-days: 30
+          retention-days: 3

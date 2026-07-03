@@ -108,7 +108,7 @@ rm -f "$TMP_FOR_AUTH"
 
 # rate-limit /auth/telegram (10/min) — серия пустых попыток должна вернуть 429
 for i in 1 2 3 4 5 6 7 8 9 10 11; do
-    LAST_CODE=$(curl -sS -o /dev/null -w '%{http_code}' "${BASE}/auth/telegram?id=0&hash=x&auth_date=0")
+    LAST_CODE=$(curl -sS -A mira-smoke -o /dev/null -w '%{http_code}' "${BASE}/auth/telegram?id=0&hash=x&auth_date=0")
 done
 # Последний должен быть 429 (превышен лимит)
 if [[ "$LAST_CODE" == "429" ]]; then
