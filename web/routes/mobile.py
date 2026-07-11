@@ -26,7 +26,7 @@ _MOBILE_DL_RATE_MAX = 30
 
 
 def _public_base_url() -> str:
-    return os.getenv("MIRA_PUBLIC_URL", "https://mira-bot.duckdns.org")
+    return os.getenv("MIRA_PUBLIC_URL", "https://mira.maakhv.ru")
 
 
 def _fetch_latest_release() -> dict | None:

@@ -1,5 +1,5 @@
 #!/bin/bash
-# smoke.sh — end-to-end smoke-тесты для прода mira-bot.duckdns.org
+# smoke.sh — end-to-end smoke-тесты для прода mira.maakhv.ru
 #
 # Проверяет каждый интерфейс «снаружи»: HTTP-эндпоинты, WS-протокол,
 # upload, OAuth callback (без интерактива), целостность БД.
@@ -9,11 +9,11 @@
 #   ./scripts/smoke.sh --with-llm   # +один LLM-ход (стоит немного)
 #   ./scripts/smoke.sh --quiet      # только итог
 #
-# Требует ssh-доступ к root@mira-bot.duckdns.org (там читаем .env для
+# Требует ssh-доступ к root@mira.maakhv.ru (там читаем .env для
 # генерации валидной сессии).
 
 set -u
-HOST="mira-bot.duckdns.org"
+HOST="mira.maakhv.ru"
 BASE="https://${HOST}"
 WS_BASE="wss://${HOST}"
 SSH="root@${HOST}"

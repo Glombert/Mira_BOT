@@ -43,4 +43,4 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
-_MIRA_PUBLIC_URL = os.getenv("MIRA_PUBLIC_URL", "https://mira-bot.duckdns.org")
+_MIRA_PUBLIC_URL = os.getenv("MIRA_PUBLIC_URL", "https://mira.maakhv.ru")

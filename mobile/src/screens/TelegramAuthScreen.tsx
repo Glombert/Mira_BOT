@@ -17,11 +17,12 @@ import { MiraClient } from '../api/mira-client';
 import { mobileSessionStorage } from '../utils/storage';
 import { BASE_URL } from '../config';
 
-const AUTH_PAGE_URL = 'https://mira-bot.duckdns.org/auth/mobile';
+const AUTH_PAGE_URL = 'https://mira.maakhv.ru/auth/mobile';
 
 // Только эти https-домены пускаем в WebView. Всё остальное — блок.
 // telegram.org нужен для telegram-widget.js и виджета авторизации.
-const ALLOWED_HOSTS = ['mira-bot.duckdns.org', 'telegram.org', 'oauth.telegram.org'];
+// mira-bot.duckdns.org — легаси-домен, жив на переходный период.
+const ALLOWED_HOSTS = ['mira.maakhv.ru', 'mira-bot.duckdns.org', 'telegram.org', 'oauth.telegram.org'];
 
 function parseDeepLinkToken(url: string): string | null {
   // miramobile://auth?token=XYZ — ручной парсинг,

@@ -3,7 +3,7 @@
 // в /mobile/version проверке обновлений). Поднимать одновременно с package.json.
 export const APP_VERSION = '1.2.3';
 // Production backend
-export const BASE_URL = 'https://mira-bot.duckdns.org';
+export const BASE_URL = 'https://mira.maakhv.ru';
 // For local dev emulator: http://10.0.2.2:8000
 export const IS_MOCK = false;
 
@@ -15,4 +15,4 @@ export const BOT_USERNAME = 'mira_changing_bot';
 // Bugsink (self-hosted, Sentry-совместимый) DSN мобильного проекта.
 // Ingest-ключ — клиентский (он всё равно в APK), прятать в репо смысла нет.
 // Пусто → Sentry выключен (no-op).
-export const SENTRY_DSN = 'https://8798b4a0820c4dd7993fd1739686b4c3@mira-errors.duckdns.org/2';
+export const SENTRY_DSN = 'https://8798b4a0820c4dd7993fd1739686b4c3@errors.maakhv.ru/2';
