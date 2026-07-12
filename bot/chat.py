@@ -12,6 +12,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from tools import rate_limit
 from tools import semantic_memory
+from tools import tg_presence
 from tools.access_tools import increment_guest_counter
 
 from bot.config import MAX_HISTORY, logger
@@ -44,6 +45,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     tg_id   = update.effective_user.id
     user_id = _user_id(tg_id)
     text    = update.message.text or ""
+
+    # Координаты входящего — для инструмента tg_react (реакция на сообщение)
+    tg_presence.remember_message(user_id, update.effective_chat.id, update.message.message_id)
 
     logger.info(f"handle_message: пользователь {user_id}, длина сообщения={len(text)}")
 

@@ -118,7 +118,11 @@ def _is_owner_user(user_id: str) -> bool:
         return False
 
 
+from tools import tg_presence as _tg_presence
+
 _TOOL_REGISTRY = {
+    "tg_react":           lambda u, a: _tg_presence.react(u, a["emoji"]),
+    "set_mood_avatar":    lambda u, a: _tg_presence.set_mood_avatar(a["mood"]),
     "list_files":         _tool_list_files,
     "read_file":          _tool_read_file,
     "write_file":         _tool_write_file,

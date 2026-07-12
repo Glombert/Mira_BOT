@@ -26,7 +26,8 @@
     "gsheet_read", "gsheet_write", "gsheet_create",
     "schedule_reminder", "list_reminders", "cancel_reminder",
     "metrics_read", "server_health", "vpn_add_user", "vpn_remove_user", "read_logs", "openrouter_list_models",
-    "generate_image"
+    "generate_image",
+    "tg_react", "set_mood_avatar"
   ],
   "created_by": "human",
   "created_at": "2026-05-04",
