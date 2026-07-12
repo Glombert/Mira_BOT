@@ -183,6 +183,14 @@ def test_inbox_since_id_pagination(fresh_db):
     assert new_items[0]["id"] == id2
 
 
+def test_inbox_first_load_returns_tail(fresh_db):
+    # Переполнение лимита: первая загрузка (since_id=0) должна отдавать
+    # ПОСЛЕДНИЕ limit записей, иначе лента замерзает на старых.
+    ids = [fresh_db.append_inbox("system", f"m{i}") for i in range(5)]
+    items = fresh_db.list_inbox(limit=3)
+    assert [it["id"] for it in items] == ids[-3:]  # хвост, по возрастанию
+
+
 def test_inbox_mark_read_and_unread_filter(fresh_db):
     id1 = fresh_db.append_inbox("system", "a")
     id2 = fresh_db.append_inbox("system", "b")

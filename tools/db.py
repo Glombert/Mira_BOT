@@ -801,14 +801,27 @@ def append_inbox(
 
 
 def list_inbox(since_id: int = 0, limit: int = 200, unread_only: bool = False) -> list[dict]:
-    """История тех-чата. since_id — id, после которого вернуть новые."""
-    q = "SELECT id, ts, type, importance, title, body, payload, is_read, action FROM owner_inbox WHERE id > ?"
-    args: list = [since_id]
-    if unread_only:
-        q += " AND is_read = 0"
-    q += " ORDER BY id ASC LIMIT ?"
-    args.append(limit)
-    rows = get_conn().execute(q, args).fetchall()
+    """История тех-чата. since_id — id, после которого вернуть новые.
+
+    since_id=0 (первая загрузка клиента) — возвращаем ХВОСТ ленты, а не
+    первые N записей: иначе после переполнения limit свежие записи никогда
+    не доезжают до клиента (лента «замерзает» на старой дате).
+    """
+    cols = "id, ts, type, importance, title, body, payload, is_read, action"
+    if since_id == 0:
+        q = f"SELECT {cols} FROM owner_inbox"
+        if unread_only:
+            q += " WHERE is_read = 0"
+        q += " ORDER BY id DESC LIMIT ?"
+        rows = list(reversed(get_conn().execute(q, (limit,)).fetchall()))
+    else:
+        q = f"SELECT {cols} FROM owner_inbox WHERE id > ?"
+        args: list = [since_id]
+        if unread_only:
+            q += " AND is_read = 0"
+        q += " ORDER BY id ASC LIMIT ?"
+        args.append(limit)
+        rows = get_conn().execute(q, args).fetchall()
     out = []
     for r in rows:
         out.append({
