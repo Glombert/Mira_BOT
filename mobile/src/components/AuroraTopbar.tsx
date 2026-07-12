@@ -4,7 +4,16 @@ import { AuroraAvatar } from './ui/AuroraAvatar';
 import { AuroraStatusDot } from './ui/AuroraStatusDot';
 import { colors, typography, fonts, spacing, radii } from '../theme';
 
+const MOOD_LABELS: Record<string, string> = {
+  default: 'слушает',
+  joy: 'в хорошем настроении',
+  curiosity: 'любопытничает',
+  focus: 'сосредоточена',
+  frustration: 'не в духе',
+};
+
 interface Props {
+  mood?: string;
   connectionStatus: 'online' | 'reconnecting' | 'offline';
   onOpenDrawer: () => void;
   onClear: () => void;
@@ -20,6 +29,7 @@ interface Props {
 
 export function AuroraTopbar({
   connectionStatus,
+  mood,
   onOpenDrawer,
   onReconnect,
   isOwner,
@@ -27,7 +37,7 @@ export function AuroraTopbar({
   techUnread,
 }: Props) {
   const statusText = connectionStatus === 'online'
-    ? 'на связи · слушает'
+    ? `на связи · ${MOOD_LABELS[mood ?? 'default'] ?? MOOD_LABELS.default}`
     : connectionStatus === 'reconnecting'
     ? 'переподключается...'
     : 'офлайн · нажми ↻';

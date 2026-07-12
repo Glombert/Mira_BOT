@@ -73,6 +73,7 @@ export function ChatScreen() {
   const [client] = useState(() => new MiraClient({ baseUrl: BASE_URL, mock: IS_MOCK, sessionStorage: mobileSessionStorage }));
   const [session, setSession] = useState<string | null>(null);
   const [userName, setUserName] = useState('');
+  const [mood, setMood] = useState('default');
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [counts, setCounts] = useState<SidebarCounts>({});
   const [connectionStatus, setConnectionStatus] = useState<'online' | 'reconnecting' | 'offline'>('offline');
@@ -174,6 +175,11 @@ export function ChatScreen() {
     });
   }, []);
 
+  const handleReact = useCallback((id: string, emoji: string) => {
+    client.sendReaction(emoji);
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, reaction: emoji } : m)));
+  }, []);
+
   const handleReconnect = useCallback(() => {
     if (!session) return;
     setConnectionStatus('reconnecting');
@@ -210,6 +216,7 @@ export function ChatScreen() {
         }));
       }
       if (msg.counts) setCounts(msg.counts);
+      setMood(msg.mood ?? 'default');
       // Owner: подсчёт непрочитанных в тех-канале для бейджа
       if (msg.is_owner) {
         c.listOwnerInbox(0, true).then((items) => {
@@ -309,6 +316,14 @@ export function ChatScreen() {
 
     const unsubPong = c.on('pong', () => {});
 
+    const unsubReaction = c.on('reaction', (msg) => {
+      setMessages((prev) => {
+        const idx = prev.map((m) => m.type).lastIndexOf('user');
+        if (idx < 0) return prev;
+        return prev.map((m, i) => (i === idx ? { ...m, reaction: msg.emoji } : m));
+      });
+    });
+
     const unsubFiles = c.on('files', (msg) => {
       addMessage({ id: generateId(), type: 'files', files: msg.files, timestamp: Date.now() });
     });
@@ -359,7 +374,7 @@ export function ChatScreen() {
     });
 
     unsubscribersRef.current = [
-      unsubReady, unsubAuthRequired, unsubThinking, unsubThought, unsubMessage,
+      unsubReady, unsubAuthRequired, unsubThinking, unsubThought, unsubMessage, unsubReaction,
       unsubSystem, unsubError, unsubPong, unsubFiles, unsubGdrive,
       unsubPermissions, unsubApproval, unsubLearned, unsubTech,
     ];
@@ -612,10 +627,11 @@ export function ChatScreen() {
           isLast={index === messages.length - 1}
           onFilePress={handleFilePress}
           onFileLink={handleFileLink}
+          onReact={item.type === 'message' ? handleReact : undefined}
         />
       );
     },
-    [handleApprove, handleBlock, handleFilePress, handleFileLink, messages.length]
+    [handleApprove, handleBlock, handleFilePress, handleFileLink, handleReact, messages.length]
   );
 
   return (
@@ -624,6 +640,7 @@ export function ChatScreen() {
       <View style={[styles.headerWrap, { paddingTop: insets.top }]}>
         <AuroraTopbar
           connectionStatus={connectionStatus}
+          mood={mood}
           onClear={handleClear}
           onCheckUpdate={() => checkForUpdate(false)}
           onWhoami={handleWhoami}

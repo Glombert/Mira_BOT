@@ -61,6 +61,7 @@ export interface ReadyMessage {
   gdrive_email?: string | null;
   permissions?: string[];
   counts?: SidebarCounts;
+  mood?: string;
 }
 
 export interface PermissionsUpdateMessage {
@@ -102,6 +103,7 @@ export type ServerMessage =
   | { type: 'backups_data'; schedule: string; storage: string; backups: Array<{ id: string; created_at: string; size: number; type: string; fact_count: number; note_count: number; is_latest: boolean }> }
   | { type: 'server_stats_data'; ok: boolean; load1: number; mem_percent: number; mem_total_mb: number; swap_mb: number; disk_free_gb: number; disk_total_gb: number; db_size_mb: number; uptime_days: number; hb_bot_age: number | null; hb_web_age: number | null; points: Array<{ ts: string; load1: number; mem_percent: number; swap_mb: number; disk_percent: number }> }
   | { type: 'vpn_stats_data'; bridge_ok: boolean; bridge_latency_ms: number | null; wg_up: boolean; peers_online: number; peers: Array<{ name: string; kind: string; online: boolean; last_seen_min: number | null; rx_mb: number; tx_mb: number; online_minutes: number }>; points: Array<{ ts: string; rx_mb: number; tx_mb: number; online: number }>; traffic_series: Array<{ ts: string; users: Record<string, number> }>; bridge_points: Array<{ ts: string; ok: boolean; latency_ms: number | null }> }
+  | { type: 'reaction'; emoji: string }
   | PermissionsUpdateMessage
   | ApprovalRequestMessage;
 
@@ -153,6 +155,7 @@ export type ClientMessage =
   | { type: 'ping' }
   | { type: 'command'; cmd: string }
   | { type: 'profile_save'; form: ProfileForm }
+  | { type: 'user_reaction'; emoji: string }
   | { content: string; attachments?: string[]; mode?: 'chat' | 'tech' };
 
 /** Запись в техническом канале владельца (owner_inbox). */
@@ -193,6 +196,7 @@ export interface ChatMessageItem {
   attachments?: Attachment[];
   cards?: MessageCard[];
   url?: string;
+  reaction?: string;
   timestamp: number;
   approval?: {
     user_id: string;

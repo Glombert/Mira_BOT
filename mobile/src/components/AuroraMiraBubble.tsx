@@ -12,9 +12,16 @@ interface Props {
   // через несколько абзацев (каждый — отдельный <Text>), поэтому копируем
   // весь пузырь одним тапом.
   copyText?: string;
+  /** Реакция пользователя на это сообщение (уже поставленная). */
+  reaction?: string;
+  /** Колбэк выбора реакции — включает кнопку и пикер. */
+  onReact?: (emoji: string) => void;
 }
 
-export function AuroraMiraBubble({ children, time, showAvatar = true, copyText }: Props) {
+const REACTION_SET = ['\u2764', '\ud83d\udd25', '\ud83d\udc4d', '\ud83d\ude01', '\ud83e\udd14'];
+
+export function AuroraMiraBubble({ children, time, showAvatar = true, copyText, reaction, onReact }: Props) {
+  const [pickerOpen, setPickerOpen] = React.useState(false);
   const onCopy = () => {
     if (!copyText) return;
     Clipboard.setString(copyText);
@@ -44,7 +51,31 @@ export function AuroraMiraBubble({ children, time, showAvatar = true, copyText }
               <Text style={styles.copyBtn}>⧉ копировать</Text>
             </TouchableOpacity>
           ) : null}
+          {reaction ? (
+            <Text style={styles.reactionChip}>{reaction}</Text>
+          ) : onReact ? (
+            <TouchableOpacity
+              onPress={() => setPickerOpen(!pickerOpen)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.6}
+            >
+              <Text style={styles.copyBtn}>♡ реакция</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
+        {pickerOpen && !reaction && onReact ? (
+          <View style={styles.pickerRow}>
+            {REACTION_SET.map((e) => (
+              <TouchableOpacity
+                key={e}
+                onPress={() => { onReact(e); setPickerOpen(false); }}
+                hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+              >
+                <Text style={styles.pickerEmoji}>{e}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -100,5 +131,30 @@ const styles = StyleSheet.create({
     ...typography.timestamp,
     color: colors.text.muted,
     fontFamily: fonts.mono,
+  },
+  reactionChip: {
+    fontSize: 14,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: radii.bubble,
+    borderWidth: 1,
+    borderColor: colors.bubble.userBorder,
+    backgroundColor: colors.bubble.userBg,
+    overflow: 'hidden',
+  },
+  pickerRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    marginTop: 6,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    alignSelf: 'flex-start',
+    borderRadius: radii.bubble,
+    borderWidth: 1,
+    borderColor: colors.border.subtle,
+    backgroundColor: colors.bubble.miraBg,
+  },
+  pickerEmoji: {
+    fontSize: 20,
   },
 });

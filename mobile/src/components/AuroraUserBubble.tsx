@@ -5,9 +5,11 @@ import { colors, typography, fonts, spacing, radii } from '../theme';
 interface Props {
   children: React.ReactNode;
   time?: string;
+  /** Эмодзи-реакция Миры на это сообщение. */
+  reaction?: string;
 }
 
-export function AuroraUserBubble({ children, time }: Props) {
+export function AuroraUserBubble({ children, time, reaction }: Props) {
   return (
     <View style={styles.wrapper}>
       <View style={styles.bubble}>
@@ -17,6 +19,7 @@ export function AuroraUserBubble({ children, time }: Props) {
           children
         )}
       </View>
+      {reaction ? <Text style={styles.reaction}>{reaction}</Text> : null}
       {time && <Text style={styles.time}>{time}</Text>}
     </View>
   );
@@ -47,5 +50,18 @@ const styles = StyleSheet.create({
     color: colors.text.muted,
     alignSelf: 'flex-end',
     marginTop: 4,
+  },
+  reaction: {
+    alignSelf: 'flex-end',
+    fontSize: 14,
+    marginTop: -8,
+    marginRight: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radii.bubble,
+    borderWidth: 1,
+    borderColor: colors.bubble.userBorder,
+    backgroundColor: colors.bubble.userBg,
+    overflow: 'hidden',
   },
 });

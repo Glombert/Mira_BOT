@@ -382,6 +382,11 @@ export class MiraClient {
     if (this.mock) this._mockReply(text);
   }
 
+  /** Реакция пользователя на сообщение Миры (эмодзи). */
+  sendReaction(emoji: string): void {
+    this._send({ type: 'user_reaction', emoji });
+  }
+
   sendCommand(cmd: string): void {
     this._send({ type: 'command', cmd });
     if (this.mock) this._mockCommand(cmd);

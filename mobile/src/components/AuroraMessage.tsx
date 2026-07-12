@@ -119,6 +119,7 @@ interface Props {
   onFilePress?: (dir: string, name: string) => void;
   onFileLink?: (url: string) => void;
   showAvatar?: boolean;
+  onReact?: (id: string, emoji: string) => void;
 }
 
 const CARD_CONFIG: Record<string, { rgb: string; title: string; icon: string }> = {
@@ -151,7 +152,7 @@ function MessageCards({ cards }: { cards: MessageCard[] }) {
   );
 }
 
-export function AuroraMessage({ message, isLast = true, onFilePress, onFileLink, showAvatar = true }: Props) {
+export function AuroraMessage({ message, isLast = true, onFilePress, onFileLink, showAvatar = true, onReact }: Props) {
   const time = message.timestamp ? formatTime(message.timestamp) : undefined;
 
   if (message.type === 'thinking') {
@@ -168,7 +169,7 @@ export function AuroraMessage({ message, isLast = true, onFilePress, onFileLink,
 
   if (message.type === 'user') {
     return (
-      <AuroraUserBubble time={time}>
+      <AuroraUserBubble time={time} reaction={message.reaction}>
         <Text style={styles.userText} selectable>{message.content}</Text>
       </AuroraUserBubble>
     );
@@ -258,7 +259,13 @@ export function AuroraMessage({ message, isLast = true, onFilePress, onFileLink,
   const content = message.content || '';
 
   return (
-    <AuroraMiraBubble time={time} showAvatar={showAvatar} copyText={content}>
+    <AuroraMiraBubble
+      time={time}
+      showAvatar={showAvatar}
+      copyText={content}
+      reaction={message.reaction}
+      onReact={onReact ? (e) => onReact(message.id, e) : undefined}
+    >
       {isNew ? (
         <TypewriterText content={content} isNew={true} />
       ) : (
