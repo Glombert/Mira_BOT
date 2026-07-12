@@ -11,6 +11,7 @@ import time
 import logging
 import threading
 import urllib.request
+import contextvars
 from pathlib import Path
 
 from tools.paths import at_root
@@ -48,6 +49,20 @@ def _save_mood(mood: str) -> None:
 def remember_message(user_id: str, chat_id: int, message_id: int) -> None:
     with _lock:
         _last_messages[user_id] = (chat_id, message_id)
+
+
+# Веб-канал: WS-обработчик ставит сюда колбэк перед alpha.run — реакция уходит
+# в открытый WebSocket вместо Telegram. Contextvar переживает asyncio.to_thread
+# (копия контекста), поэтому корректен при параллельных запросах.
+_reaction_sink: contextvars.ContextVar = contextvars.ContextVar("mira_reaction_sink", default=None)
+
+
+def set_reaction_sink(fn):
+    return _reaction_sink.set(fn)
+
+
+def reset_reaction_sink(token) -> None:
+    _reaction_sink.reset(token)
 
 
 def _api(method: str, payload: dict) -> dict:
@@ -111,6 +126,13 @@ def react(user_id: str, emoji: str) -> dict:
             "error": f"'{emoji}' нет среди стандартных реакций Telegram",
             "allowed_sample": "👍 👎 ❤ 🔥 🥰 👏 😁 🤔 🤯 😱 🎉 ⚡ 🙏 💯 😢 🤗",
         }
+    sink = _reaction_sink.get()
+    if sink is not None:
+        try:
+            sink(emoji)
+            return {"ok": True, "reacted": emoji, "channel": "app"}
+        except Exception as e:
+            logger.warning(f"tg_presence: web-sink реакции упал: {e}")
     with _lock:
         ref = _last_messages.get(user_id)
     if not ref:

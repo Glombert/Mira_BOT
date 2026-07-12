@@ -34,6 +34,7 @@ export interface UploadResult {
 
 export type ServerMessage =
   | { type: 'ready'; name: string; is_owner?: boolean; is_approved?: boolean; gdrive_authorized?: boolean; gdrive_email?: string | null; permissions?: string[]; counts?: SidebarCounts; mood?: string }
+  | { type: 'reaction'; emoji: string }
   | { type: 'approval_request'; user_id: string; name: string; source: string }
   | { type: 'permissions_update'; is_owner?: boolean; is_approved?: boolean; gdrive_authorized?: boolean; gdrive_email?: string | null; permissions?: string[] }
   | { type: 'auth_required'; bot: string }
@@ -155,4 +156,5 @@ export type ClientMessage =
   | { type: 'ping' }
   | { type: 'command'; cmd: string }
   | { type: 'profile_save'; form: ProfileForm }
+  | { type: 'user_reaction'; emoji: string }
   | { content: string; attachment?: string; attachments?: string[]; mode?: 'chat' | 'tech' };

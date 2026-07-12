@@ -389,6 +389,11 @@ export class MiraClient {
     }
   }
 
+  /** Реакция пользователя на сообщение Миры (эмодзи). */
+  sendReaction(emoji: string): void {
+    this._send({ type: 'user_reaction', emoji });
+  }
+
   /** Сохранить анкету (профиль, заполняемый пользователем). */
   saveProfile(form: ProfileForm): void {
     this._send({ type: 'profile_save', form });

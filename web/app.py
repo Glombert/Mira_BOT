@@ -702,6 +702,20 @@ async def chat(websocket: WebSocket, session: str = ""):
                                   is_owner_ws=bool(is_owner_ws), is_approved_ws=is_approved_ws)
                 continue
 
+            # Реакция пользователя на сообщение Миры → пометка в сессии,
+            # LLM не дёргаем (как handle_reaction в Telegram-боте)
+            if data.get("type") == "user_reaction":
+                _emoji = str(data.get("emoji", "")).strip()[:8]
+                if _emoji:
+                    _rmsgs = _load_session(user_id)
+                    _rmsgs.append({
+                        "role": "user",
+                        "content": f"[реакция: собеседник поставил {_emoji} на твоё последнее сообщение. "
+                                   f"Это не текст — отвечать не нужно, просто знай.]",
+                    })
+                    _save_session(user_id, _rmsgs)
+                continue
+
             text = data.get("content", "").strip()
             mode = (data.get("mode") or "chat").strip().lower()
             is_tech = (mode == "tech") and bool(is_owner_ws)
@@ -937,12 +951,21 @@ async def chat(websocket: WebSocket, session: str = ""):
             # инструменты (web_search, gcal, schedule_reminder, generate_image,
             # excel и т.д.) — специалисты Конклава ей доступны как инструменты,
             # а не как маршрут «мимо» её личности.
+            # Реакции Миры в этом ходе летят в открытый WS, а не в Telegram
+            from tools import tg_presence as _tgp
+            _sink_token = _tgp.set_reaction_sink(
+                lambda e: asyncio.run_coroutine_threadsafe(
+                    websocket.send_json({"type": "reaction", "emoji": e}), _ws_loop,
+                )
+            )
             try:
                 answer = await asyncio.to_thread(alpha.run, llm_msgs, None, None, _on_progress)
             except Exception as e:
                 logger.error(f"alpha.run: {e}", exc_info=True)
                 await websocket.send_json({"type": "error", "content": "Что-то пошло не так. Попробуй ещё раз."})
                 continue
+            finally:
+                _tgp.reset_reaction_sink(_sink_token)
 
             # Если подсказка про новые фичи показывалась — фиксируем, что
             # пользователь её «увидел» (Мира получила её в контекст). Дальше

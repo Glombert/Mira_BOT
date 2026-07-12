@@ -351,12 +351,18 @@ class VpnStatsData(BaseModel):
     bridge_points: list[VpnBridgePoint]
 
 
+class Reaction(BaseModel):
+    """Мира → клиент: эмодзи-реакция на последнее сообщение пользователя."""
+    type: Literal["reaction"] = "reaction"
+    emoji: str
+
+
 SERVER_MESSAGES: tuple[type[BaseModel], ...] = (
     Ready, ApprovalRequest, PermissionsUpdate, AuthRequired, Pong,
     Thinking, Thought, Message, SystemMessage, ErrorMessage, Files,
     GdriveAuthUrl, UsersList, Learned, ProfileDataMessage, ProfileSaved,
     MetricsData, RitualsData, RemindersData, TasksData, BackupsData,
-    ServerStatsData, VpnStatsData,
+    ServerStatsData, VpnStatsData, Reaction,
 )
 
 
@@ -378,6 +384,12 @@ class ProfileSave(BaseModel):
     form: ProfileForm
 
 
+class UserReaction(BaseModel):
+    """Клиент → сервер: пользователь поставил реакцию на сообщение Миры."""
+    type: Literal["user_reaction"] = "user_reaction"
+    emoji: str
+
+
 class ChatMessage(BaseModel):
     """Обычное сообщение чата — единственное без поля type (по контракту)."""
     content: str
@@ -387,7 +399,7 @@ class ChatMessage(BaseModel):
 
 
 # Клиентские сообщения с дискриминатором type. ChatMessage — бестиповый, обрабатывается отдельно.
-CLIENT_MESSAGES_TYPED: tuple[type[BaseModel], ...] = (Ping, Command, ProfileSave)
+CLIENT_MESSAGES_TYPED: tuple[type[BaseModel], ...] = (Ping, Command, ProfileSave, UserReaction)
 
 
 def _type_literal(model: type[BaseModel]) -> str:

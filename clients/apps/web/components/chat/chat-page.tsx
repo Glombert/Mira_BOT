@@ -307,6 +307,14 @@ export function ChatPage() {
       addMessage({ id: generateId(), type: 'gdrive_auth_url', url: msg.url, timestamp: Date.now() });
     });
 
+    const unsubReaction = c.on('reaction', (msg) => {
+      setMessages((prev) => {
+        const idx = prev.map((m) => m.type).lastIndexOf('user');
+        if (idx < 0) return prev;
+        return prev.map((m, i) => (i === idx ? { ...m, reaction: msg.emoji } : m));
+      });
+    });
+
     const unsubTech = c.onTech((ev: TechEvent) => {
       if (ev.type === 'inbox_update') {
         if (ev.id != null) {
@@ -366,7 +374,7 @@ export function ChatPage() {
     unsubscribersRef.current = [
       unsubReady, unsubAuthRequired, unsubThinking, unsubThought, unsubMessage,
       unsubApproval, unsubPermissionsUpdate, unsubSystem, unsubError,
-      unsubPong, unsubFiles, unsubGdrive, unsubTech,
+      unsubPong, unsubFiles, unsubGdrive, unsubTech, unsubReaction,
     ];
 
     c.connect().catch(() => setConnectionStatus('offline'));
@@ -387,6 +395,11 @@ export function ChatPage() {
     },
     [client, connectClient, addMessage]
   );
+
+  const handleReact = useCallback((id: string, emoji: string) => {
+    clientRef.current?.sendReaction(emoji);
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, reaction: emoji } : m)));
+  }, []);
 
   const handleReconnect = useCallback(() => {
     const c = clientRef.current;
@@ -784,7 +797,7 @@ export function ChatPage() {
               </div>
             )}
             {messages.map((msg) => (
-              <ChatMessageBubble key={msg.id} message={msg} getFileUrl={client?.fileUrl.bind(client)} onApprove={handleApprove} onBlock={handleBlock} />
+              <ChatMessageBubble key={msg.id} message={msg} getFileUrl={client?.fileUrl.bind(client)} onApprove={handleApprove} onBlock={handleBlock} onReact={handleReact} />
             ))}
             <div ref={messagesEndRef} />
           </div>

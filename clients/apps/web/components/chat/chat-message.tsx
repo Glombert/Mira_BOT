@@ -83,6 +83,7 @@ export interface ChatMessageItem {
   messageAttachments?: Array<{ name: string; size: number }>;
   cards?: MessageCard[];
   approval?: { user_id: string; name: string; source: string };
+  reaction?: string;
   timestamp: number;
 }
 
@@ -158,9 +159,42 @@ interface ChatMessageProps {
   getFileUrl?: (dir: 'inbox' | 'output', name: string) => string;
   onApprove?: (userId: string) => void;
   onBlock?: (userId: string) => void;
+  onReact?: (id: string, emoji: string) => void;
 }
 
-export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: ChatMessageProps) {
+const REACTION_SET = ['\u2764', '\ud83d\udd25', '\ud83d\udc4d', '\ud83d\ude01', '\ud83e\udd14'];
+
+const REACTION_CHIP_STYLE: React.CSSProperties = {
+  border: '1px solid rgba(245, 188, 122, 0.32)',
+  background: 'rgba(245, 188, 122, 0.10)',
+};
+
+function ReactionControl({ current, onPick }: { current?: string; onPick?: (emoji: string) => void }) {
+  if (current) {
+    return (
+      <span className="text-[13px] px-1.5 py-0.5 rounded-pill mira-rise" style={REACTION_CHIP_STYLE}>
+        {current}
+      </span>
+    );
+  }
+  if (!onPick) return null;
+  return (
+    <span className="hidden group-hover:inline-flex gap-1.5">
+      {REACTION_SET.map((e) => (
+        <button
+          key={e}
+          onClick={() => onPick(e)}
+          aria-label={`Реакция ${e}`}
+          className="text-[13px] opacity-50 hover:opacity-100 hover:scale-125 transition-all duration-fast"
+        >
+          {e}
+        </button>
+      ))}
+    </span>
+  );
+}
+
+export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock, onReact }: ChatMessageProps) {
   const { type, content, url, files } = message;
 
   if (type === 'user') {
@@ -176,6 +210,11 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
         >
           {content}
         </div>
+        {message.reaction ? (
+          <span className="text-[13px] -mt-2 mr-2 px-1.5 py-0.5 rounded-pill mira-rise" style={REACTION_CHIP_STYLE}>
+            {message.reaction}
+          </span>
+        ) : null}
         {message.timestamp ? (
           <span className="text-[10px] text-text-muted mr-1 font-mono tracking-widest">
             {formatTime(message.timestamp)}
@@ -243,7 +282,7 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
   if (type === 'message') {
     const isNew = isFresh(message.timestamp);
     return (
-      <div className="flex items-start gap-3 max-w-[85%] mira-rise">
+      <div className="group flex items-start gap-3 max-w-[85%] mira-rise">
         <div className="w-9 shrink-0">
           <MiraAvatar size={36} />
         </div>
@@ -317,6 +356,10 @@ export function ChatMessageBubble({ message, getFileUrl, onApprove, onBlock }: C
               </span>
             ) : null}
             <CopyButton text={content || ''} />
+            <ReactionControl
+              current={message.reaction}
+              onPick={onReact ? (e) => onReact(message.id, e) : undefined}
+            />
           </div>
         </div>
       </div>
