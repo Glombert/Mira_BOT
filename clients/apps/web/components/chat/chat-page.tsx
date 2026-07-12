@@ -144,6 +144,21 @@ export function ChatPage() {
         setSession(stored);
         connectClient(c);
       } else {
+        // Внутри Telegram Mini App логинимся молча: подписанный initData
+        // вместо логин-виджета (см. /auth/webapp на бэке).
+        const tg = (window as unknown as { Telegram?: { WebApp?: { initData?: string; ready?: () => void; expand?: () => void } } }).Telegram?.WebApp;
+        if (tg?.initData) {
+          const result = await c.authenticateWebApp(tg.initData);
+          if (result.ok && result.session) {
+            await c.setSession(result.session);
+            setSession(result.session);
+            setUserName(result.name || '');
+            connectClient(c);
+            tg.ready?.();
+            tg.expand?.();
+            return;
+          }
+        }
         setShowAuth(true);
       }
     })();

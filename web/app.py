@@ -17,6 +17,7 @@ Nginx проксирует запросы снаружи.
 import os
 import sys
 import hmac
+import json
 import time
 import hashlib
 import asyncio
@@ -133,7 +134,11 @@ if os.getenv("MIRA_ALLOW_LOCAL_CORS") == "1":
 async def _security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
+    # "/" открывается как Telegram Mini App: в Telegram Web/Desktop это iframe,
+    # X-Frame-Options: DENY его убил бы. Для корня рамки ограничивает
+    # frame-ancestors в CSP (см. index()), остальным маршрутам — DENY.
+    if request.url.path != "/":
+        response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = (
         "accelerometer=(), camera=(), geolocation=(), gyroscope=(), "
@@ -293,17 +298,26 @@ MEMORY_CARD_COOLDOWN = int(os.getenv("MEMORY_CARD_COOLDOWN", "6"))
 @app.get("/")
 async def index():
     # Отдаём новый Next.js клиент если собран, иначе legacy vanilla-JS.
+    # script-src telegram.org — telegram-web-app.js (Mini App SDK) и login-виджет.
+    # frame-ancestors — Mini App в Telegram Web/Desktop живёт в iframe этих хостов.
+    _index_csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://telegram.org; "
+        "connect-src 'self' wss:; img-src 'self' data: blob:; "
+        "style-src 'self' 'unsafe-inline'; "
+        "frame-ancestors 'self' https://web.telegram.org https://webk.telegram.org https://webz.telegram.org"
+    )
     new_index = CLIENT_DIST / "index.html"
     if new_index.is_file():
         return FileResponse(str(new_index), headers={
             "X-Content-Type-Options": "nosniff",
-            "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' wss:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'",
+            "Content-Security-Policy": _index_csp,
         })
     legacy_index = LEGACY_STATIC_DIR / "index.html"
     if legacy_index.is_file():
         return FileResponse(str(legacy_index), headers={
             "X-Content-Type-Options": "nosniff",
-            "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' wss:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'",
+            "Content-Security-Policy": _index_csp,
         })
     raise HTTPException(status_code=404, detail="Web client not built")
 
@@ -521,6 +535,59 @@ async def auth_telegram(request: Request):
     is_new  = _ensure_profile(user_id, name)
 
     logger.info(f"Telegram auth: {tg_id} ({name}) new={is_new}")
+    return {"ok": True, "session": token, "name": name, "is_new": is_new}
+
+
+def _verify_webapp_init_data(init_data: str) -> dict | None:
+    """Проверяет подпись initData Telegram Mini App, возвращает payload user.
+
+    Схема отличается от Login Widget: secret = HMAC-SHA256(key="WebAppData",
+    msg=bot_token), поле user — JSON-строка внутри querystring.
+    """
+    from urllib.parse import parse_qsl
+    pairs = dict(parse_qsl(init_data, keep_blank_values=True))
+    received_hash = pairs.pop("hash", "")
+    if not received_hash:
+        return None
+    check_string = "\n".join(f"{k}={v}" for k, v in sorted(pairs.items()))
+    secret   = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+    computed = hmac.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(computed, received_hash):
+        return None
+    if time.time() - int(pairs.get("auth_date", 0)) > 86400:
+        return None
+    try:
+        user = json.loads(pairs.get("user", ""))
+    except (ValueError, TypeError):
+        return None
+    return user if isinstance(user, dict) and "id" in user else None
+
+
+@app.post("/auth/webapp")
+async def auth_webapp(request: Request):
+    """Авторизация из Telegram Mini App: HMAC-проверка initData."""
+    client_ip = request.client.host if request.client else "?"
+    if not _auth_rate_check(client_ip):
+        logger.warning(f"/auth/webapp rate-limit: {client_ip}")
+        raise HTTPException(status_code=429, detail="Too many auth attempts",
+                            headers={"Retry-After": str(int(_AUTH_RATE_WINDOW))})
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    init_data = (body or {}).get("init_data", "")
+    user = _verify_webapp_init_data(init_data) if BOT_TOKEN and init_data else None
+    if not user:
+        return {"ok": False, "error": "Ошибка авторизации"}
+
+    tg_id   = int(user["id"])
+    name    = (user.get("first_name", "") + " " + user.get("last_name", "")).strip()
+    token   = _make_session(tg_id, name)
+    user_id = _web_user_id(tg_id)
+    is_new  = _ensure_profile(user_id, name)
+
+    logger.info(f"WebApp auth: {tg_id} ({name}) new={is_new}")
     return {"ok": True, "session": token, "name": name, "is_new": is_new}
 
 

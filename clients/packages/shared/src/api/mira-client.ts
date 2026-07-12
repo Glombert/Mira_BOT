@@ -104,6 +104,20 @@ export class MiraClient {
     return (await res.json()) as AuthResult;
   }
 
+  // Авторизация из Telegram Mini App: подписанный initData вместо виджета.
+  async authenticateWebApp(initData: string): Promise<AuthResult> {
+    if (this.mock) {
+      await this._delay(300);
+      return FIXTURES.auth_telegram_success as AuthResult;
+    }
+    const res = await fetch(`${this.baseUrl}/auth/webapp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ init_data: initData }),
+    });
+    return (await res.json()) as AuthResult;
+  }
+
   async setSession(token: string): Promise<void> {
     this.session = token;
     if (this._sessionStorage) {

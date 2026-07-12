@@ -92,3 +92,37 @@ def test_mobile_auth_redirect_bad_code(client):
     # Невалидный одноразовый code → 400 (страница «ссылка устарела»)
     r = client.get("/m/auth", params={"code": "nope"})
     assert r.status_code == 400
+
+def test_auth_webapp_bad_data_returns_not_ok(client):
+    r = client.post("/auth/webapp", json={"init_data": "user=x&hash=bad&auth_date=1"})
+    assert r.status_code == 200
+    assert r.json().get("ok") is False
+
+
+def test_verify_webapp_init_data_roundtrip():
+    import hashlib
+    import hmac as hmac_mod
+    import json as json_mod
+    import time as time_mod
+    from urllib.parse import urlencode
+
+    user = {"id": 42, "first_name": "Тест"}
+    pairs = {
+        "auth_date": str(int(time_mod.time())),
+        "query_id": "AAF",
+        "user": json_mod.dumps(user, separators=(",", ":")),
+    }
+    check_string = "\n".join(f"{k}={v}" for k, v in sorted(pairs.items()))
+    secret = hmac_mod.new(b"WebAppData", webapp.BOT_TOKEN.encode(), hashlib.sha256).digest()
+    good_hash = hmac_mod.new(secret, check_string.encode(), hashlib.sha256).hexdigest()
+
+    init_data = urlencode({**pairs, "hash": good_hash})
+    parsed = webapp._verify_webapp_init_data(init_data)
+    assert parsed and parsed["id"] == 42
+
+    # Подделка подписи и протухший auth_date — отбиваются
+    assert webapp._verify_webapp_init_data(urlencode({**pairs, "hash": "0" * 64})) is None
+    stale = {**pairs, "auth_date": "1"}
+    stale_cs = "\n".join(f"{k}={v}" for k, v in sorted(stale.items()))
+    stale_hash = hmac_mod.new(secret, stale_cs.encode(), hashlib.sha256).hexdigest()
+    assert webapp._verify_webapp_init_data(urlencode({**stale, "hash": stale_hash})) is None
