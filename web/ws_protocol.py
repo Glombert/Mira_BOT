@@ -114,6 +114,7 @@ class Ready(BaseModel):
     gdrive_email: str | None = None
     permissions: list[str] | None = None
     counts: SidebarCounts | None = None
+    mood: str | None = None  # настроение Миры (default/joy/curiosity/focus/frustration)
 
 
 class ApprovalRequest(BaseModel):

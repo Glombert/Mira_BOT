@@ -41,6 +41,34 @@ def _user_lock(uid: str) -> asyncio.Lock:
     return lock
 
 
+async def handle_reaction(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Реакция пользователя на сообщение Миры → пометка в сессии.
+
+    Не triggering LLM: Мира увидит реакцию в контексте следующего хода
+    и сама решит, заметить её или нет.
+    """
+    mru = update.message_reaction
+    if mru is None or mru.user is None:
+        return
+    added = (
+        {r.emoji for r in mru.new_reaction if getattr(r, "emoji", None)}
+        - {r.emoji for r in mru.old_reaction if getattr(r, "emoji", None)}
+    )
+    if not added:
+        return  # снятие реакции — не событие
+    user_id = _user_id(mru.user.id)
+    emoji = " ".join(sorted(added))
+    logger.info(f"handle_reaction: {user_id} поставил {emoji}")
+    async with _user_lock(user_id):
+        msgs = _load_session(user_id)
+        msgs.append({
+            "role": "user",
+            "content": f"[реакция: собеседник поставил {emoji} на твоё последнее сообщение. "
+                       f"Это не текст — отвечать не нужно, просто знай.]",
+        })
+        _save_session(user_id, msgs)
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     tg_id   = update.effective_user.id
     user_id = _user_id(tg_id)

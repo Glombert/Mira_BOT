@@ -641,6 +641,7 @@ async def chat(websocket: WebSocket, session: str = ""):
     # Счётчики для сайдбара (Aurora UI design)
     _counts = _compute_sidebar_counts(user_id, is_approved_ws, is_owner_ws)
 
+    from tools.tg_presence import current_mood
     await websocket.send_json(_wsp(Ready(
         name=_profile.get("name", ""),
         is_owner=is_owner_ws,
@@ -649,6 +650,7 @@ async def chat(websocket: WebSocket, session: str = ""):
         gdrive_email=gdrive_status(user_id).get("email", "") if _gd_auth else "",
         permissions=_perms,
         counts=SidebarCounts(**_counts),
+        mood=current_mood()["mood"],
     )))
     logger.info(f"WS connect: {user_id} owner={is_owner_ws} approved={is_approved_ws}")
 

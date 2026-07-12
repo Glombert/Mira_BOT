@@ -23,6 +23,7 @@ from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
+    MessageReactionHandler,
     CallbackQueryHandler,
     filters,
     ContextTypes,
@@ -47,7 +48,7 @@ from agent import notify_owner
 from bot.config import TOKEN, logger
 from bot.background import post_init
 from bot.callbacks import handle_callback
-from bot.chat import handle_message
+from bot.chat import handle_message, handle_reaction
 from bot.commands_owner import (
     cmd_approve,
     cmd_blacklist_view,
@@ -171,6 +172,7 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageReactionHandler(handle_reaction))
     app.add_handler(CallbackQueryHandler(handle_callback))
 
     logger.info("Запускаю polling...")

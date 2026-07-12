@@ -26,7 +26,23 @@ AVATAR_DIR = Path(at_root("assets", "avatars"))
 AVATAR_MOODS = ("default", "joy", "curiosity", "focus", "frustration")
 # Аватар — глобальное «лицо» бота; чаще раза в полчаса менять его — дёрганье.
 _AVATAR_COOLDOWN_S = 1800
-_avatar_state = {"ts": 0.0, "mood": ""}
+# Настроение живёт в файле: bot и web — разные процессы, память не общая.
+MOOD_FILE = Path(at_root("memory", "mira_mood.json"))
+
+
+def current_mood() -> dict:
+    """{"mood": str, "ts": float} — текущее настроение Миры (кросс-процессно)."""
+    try:
+        data = json.loads(MOOD_FILE.read_text())
+        if data.get("mood") in AVATAR_MOODS:
+            return {"mood": data["mood"], "ts": float(data.get("ts", 0))}
+    except (OSError, ValueError):
+        pass
+    return {"mood": "default", "ts": 0.0}
+
+
+def _save_mood(mood: str) -> None:
+    MOOD_FILE.write_text(json.dumps({"mood": mood, "ts": time.time()}))
 
 
 def remember_message(user_id: str, chat_id: int, message_id: int) -> None:
@@ -116,9 +132,10 @@ def set_mood_avatar(mood: str) -> dict:
     if mood not in AVATAR_MOODS:
         return {"ok": False, "error": f"Неизвестное настроение '{mood}'",
                 "available": list(AVATAR_MOODS)}
-    if mood == _avatar_state["mood"]:
+    state = current_mood()
+    if mood == state["mood"]:
         return {"ok": True, "unchanged": True, "mood": mood}
-    left = _AVATAR_COOLDOWN_S - (time.time() - _avatar_state["ts"])
+    left = _AVATAR_COOLDOWN_S - (time.time() - state["ts"])
     if left > 0:
         return {"ok": False,
                 "error": f"Аватар менялся недавно, подожди ещё {int(left // 60) + 1} мин"}
@@ -132,6 +149,6 @@ def set_mood_avatar(mood: str) -> dict:
     )
     if not r.get("ok"):
         return {"ok": False, "error": f"Telegram отказал: {r.get('description')}"}
-    _avatar_state.update(ts=time.time(), mood=mood)
+    _save_mood(mood)
     logger.info(f"tg_presence: аватар → {mood}")
     return {"ok": True, "mood": mood}

@@ -96,6 +96,7 @@ export function ChatPage() {
   const [client, setClient] = useState<MiraClient | null>(null);
   const [session, setSession] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>('');
+  const [mood, setMood] = useState<string>('default');
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<'online' | 'reconnecting' | 'offline'>('offline');
   const [showAuth, setShowAuth] = useState(false);
@@ -199,6 +200,7 @@ export function ChatPage() {
         permissions: msg.permissions ?? [],
       });
       setCounts(msg.counts ?? {});
+      setMood(msg.mood ?? 'default');
       // Owner: подтянуть техническую ленту + историю tech-чата
       if (msg.is_owner && !inboxLoadedRef.current) {
         inboxLoadedRef.current = true;
@@ -700,6 +702,7 @@ export function ChatPage() {
       <ChatHeader
         userName={userName}
         connectionStatus={connectionStatus}
+        mood={mood}
         onClear={handleClear}
         onWhoami={handleWhoami}
         onOpenPalette={handleOpenPalette}

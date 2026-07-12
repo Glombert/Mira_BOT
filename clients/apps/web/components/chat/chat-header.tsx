@@ -6,6 +6,7 @@ import { StatusDot, type ConnectionStatus } from '@/components/ui/status-dot';
 interface ChatHeaderProps {
   userName?: string;
   connectionStatus: ConnectionStatus;
+  mood?: string;
   onClear: () => void;
   onWhoami: () => void;
   onOpenPalette: () => void;
@@ -15,9 +16,19 @@ interface ChatHeaderProps {
   onBack?: () => void;
 }
 
-export function ChatHeader({ userName, connectionStatus, onClear, onWhoami, onOpenPalette, onOpenReminders, onOpenDrive, onReconnect, onBack }: ChatHeaderProps) {
+// Настроение Миры (см. tools/tg_presence.py): цвет свечения аватара + подпись.
+const MOOD_STYLES: Record<string, { glow: string; label: string }> = {
+  default:     { glow: 'bg-gold/10',        label: 'слушает' },
+  joy:         { glow: 'bg-amber-300/20',   label: 'в хорошем настроении' },
+  curiosity:   { glow: 'bg-cyan-400/15',    label: 'любопытничает' },
+  focus:       { glow: 'bg-violet-400/15',  label: 'сосредоточена' },
+  frustration: { glow: 'bg-rose/15',        label: 'не в духе' },
+};
+
+export function ChatHeader({ userName, connectionStatus, mood, onClear, onWhoami, onOpenPalette, onOpenReminders, onOpenDrive, onReconnect, onBack }: ChatHeaderProps) {
+  const moodStyle = MOOD_STYLES[mood ?? 'default'] ?? MOOD_STYLES.default;
   const statusText = connectionStatus === 'online'
-    ? 'на связи · слушает'
+    ? `на связи · ${moodStyle.label}`
     : connectionStatus === 'reconnecting'
     ? 'переподключается...'
     : 'офлайн · нажми чтобы переподключиться';
@@ -45,7 +56,7 @@ export function ChatHeader({ userName, connectionStatus, onClear, onWhoami, onOp
         )}
 
         <div className="relative">
-          <div className="absolute inset-[-4px] rounded-full bg-gold/10 animate-mira-glow" />
+          <div className={`absolute inset-[-4px] rounded-full ${moodStyle.glow} animate-mira-glow`} />
           <img
             src="/mira-avatar-full.png"
             alt="Мира"

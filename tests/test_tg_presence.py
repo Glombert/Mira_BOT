@@ -6,9 +6,9 @@ from tools import tg_presence
 
 
 @pytest.fixture(autouse=True)
-def _clean_state(monkeypatch):
+def _clean_state(monkeypatch, tmp_path):
     monkeypatch.setattr(tg_presence, "_last_messages", {})
-    monkeypatch.setattr(tg_presence, "_avatar_state", {"ts": 0.0, "mood": ""})
+    monkeypatch.setattr(tg_presence, "MOOD_FILE", tmp_path / "mira_mood.json")
 
 
 def test_react_rejects_invalid_emoji():
