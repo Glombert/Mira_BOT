@@ -1,7 +1,7 @@
 // App version. Главный источник версии — package.json (его читает android/app/build.gradle
 // для versionName). Здесь дублируется для рантайма (показывается на экране логина и
 // в /mobile/version проверке обновлений). Поднимать одновременно с package.json.
-export const APP_VERSION = '1.2.4';
+export const APP_VERSION = '1.2.5';
 // Production backend
 export const BASE_URL = 'https://mira.maakhv.ru';
 // For local dev emulator: http://10.0.2.2:8000
