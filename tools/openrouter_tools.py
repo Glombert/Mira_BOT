@@ -110,3 +110,28 @@ def _reset_cache() -> None:
     """Только для тестов."""
     _cache["models"] = None
     _cache["fetched_at"] = 0.0
+
+
+def balance() -> dict:
+    """Баланс кредитов OpenRouter (куплено/потрачено/остаток). Owner-only."""
+    import os
+    key = os.getenv("API_OPENROUTER_KEY", "")
+    if not key:
+        return {"ok": False, "error": "API_OPENROUTER_KEY не задан"}
+    req = urllib.request.Request(
+        "https://openrouter.ai/api/v1/credits",
+        headers={"Authorization": f"Bearer {key}", "User-Agent": "MiraBot/1.6"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())["data"]
+    except (urllib.error.URLError, json.JSONDecodeError, KeyError, OSError) as e:
+        return {"ok": False, "error": f"OpenRouter API: {e}"}
+    bought = float(data.get("total_credits", 0))
+    used   = float(data.get("total_usage", 0))
+    return {
+        "ok": True,
+        "total_credits_usd": round(bought, 2),
+        "total_usage_usd": round(used, 2),
+        "balance_usd": round(bought - used, 2),
+    }

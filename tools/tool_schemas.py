@@ -856,6 +856,19 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "openrouter_balance",
+            "description": (
+                "Показывает баланс кредитов OpenRouter: сколько куплено, потрачено "
+                "и остаток в долларах. Зови когда владелец спрашивает про баланс, "
+                "кредиты, оплату моделей — или когда подозреваешь, что кредиты "
+                "кончились (ошибки провайдера, переключение на резерв)."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "tg_react",
             "description": (
                 "Ставит эмодзи-реакцию на последнее сообщение пользователя в Telegram. "

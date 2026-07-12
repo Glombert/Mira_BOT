@@ -33,7 +33,7 @@ from tools.server_health import server_health
 from tools.vpn_admin import vpn_add_user as _vpn_add_user, vpn_remove_user as _vpn_remove_user
 from tools.log_tools import read_logs
 from tools.scheduler import schedule_reminder, list_reminders, cancel_reminder
-from tools.openrouter_tools import list_models as _openrouter_list_models
+from tools.openrouter_tools import list_models as _openrouter_list_models, balance as _openrouter_balance
 from tools.whats_new import whats_new as _whats_new
 from tools.messaging import (
     find_user as _find_user,
@@ -121,6 +121,7 @@ def _is_owner_user(user_id: str) -> bool:
 from tools import tg_presence as _tg_presence
 
 _TOOL_REGISTRY = {
+    "openrouter_balance": lambda u, a: _openrouter_balance(),
     "tg_react":           lambda u, a: _tg_presence.react(u, a["emoji"]),
     "set_mood_avatar":    lambda u, a: _tg_presence.set_mood_avatar(a["mood"]),
     "list_files":         _tool_list_files,
