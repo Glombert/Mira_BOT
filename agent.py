@@ -640,6 +640,7 @@ class Agent:
         max_tool_rounds: int | None = None,
         extra_system: str | None = None,
         on_progress=None,
+        on_delta=None,
     ) -> str:
         """
         Основной метод: отправляет историю в API, обрабатывает tool calls,
@@ -669,12 +670,12 @@ class Agent:
                 "content": (original_system or "") + "\n\n" + extra_system,
             }
         try:
-            return self._run_inner(messages, max_tool_rounds, on_progress)
+            return self._run_inner(messages, max_tool_rounds, on_progress, on_delta)
         finally:
             if original_system is not None:
                 messages[0] = {**messages[0], "content": original_system}
 
-    def _run_inner(self, messages: list, max_tool_rounds: int, on_progress=None) -> str:
+    def _run_inner(self, messages: list, max_tool_rounds: int, on_progress=None, on_delta=None) -> str:
         # Показываем модели ТОЛЬКО те инструменты которые она реально может вызвать
         # (пересечение agent.allowed_tools и profile.allowed_tools). Без этого она
         # видит всю палитру и пытается звать запрещённые, получая 'Blocked tool'.
@@ -692,6 +693,7 @@ class Agent:
                 max_tokens=self.max_tokens,
                 user_id=self.user_id,
                 agent_name=self.name,
+                on_delta=on_delta,
             )
  
             msg = response.choices[0].message

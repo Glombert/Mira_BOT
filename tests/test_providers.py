@@ -229,3 +229,65 @@ def test_anthropic_native_omits_temperature_on_new_models(monkeypatch):
         providers._call_anthropic_native(
             "claude-sonnet-4-6", [{"role": "user", "content": "hi"}], 0.2, 100)
     assert captured["temperature"] == 0.2
+
+
+# --- стриминг (on_delta) -------------------------------------------------------
+
+class _FakeDelta:
+    def __init__(self, content=None, tool_calls=None):
+        self.content = content
+        self.tool_calls = tool_calls
+
+
+class _FakeChunkChoice:
+    def __init__(self, delta):
+        self.delta = delta
+
+
+class _FakeChunk:
+    def __init__(self, delta=None, usage=None):
+        self.choices = [_FakeChunkChoice(delta)] if delta else []
+        self.usage = usage
+
+
+class _FakeTCDelta:
+    def __init__(self, index, id=None, name=None, arguments=None):
+        self.index = index
+        self.id = id
+        self.function = type("F", (), {"name": name, "arguments": arguments})()
+
+
+def test_streamed_response_accumulates_text_and_calls_on_delta():
+    chunks = [
+        _FakeChunk(_FakeDelta(content="При")),
+        _FakeChunk(_FakeDelta(content="вет")),
+        _FakeChunk(_FakeDelta(content=", мир")),
+        _FakeChunk(usage=_FakeUsage(prompt=7, completion=3)),
+    ]
+    seen = []
+    resp = providers._StreamedResponse(iter(chunks), seen.append)
+    assert resp.choices[0].message.content == "Привет, мир"
+    assert resp.choices[0].message.tool_calls is None
+    assert seen == ["При", "Привет", "Привет, мир"]
+    assert resp.usage.prompt_tokens == 7
+
+
+def test_streamed_response_accumulates_tool_calls():
+    chunks = [
+        _FakeChunk(_FakeDelta(tool_calls=[_FakeTCDelta(0, id="call_1", name="get_weather", arguments='{"ci')])),
+        _FakeChunk(_FakeDelta(tool_calls=[_FakeTCDelta(0, arguments='ty": "Хабаровск"}')])),
+    ]
+    resp = providers._StreamedResponse(iter(chunks), lambda _t: None)
+    tcs = resp.choices[0].message.tool_calls
+    assert len(tcs) == 1
+    assert tcs[0].id == "call_1"
+    assert tcs[0].function.name == "get_weather"
+    assert tcs[0].function.arguments == '{"city": "Хабаровск"}'
+
+
+def test_streamed_response_swallows_on_delta_errors():
+    def boom(_t):
+        raise RuntimeError("ui умер")
+    chunks = [_FakeChunk(_FakeDelta(content="ok"))]
+    resp = providers._StreamedResponse(iter(chunks), boom)
+    assert resp.choices[0].message.content == "ok"

@@ -290,6 +290,64 @@ def _apply_prompt_caching(messages: list, provider: str, model: str) -> list:
     return result
 
 
+class _StreamedResponse:
+    """Собирает OpenAI-стрим в объект формы ChatCompletion (choices/usage).
+
+    on_delta вызывается с накопленным текстом на каждом контент-чанке —
+    ошибки колбэка глотаем: живая печать не должна ронять сам ответ.
+    """
+
+    class _Function:
+        def __init__(self):
+            self.name      = ""
+            self.arguments = ""
+
+    class _ToolCall:
+        def __init__(self):
+            self.id       = ""
+            self.type     = "function"
+            self.function = _StreamedResponse._Function()
+
+    class _Message:
+        def __init__(self, content, tool_calls):
+            self.content    = content
+            self.tool_calls = tool_calls
+
+    class _Choice:
+        def __init__(self, message):
+            self.message = message
+
+    def __init__(self, stream, on_delta):
+        parts: list[str] = []
+        calls: dict[int, _StreamedResponse._ToolCall] = {}
+        self.usage = None
+        for chunk in stream:
+            u = getattr(chunk, "usage", None)
+            if u is not None:
+                self.usage = u
+            if not getattr(chunk, "choices", None):
+                continue  # финальный usage-чанк приходит без choices
+            delta = chunk.choices[0].delta
+            if getattr(delta, "content", None):
+                parts.append(delta.content)
+                try:
+                    on_delta("".join(parts))
+                except Exception:
+                    pass
+            for tc in (getattr(delta, "tool_calls", None) or []):
+                slot = calls.setdefault(tc.index, self._ToolCall())
+                if tc.id:
+                    slot.id = tc.id
+                fn = getattr(tc, "function", None)
+                if fn is not None:
+                    if getattr(fn, "name", None):
+                        slot.function.name = fn.name
+                    if getattr(fn, "arguments", None):
+                        slot.function.arguments += fn.arguments
+        tool_calls = [calls[i] for i in sorted(calls)] or None
+        self.choices = [self._Choice(self._Message("".join(parts), tool_calls))]
+
+
 # У Opus 4.7+ и Fable/Mythos сэмплинг-параметры (temperature/top_p/top_k)
 # удалены из API — запрос с ними получает 400 invalid_request_error.
 _SAMPLING_REMOVED = re.compile(r"opus-4-[7-9]|fable|mythos")
@@ -387,6 +445,9 @@ def _call_impl(model_chain: list[dict], messages: list, **kwargs) -> object:
     metric_agent   = kwargs.pop("agent_name", "")
 
     default_temperature = kwargs.pop("temperature", 0.7)
+    # Живая печать: колбэк с накопленным текстом. Работает только на
+    # OpenAI-совместимых провайдерах; anthropic-fallback отвечает целиком.
+    on_delta = kwargs.pop("on_delta", None)
     last_error: Exception | None = None
     t_start = time.time()
 
@@ -422,13 +483,24 @@ def _call_impl(model_chain: list[dict], messages: list, **kwargs) -> object:
                     logger.warning(f"providers.call: '{provider_name}' не настроен, пропускаю.")
                     continue
                 cached_messages = _apply_prompt_caching(messages, provider_name, model)
-                logger.info(f"providers.call [{i+1}/{len(model_chain)}]: {provider_name}/{model} (temp={temperature}, msgs={len(messages)})")
-                result = client.chat.completions.create(
-                    model=model,
-                    messages=cached_messages,
-                    temperature=temperature,
-                    **kwargs,
-                )
+                logger.info(f"providers.call [{i+1}/{len(model_chain)}]: {provider_name}/{model} (temp={temperature}, msgs={len(messages)}, stream={on_delta is not None})")
+                if on_delta is not None:
+                    stream = client.chat.completions.create(
+                        model=model,
+                        messages=cached_messages,
+                        temperature=temperature,
+                        stream=True,
+                        stream_options={"include_usage": True},
+                        **kwargs,
+                    )
+                    result = _StreamedResponse(stream, on_delta)
+                else:
+                    result = client.chat.completions.create(
+                        model=model,
+                        messages=cached_messages,
+                        temperature=temperature,
+                        **kwargs,
+                    )
                 dt = time.time() - t_call
                 if not getattr(result, "choices", None):
                     # OpenRouter иногда отдаёт 200 с choices=null + error в теле,

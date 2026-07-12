@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from core import memory_manager
 from core import providers as _providers
 from agent import load_user_profile
@@ -120,17 +121,54 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
 
+        # Живая печать: sendMessageDraft показывает накопленный текст ответа
+        # по мере генерации. Колбэки прилетают из рабочего потока alpha.run —
+        # троттлим и прыгаем в event loop через run_coroutine_threadsafe.
+        loop     = asyncio.get_running_loop()
+        chat_id  = update.effective_chat.id
+        draft_id = update.message.message_id  # ненулевой и уникальный на ход
+        draft_state = {"last": 0.0, "active": False}
+
+        def _push_draft(text: str, min_interval: float = 0.7) -> None:
+            try:
+                now = time.monotonic()
+                if now - draft_state["last"] < min_interval:
+                    return
+                snippet = _strip_md_for_tg(text).strip()[:4000]
+                if not snippet:
+                    return
+                draft_state["last"] = now
+                draft_state["active"] = True
+                asyncio.run_coroutine_threadsafe(
+                    context.bot.send_message_draft(chat_id=chat_id, draft_id=draft_id, text=snippet),
+                    loop,
+                )
+            except Exception:
+                pass  # черновик — украшение, не роняем ответ
+
+        def _on_tool_progress(status: str) -> None:
+            _push_draft(f"⚙️ {status}…", min_interval=0.0)
+
         try:
             # Инверсия: Мира всегда отвечает сама (alpha.run умеет вызывать
             # инструменты). Специалисты — её инструменты, не маршрут «мимо» неё.
             if alpha:
-                answer = await asyncio.to_thread(alpha.run, _augmented(msgs))
+                answer = await asyncio.to_thread(
+                    alpha.run, _augmented(msgs),
+                    on_progress=_on_tool_progress, on_delta=_push_draft,
+                )
                 # alpha.run мутирует _augmented(msgs) — копию. Сюда не попало.
                 msgs.append({"role": "assistant", "content": answer})
             else:
                 await _reply(update,"Провайдеры не настроены.")
                 return
 
+            # Гасим черновик перед финальными сообщениями (пустой text = очистка)
+            if draft_state["active"]:
+                try:
+                    await context.bot.send_message_draft(chat_id=chat_id, draft_id=draft_id, text="")
+                except Exception:
+                    pass
             await _send_long(update, _strip_md_for_tg(answer), split_for_chat=True)
             await _send_output_files(context, update.effective_chat.id, user_id, ts_before)
             _save_session(user_id, msgs)
