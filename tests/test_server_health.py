@@ -55,14 +55,34 @@ def test_stale_heartbeat(memory_dir):
     assert r["heartbeats"]["web"]["ok"]
 
 
-def test_health_report_green(memory_dir):
+def _mock_balance(monkeypatch, result):
+    # health_report импортирует balance внутри функции — патчим модуль-источник,
+    # заодно тесты не ходят в сеть, если в окружении есть реальный ключ.
+    from tools import openrouter_tools
+    monkeypatch.setattr(openrouter_tools, "balance", lambda: result)
+
+
+def test_health_report_green(memory_dir, monkeypatch):
     (memory_dir / "mira.db").write_bytes(b"x" * 1024)
     (memory_dir / ".heartbeat").write_text("ts")
     (memory_dir / ".heartbeat_web").write_text("ts")
+    _mock_balance(monkeypatch, {"ok": True, "balance_usd": 42.0})
 
     report = sh.health_report()
     assert "Всё в порядке" in report
+    assert "Баланс OpenRouter: $42.0" in report
     assert report.rstrip().endswith("#IMPORTANCE: NONE")
+
+
+def test_health_report_low_openrouter_balance(memory_dir, monkeypatch):
+    (memory_dir / "mira.db").write_bytes(b"x" * 1024)
+    (memory_dir / ".heartbeat").write_text("ts")
+    (memory_dir / ".heartbeat_web").write_text("ts")
+    _mock_balance(monkeypatch, {"ok": True, "balance_usd": 1.5})
+
+    report = sh.health_report()
+    assert "ПОРА ПОПОЛНИТЬ" in report
+    assert report.rstrip().endswith("#IMPORTANCE: MAJOR")
 
 
 def test_health_report_problems(memory_dir):

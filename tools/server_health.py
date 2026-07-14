@@ -26,6 +26,7 @@ HEARTBEAT_WEB = os.path.join(MEMORY_DIR, ".heartbeat_web")
 HEARTBEAT_MAX_AGE = 120
 
 DISK_MIN_FREE_GB = 1.0
+OPENROUTER_MIN_BALANCE_USD = 5.0
 
 
 def _heartbeat(path: str) -> dict:
@@ -120,8 +121,25 @@ def health_report() -> str:
         else:
             lines.append(f"Heartbeat {label}: ОТСУТСТВУЕТ")
 
-    verdict = "Всё в порядке." if r["ok"] else "Есть проблемы — смотри выше."
-    importance = "NONE" if r["ok"] else "MAJOR"
+    # Баланс OpenRouter: < $5 — предупреждение (иначе Мира молча съедет на
+    # резервный DeepSeek, а владелец узнает только по деградации ответов).
+    low_balance = False
+    try:
+        from tools.openrouter_tools import balance as _or_balance
+        b = _or_balance()
+        if b.get("ok"):
+            bal = b["balance_usd"]
+            low_balance = bal < OPENROUTER_MIN_BALANCE_USD
+            mark = " ⚠️ ПОРА ПОПОЛНИТЬ" if low_balance else ""
+            lines.append(f"Баланс OpenRouter: ${bal}{mark}")
+        else:
+            lines.append(f"Баланс OpenRouter: недоступен ({b.get('error', '?')})")
+    except Exception as e:
+        lines.append(f"Баланс OpenRouter: недоступен ({e})")
+
+    ok = r["ok"] and not low_balance
+    verdict = "Всё в порядке." if ok else "Есть проблемы — смотри выше."
+    importance = "NONE" if ok else "MAJOR"
     return "\n".join(lines) + f"\n{verdict}\n#IMPORTANCE: {importance}"
 
 
