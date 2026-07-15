@@ -48,3 +48,4 @@ pytest>=8.0.0
 
 # v2ray_api stats (per-user Reality-трафик)
 grpcio>=1.60
+markdown-it-py>=4.0  # rich_tg: конвертация markdown в Telegram Rich Messages

@@ -11,6 +11,7 @@ from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes
 from tools import rate_limit
+from tools import rich_tg
 from tools import semantic_memory
 from tools import tg_presence
 from tools.access_tools import increment_guest_counter
@@ -201,7 +202,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     await context.bot.send_message_draft(chat_id=chat_id, draft_id=draft_id, text="")
                 except Exception:
                     pass
-            await _send_long(update, _strip_md_for_tg(answer), split_for_chat=True)
+            # Структурные ответы (таблицы/заголовки/списки/код) — нативным
+            # rich-сообщением; беседа без структуры — привычными чанками.
+            sent_rich = False
+            if rich_tg.has_rich_structure(answer):
+                sent_rich = await asyncio.to_thread(rich_tg.send_rich, chat_id, answer)
+            if not sent_rich:
+                await _send_long(update, _strip_md_for_tg(answer), split_for_chat=True)
             await _send_output_files(context, update.effective_chat.id, user_id, ts_before)
             _save_session(user_id, msgs)
             if changelog_aug:
