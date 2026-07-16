@@ -1,4 +1,6 @@
-"""Тесты rich_tg: детектор структуры и конвертация markdown → rich-блоки."""
+"""Тесты rich_tg: детектор структуры и отправка markdown как rich-сообщения."""
+
+import json
 
 from tools import rich_tg
 
@@ -12,42 +14,56 @@ def test_structure_detector():
     assert not rich_tg.has_rich_structure("")
 
 
-def test_md_heading_paragraph_and_bold():
-    blocks = rich_tg.md_to_rich_blocks("# Итоги\n\nВсё **хорошо**.")
-    assert blocks[0] == {"type": "section_heading", "text": "Итоги", "parse_mode": "HTML"}
-    assert blocks[1]["type"] == "paragraph"
-    assert "<strong>хорошо</strong>" in blocks[1]["text"]
-
-
-def test_md_code_fence_with_language():
-    blocks = rich_tg.md_to_rich_blocks("```python\nx = 1\n```")
-    assert blocks == [{"type": "preformatted", "text": "x = 1", "language": "python"}]
-
-
-def test_md_lists():
-    blocks = rich_tg.md_to_rich_blocks("1. один\n2. два")
-    assert blocks[0]["type"] == "list"
-    assert blocks[0]["is_ordered"] is True
-    assert [i["text"] for i in blocks[0]["items"]] == ["один", "два"]
-
-
-def test_md_table():
-    blocks = rich_tg.md_to_rich_blocks("| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |")
-    t = blocks[0]
-    assert t["type"] == "table"
-    assert t["columns"] == 2
-    assert t["header_rows"] == 1
-    assert [c["text"] for c in t["cells"]] == ["a", "b", "1", "2", "3", "4"]
-
-
-def test_md_quote_and_divider():
-    blocks = rich_tg.md_to_rich_blocks("> мысль\n\n---\n\nконец")
-    assert blocks[0]["type"] == "block_quotation"
-    assert blocks[0]["text"] == "мысль"
-    assert blocks[1] == {"type": "divider"}
-    assert blocks[2]["type"] == "paragraph"
-
-
 def test_send_rich_without_token(monkeypatch):
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    assert rich_tg.send_rich(1, "# x") is False
+
+
+def test_send_rich_empty_text(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    assert rich_tg.send_rich(1, "") is False
+    assert rich_tg.send_rich(1, "   ") is False
+
+
+def test_send_rich_over_limit(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    assert rich_tg.send_rich(1, "# x\n" + "а" * 40000) is False
+
+
+def test_send_rich_payload_is_markdown(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    captured = {}
+
+    class _Resp:
+        def read(self):
+            return b'{"ok": true}'
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    def _fake_urlopen(req, timeout=0):
+        captured["url"] = req.full_url
+        captured["payload"] = json.loads(req.data.decode())
+        return _Resp()
+
+    monkeypatch.setattr(rich_tg.urllib.request, "urlopen", _fake_urlopen)
+    md = "# Итоги\n\n| a | b |\n|---|---|\n| 1 | 2 |"
+    assert rich_tg.send_rich(42, md) is True
+    assert captured["url"].endswith("/sendRichMessage")
+    assert captured["payload"] == {"chat_id": 42, "rich_message": {"markdown": md}}
+
+
+def test_send_rich_api_error_falls_back(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    import io
+    import urllib.error
+
+    def _fake_urlopen(req, timeout=0):
+        raise urllib.error.HTTPError(
+            req.full_url, 400, "Bad Request", {},
+            io.BytesIO(b'{"ok":false,"description":"parse error"}'),
+        )
+
+    monkeypatch.setattr(rich_tg.urllib.request, "urlopen", _fake_urlopen)
     assert rich_tg.send_rich(1, "# x") is False
